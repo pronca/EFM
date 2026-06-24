@@ -1,0 +1,98 @@
+package it.eng.care.domain.flow.jobs.jobs.secondLevelValidation;
+
+import java.util.List;
+
+import org.quartz.DisallowConcurrentExecution;
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+
+import it.eng.care.domain.flow.core.dto.ValidationFilter;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.entity.FlowRegionUnionDO;
+import it.eng.care.domain.flow.core.service.FlowRegionUnionService;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.drools.model.rule.RuleType;
+import it.eng.care.domain.flow.drools.model.status.ValidationResultWrapper;
+import it.eng.care.domain.flow.drools.service.api.FlowValidator;
+import it.eng.care.domain.flow.jobs.service.JobService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+
+/**
+ * Job di validazione di secondo livello. 
+ * 
+ * Il job si occupa di validare le estrazioni prodotte dall'estrattore regionale salvate in FM_FLOW_EXPORTING_REQUEST.
+ * Le richieste di estrazione FM_FLOW_EXPORTING_REQUEST saranno quelle con FM_FLOW_EXPORTING_REQUEST.status=TERMINATA_OK AND VALIDATION_STATUS IS NULL
+ * I record da validare saranno quelli con RECORD.IMPORT_ID=FM_FLOW_EXPORTING_REQUEST.id
+ * 
+ *  Filtri utilizzati
+ *  FM_FLOW_EXPORTING_REQUEST.STATUS = TERMINATA_OK
+ *  FM_FLOW_EXPORTING_REQUEST.VALIATION_STATUS = XSD_VALIDATED
+ *  RECORD.IMPORT_ID = FM_FLOW_EXPORTING_REQUEST.ID
+ *  
+ */
+@DisallowConcurrentExecution
+public class ValidateFlowExportRequestJob implements Job {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(ValidateFlowExportRequestJob.class);
+
+	@Autowired
+	private FlowValidator flowValidator;
+	
+	@Autowired
+	private JobService jobService;
+	
+	@Autowired
+	private FlowRegionUnionService flowRegionUnionService;
+
+	@Override
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE EXPORTING REQUEST JOB - START >>>>>>>>>>>>>>>>>>>>>>>");
+
+		List<FlowExportRequestDO> loList = jobService.getExportRequestToValidate();
+		if (loList != null && !loList.isEmpty()) {
+			FlowExportRequestDO request = loList.get(0);
+			try {
+				
+				
+				BaseSearchInput searchInput = new BaseSearchInput();
+				searchInput.setValue("flow", request.getFlow().getId());
+				Pair<List<FlowRegionUnionDO>, SearchInfo> unionList = flowRegionUnionService.retrieveAllFiltered(searchInput);
+				if(unionList != null && unionList.getFirst() != null && !unionList.getFirst().isEmpty()) {
+					FlowRegionUnionDO union = unionList.getFirst().get(0);
+					FlowDO flowRegion = union.getFlowRegion();
+					String flowRegionId = flowRegion.getId();
+					
+					ValidationFilter filter = new ValidationFilter();
+					filter.setImportId(request.getId());
+					filter.setFlowId(flowRegionId);
+					filter.setVersionId(request.getVersion().getId());
+					ValidationResultWrapper wrapper = flowValidator.executeValidation(filter, false, RuleType.FLOW.name());
+					if (wrapper != null && !wrapper.getUnvalidable()) {
+						jobService.markExportRequestAsElaborated(request.getId(), "VALIDATED");
+					} else {
+						LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE EXPORTING REQUEST JOB - RISULTATI VALIDAZIONE ASSENTI >>>>>>>>>>>>>>>>>>>>>>>");
+						jobService.markExportRequestAsElaborated(request.getId(), "NOT_VALIDATED");
+					}
+				} else {
+					LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE EXPORTING REQUEST JOB - NESSUN FLUSSO REGIONALE COLLEGATO ALLA RICHIESTA DI ESTRAZIONE >>>>>>>>>>>>>>>>>>>>>>>");
+					jobService.markExportRequestAsElaborated(request.getId(), "NOT_VALIDATED");
+				}
+				
+			} catch (Exception ex) {
+				jobService.markExportRequestAsElaborated(request.getId(), "UNVALIDABLE");
+				LogUtil.logException(LOGGER, "<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE EXPORTING REQUEST JOB - ERROR >>>>>>>>>>>>>>>>>>>>>>>", ex);
+//				ex.printStackTrace();
+			}
+		}
+
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE EXPORTING REQUEST JOB - END >>>>>>>>>>>>>>>>>>>>>>>");
+	}
+
+}

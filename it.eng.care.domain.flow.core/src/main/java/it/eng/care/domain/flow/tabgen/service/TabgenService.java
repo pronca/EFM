@@ -1,0 +1,103 @@
+package it.eng.care.domain.flow.tabgen.service;
+
+import java.io.File;
+import java.util.Date;
+import java.util.List;
+
+import org.hibernate.ScrollableResults;
+import org.springframework.dao.DataAccessException;
+
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.CheckDateTypeEnum;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenField;
+import it.eng.care.domain.flow.tabgen.dto.TabgenFilter;
+import it.eng.care.domain.flow.tabgen.dto.TabgenMap;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.entity.TabgenDO;
+import it.eng.care.domain.flow.tabgen.entity.TabgenFieldDO;
+import it.eng.care.domain.flow.tabgen.entity.TabgenValueDO;
+import it.eng.care.domain.flow.tabgen.exception.InvalidTabgenOperationException;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+
+public interface TabgenService {
+
+	public TabgenDO saveTabgen(Tabgen tabgenDO) throws DataAccessException, InvalidTabgenOperationException, Exception;
+	
+	public TabgenDO saveTabgenForTranscode(Tabgen tabgen) throws DataAccessException, InvalidTabgenOperationException, Exception;
+	
+	public boolean deleteTabgen(String tabgenId, boolean deleteAll, boolean deleteFields, boolean deleteValues) throws DataAccessException, InvalidTabgenOperationException, Exception;
+
+	public List<TabgenValueDO> getTabgenFieldValues(TabgenFieldDO tabgenField, String value, boolean nullable, Date dtEnable,
+			Date dtDisable, CheckDateTypeEnum check) throws DataAccessException, Exception;
+
+	public Integer dropTabgenView(String string) throws Exception;
+
+	public List<Tabgen> searchTabgenByFilter(TabgenFilter filter);
+
+	public TabgenValueDO saveTabgenValue(TabgenValueDO valuedo) throws DataAccessException, InvalidTabgenOperationException, Exception;
+
+	public TabgenValueDO getTabgenFieldReferencedValue(TabgenFieldDO tabgenField, String value, Date dtEnable, Date dtDisable)
+			throws DataAccessException, Exception;
+
+	public TabgenValueDO getTabgenFieldValue(TabgenFieldDO tabgenField, String value, Date dtEnable, Date dtDisable)
+			throws DataAccessException, Exception;
+
+	public List<String> getTabgenFieldReferencingValues(TabgenFieldDO tabgenField, String value, Date dtEnable, Date dtDisable,
+			CheckDateTypeEnum check) throws DataAccessException, Exception;
+
+	public boolean deleteTabgenValue(String id, boolean deleteConstraint) throws DataAccessException, InvalidTabgenOperationException, Exception;
+
+	
+	public byte[] exportTabGenValueByFilter(TabgenValueFilter filterDO) throws Exception;
+
+	public ScrollableResults scrollTabgenValueByFilter(TabgenValueFilter filter) throws DataAccessException;
+
+	public List<TabgenValueDO> searchTabgenValueByFilter(TabgenValueFilter filter) throws DataAccessException;
+	
+	public List<TabgenValue> searchTabgenValueDTOByFilter(TabgenValueFilter filter) throws DataAccessException;
+
+	public Tabgen getTabgenDTOGetById(String id, String fetchRule) throws DataAccessException;
+	
+	public TabgenDO getTabgenGetById(String id, String fetchRule) throws DataAccessException;
+
+	public Long countTabgenValueByFilter(TabgenValueFilter filter) throws DataAccessException;
+
+	public List<TabgenField> saveTabgenFields(List<TabgenFieldDO> tabgenFieldList, Boolean aggiornaProgressivo)
+			throws DataAccessException, InvalidTabgenOperationException, Exception;
+
+	public TabgenFieldDO saveTabgenField(TabgenFieldDO tabgenFieldDO, Boolean aggiornaProgressivo)
+			throws DataAccessException, InvalidTabgenOperationException, Exception;
+
+	public Integer createReplaceTabgenView(String tabgenId, String functionName) throws Exception;
+
+	public TabgenFieldDO getTabgenField(String id) throws DataAccessException;
+
+	public boolean deleteTabgenField(String id, boolean deleteValuesAndConstraint)
+			throws DataAccessException, InvalidTabgenOperationException, Exception;
+
+	public TabgenField getTabgenFieldDTO(String id) throws DataAccessException;
+
+	public List<TabgenField> searchFieldsByTabgenId(String tabgenId);
+
+	TabgenDO loadExcelSheetInTabgen(File file, String enabledDate, int offset, int max, String extension, String fileName, boolean skipColumnName, String anagraficaTableId)
+			throws InvalidTabgenOperationException, Exception;
+
+    public List<String> retriveColumnValueByColumnName(BaseSearchInput searchInput);
+
+	public Boolean tableExists(String tabgenId);
+
+	public Integer createTabgenTable(TabgenMap tabgenMap) throws Exception;
+
+	TabgenValueDO searchByFlussoVerticale(String flowname, String version);
+	
+	public BasePagingLoadResult<Tabgen> sendAuditVisuaProfilToPM (BaseSearchInput baseSearchInput, BasePagingLoadResult<Tabgen> tabGenValues);
+	
+	public BasePagingLoadResult<Tabgen> sendAuditSearchProfilToPM (BaseSearchInput baseSearchInput, BasePagingLoadResult<Tabgen> tabGenValues);
+	
+	public byte[] sendAuditExportProfilToPM(TabgenValueFilter filterDO, byte[] byt);
+	
+	public TabgenValueDO findById(String id);
+	
+}

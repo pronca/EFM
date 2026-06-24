@@ -1,0 +1,516 @@
+<wsdl:definitions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:wsdl="http://schemas.xmlsoap.org/wsdl/" xmlns:tns="http://ws.sis.eng.it/" xmlns:soap="http://schemas.xmlsoap.org/wsdl/soap/" xmlns:ns1="http://schemas.xmlsoap.org/soap/http" name="FlussiWsService" targetNamespace="http://ws.sis.eng.it/">
+<wsdl:types>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:tns="http://ws.sis.eng.it/" attributeFormDefault="unqualified" elementFormDefault="unqualified" targetNamespace="http://ws.sis.eng.it/">
+<xs:element name="annullaConsolidamento" type="tns:annullaConsolidamento"/>
+<xs:element name="annullaConsolidamentoResponse" type="tns:annullaConsolidamentoResponse"/>
+<xs:element name="consolida" type="tns:consolida"/>
+<xs:element name="consolidaResponse" type="tns:consolidaResponse"/>
+<xs:element name="elimina" type="tns:elimina"/>
+<xs:element name="eliminaResponse" type="tns:eliminaResponse"/>
+<xs:element name="inviaESimula" type="tns:inviaESimula"/>
+<xs:element name="inviaESimulaResponse" type="tns:inviaESimulaResponse"/>
+<xs:element name="invioFile" type="tns:invioFile"/>
+<xs:element name="invioFileResponse" type="tns:invioFileResponse"/>
+<xs:element name="preparaRitInfCaricamento" type="tns:preparaRitInfCaricamento"/>
+<xs:element name="preparaRitInfCaricamentoResponse" type="tns:preparaRitInfCaricamentoResponse"/>
+<xs:element name="ritornoInformativoCaricamento" type="tns:ritornoInformativoCaricamento"/>
+<xs:element name="ritornoInformativoCaricamentoResponse" type="tns:ritornoInformativoCaricamentoResponse"/>
+<xs:element name="ritornoInformativoSimulazione" type="tns:ritornoInformativoSimulazione"/>
+<xs:element name="ritornoInformativoSimulazioneResponse" type="tns:ritornoInformativoSimulazioneResponse"/>
+<xs:element name="scaricaRitInfCaricamento" type="tns:scaricaRitInfCaricamento"/>
+<xs:element name="scaricaRitInfCaricamentoResponse" type="tns:scaricaRitInfCaricamentoResponse"/>
+<xs:element name="simula" type="tns:simula"/>
+<xs:element name="simulaResponse" type="tns:simulaResponse"/>
+<xs:element name="stato" type="tns:stato"/>
+<xs:element name="statoResponse" type="tns:statoResponse"/>
+<xs:complexType name="annullaConsolidamento">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="prgInvio" type="xs:decimal"/>
+<xs:element minOccurs="0" name="note" type="xs:string"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="annullaConsolidamentoResponse">
+<xs:sequence>
+<xs:element minOccurs="0" name="return" type="tns:esito"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="esito">
+<xs:sequence>
+<xs:element minOccurs="0" name="codMessaggio" type="xs:string"/>
+<xs:element minOccurs="0" name="codStato" type="xs:string"/>
+<xs:element minOccurs="0" name="descMessaggio" type="xs:string"/>
+<xs:element minOccurs="0" name="descStato" type="xs:string"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="elimina">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="prgInvio" type="xs:decimal"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="eliminaResponse">
+<xs:sequence>
+<xs:element minOccurs="0" name="return" type="tns:esito"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="consolida">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="prgInvio" type="xs:decimal"/>
+<xs:element minOccurs="0" name="note" type="xs:string"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="consolidaResponse">
+<xs:sequence>
+<xs:element minOccurs="0" name="return" type="tns:esito"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="simula">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="prgInvio" type="xs:decimal"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="simulaResponse">
+<xs:sequence>
+<xs:element minOccurs="0" name="return" type="tns:esito"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="preparaRitInfCaricamento">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="codTipoFlusso" type="xs:string"/>
+<xs:element name="anno" type="xs:int"/>
+<xs:element name="numInvio" type="xs:int"/>
+<xs:element minOccurs="0" name="codTipoGruppo" type="xs:string"/>
+<xs:element minOccurs="0" name="codFormatoFile" type="xs:string"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="preparaRitInfCaricamentoResponse">
+<xs:sequence>
+<xs:element maxOccurs="unbounded" minOccurs="0" name="return" type="xs:decimal"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="invioFile">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="codTipoFlusso" type="xs:string"/>
+<xs:element name="anno" type="xs:int"/>
+<xs:element name="numInvio" type="xs:int"/>
+<xs:element maxOccurs="unbounded" minOccurs="0" name="files" type="tns:flussiFile"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="flussiFile">
+<xs:sequence>
+<xs:element minOccurs="0" name="codTipoFile" type="xs:string"/>
+<xs:element minOccurs="0" name="codTipoGruppo" type="xs:string"/>
+<xs:element minOccurs="0" name="dataIns" type="xs:string"/>
+<xs:element minOccurs="0" name="dimensione" type="xs:string"/>
+<xs:element minOccurs="0" name="esito" type="tns:esito"/>
+<xs:element minOccurs="0" name="file" type="xs:base64Binary"/>
+<xs:element minOccurs="0" name="formato" type="xs:string"/>
+<xs:element minOccurs="0" name="nomeFile" type="xs:string"/>
+<xs:element minOccurs="0" name="nomefileOriginale" type="xs:string"/>
+<xs:element minOccurs="0" name="numRecord" type="xs:int"/>
+<xs:element minOccurs="0" name="prgFile" type="xs:string"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="invioFileResponse">
+<xs:sequence>
+<xs:element minOccurs="0" name="return" type="xs:decimal"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="ritornoInformativoSimulazione">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="prgInvio" type="xs:decimal"/>
+<xs:element minOccurs="0" name="codTipoFile" type="xs:string"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="ritornoInformativoSimulazioneResponse">
+<xs:sequence>
+<xs:element maxOccurs="unbounded" minOccurs="0" name="return" type="tns:flussiFile"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="scaricaRitInfCaricamento">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element maxOccurs="unbounded" minOccurs="0" name="prgFile" type="xs:decimal"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="scaricaRitInfCaricamentoResponse">
+<xs:sequence>
+<xs:element maxOccurs="unbounded" minOccurs="0" name="return" type="tns:flussiFile"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="stato">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="prgInvio" type="xs:decimal"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="statoResponse">
+<xs:sequence>
+<xs:element minOccurs="0" name="return" type="tns:esito"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="ritornoInformativoCaricamento">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="codTipoFlusso" type="xs:string"/>
+<xs:element name="anno" type="xs:int"/>
+<xs:element name="numInvio" type="xs:int"/>
+<xs:element minOccurs="0" name="codTipoGruppo" type="xs:string"/>
+<xs:element minOccurs="0" name="codFormatoFile" type="xs:string"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="ritornoInformativoCaricamentoResponse">
+<xs:sequence>
+<xs:element maxOccurs="unbounded" minOccurs="0" name="return" type="tns:flussiFile"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="inviaESimula">
+<xs:sequence>
+<xs:element minOccurs="0" name="token" type="xs:string"/>
+<xs:element minOccurs="0" name="codTipoFlusso" type="xs:string"/>
+<xs:element name="anno" type="xs:int"/>
+<xs:element name="numInvio" type="xs:int"/>
+<xs:element maxOccurs="unbounded" minOccurs="0" name="files" type="tns:flussiFile"/>
+</xs:sequence>
+</xs:complexType>
+<xs:complexType name="inviaESimulaResponse">
+<xs:sequence>
+<xs:element minOccurs="0" name="return" type="tns:esito"/>
+</xs:sequence>
+</xs:complexType>
+<xs:element name="UtenteNonAbilitatoException" type="tns:UtenteNonAbilitatoException"/>
+<xs:complexType name="UtenteNonAbilitatoException">
+<xs:sequence>
+<xs:element minOccurs="0" name="codice" type="xs:string"/>
+<xs:element minOccurs="0" name="message" type="xs:string"/>
+</xs:sequence>
+</xs:complexType>
+<xs:element name="FlussiWsException" type="tns:FlussiWsException"/>
+<xs:complexType name="FlussiWsException">
+<xs:sequence>
+<xs:element maxOccurs="unbounded" minOccurs="0" name="errori" type="xs:string"/>
+<xs:element minOccurs="0" name="message" type="xs:string"/>
+</xs:sequence>
+</xs:complexType>
+</xs:schema>
+</wsdl:types>
+<wsdl:message name="elimina">
+<wsdl:part element="tns:elimina" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="consolida">
+<wsdl:part element="tns:consolida" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="simula">
+<wsdl:part element="tns:simula" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="consolidaResponse">
+<wsdl:part element="tns:consolidaResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="FlussiWsException">
+<wsdl:part element="tns:FlussiWsException" name="FlussiWsException"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="invioFile">
+<wsdl:part element="tns:invioFile" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="eliminaResponse">
+<wsdl:part element="tns:eliminaResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="ritornoInformativoCaricamentoResponse">
+<wsdl:part element="tns:ritornoInformativoCaricamentoResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="scaricaRitInfCaricamento">
+<wsdl:part element="tns:scaricaRitInfCaricamento" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="annullaConsolidamentoResponse">
+<wsdl:part element="tns:annullaConsolidamentoResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="scaricaRitInfCaricamentoResponse">
+<wsdl:part element="tns:scaricaRitInfCaricamentoResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="inviaESimulaResponse">
+<wsdl:part element="tns:inviaESimulaResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="invioFileResponse">
+<wsdl:part element="tns:invioFileResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="inviaESimula">
+<wsdl:part element="tns:inviaESimula" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="annullaConsolidamento">
+<wsdl:part element="tns:annullaConsolidamento" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="statoResponse">
+<wsdl:part element="tns:statoResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="UtenteNonAbilitatoException">
+<wsdl:part element="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="preparaRitInfCaricamento">
+<wsdl:part element="tns:preparaRitInfCaricamento" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="ritornoInformativoSimulazione">
+<wsdl:part element="tns:ritornoInformativoSimulazione" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="stato">
+<wsdl:part element="tns:stato" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="simulaResponse">
+<wsdl:part element="tns:simulaResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="preparaRitInfCaricamentoResponse">
+<wsdl:part element="tns:preparaRitInfCaricamentoResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="ritornoInformativoCaricamento">
+<wsdl:part element="tns:ritornoInformativoCaricamento" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:message name="ritornoInformativoSimulazioneResponse">
+<wsdl:part element="tns:ritornoInformativoSimulazioneResponse" name="parameters"> </wsdl:part>
+</wsdl:message>
+<wsdl:portType name="FlussiWs">
+<wsdl:operation name="annullaConsolidamento">
+<wsdl:input message="tns:annullaConsolidamento" name="annullaConsolidamento"> </wsdl:input>
+<wsdl:output message="tns:annullaConsolidamentoResponse" name="annullaConsolidamentoResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="elimina">
+<wsdl:input message="tns:elimina" name="elimina"> </wsdl:input>
+<wsdl:output message="tns:eliminaResponse" name="eliminaResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="consolida">
+<wsdl:input message="tns:consolida" name="consolida"> </wsdl:input>
+<wsdl:output message="tns:consolidaResponse" name="consolidaResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="simula">
+<wsdl:input message="tns:simula" name="simula"> </wsdl:input>
+<wsdl:output message="tns:simulaResponse" name="simulaResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="preparaRitInfCaricamento">
+<wsdl:input message="tns:preparaRitInfCaricamento" name="preparaRitInfCaricamento"> </wsdl:input>
+<wsdl:output message="tns:preparaRitInfCaricamentoResponse" name="preparaRitInfCaricamentoResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="invioFile">
+<wsdl:input message="tns:invioFile" name="invioFile"> </wsdl:input>
+<wsdl:output message="tns:invioFileResponse" name="invioFileResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="ritornoInformativoSimulazione">
+<wsdl:input message="tns:ritornoInformativoSimulazione" name="ritornoInformativoSimulazione"> </wsdl:input>
+<wsdl:output message="tns:ritornoInformativoSimulazioneResponse" name="ritornoInformativoSimulazioneResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="scaricaRitInfCaricamento">
+<wsdl:input message="tns:scaricaRitInfCaricamento" name="scaricaRitInfCaricamento"> </wsdl:input>
+<wsdl:output message="tns:scaricaRitInfCaricamentoResponse" name="scaricaRitInfCaricamentoResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="stato">
+<wsdl:input message="tns:stato" name="stato"> </wsdl:input>
+<wsdl:output message="tns:statoResponse" name="statoResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="ritornoInformativoCaricamento">
+<wsdl:input message="tns:ritornoInformativoCaricamento" name="ritornoInformativoCaricamento"> </wsdl:input>
+<wsdl:output message="tns:ritornoInformativoCaricamentoResponse" name="ritornoInformativoCaricamentoResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="inviaESimula">
+<wsdl:input message="tns:inviaESimula" name="inviaESimula"> </wsdl:input>
+<wsdl:output message="tns:inviaESimulaResponse" name="inviaESimulaResponse"> </wsdl:output>
+<wsdl:fault message="tns:UtenteNonAbilitatoException" name="UtenteNonAbilitatoException"> </wsdl:fault>
+<wsdl:fault message="tns:FlussiWsException" name="FlussiWsException"> </wsdl:fault>
+</wsdl:operation>
+</wsdl:portType>
+<wsdl:binding name="FlussiWsServiceSoapBinding" type="tns:FlussiWs">
+<soap:binding style="document" transport="http://schemas.xmlsoap.org/soap/http"/>
+<wsdl:operation name="annullaConsolidamento">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="annullaConsolidamento">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="annullaConsolidamentoResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="elimina">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="elimina">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="eliminaResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="consolida">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="consolida">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="consolidaResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="simula">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="simula">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="simulaResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="preparaRitInfCaricamento">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="preparaRitInfCaricamento">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="preparaRitInfCaricamentoResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="invioFile">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="invioFile">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="invioFileResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="ritornoInformativoSimulazione">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="ritornoInformativoSimulazione">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="ritornoInformativoSimulazioneResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="scaricaRitInfCaricamento">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="scaricaRitInfCaricamento">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="scaricaRitInfCaricamentoResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="stato">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="stato">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="statoResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="ritornoInformativoCaricamento">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="ritornoInformativoCaricamento">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="ritornoInformativoCaricamentoResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+<wsdl:operation name="inviaESimula">
+<soap:operation soapAction="" style="document"/>
+<wsdl:input name="inviaESimula">
+<soap:body use="literal"/>
+</wsdl:input>
+<wsdl:output name="inviaESimulaResponse">
+<soap:body use="literal"/>
+</wsdl:output>
+<wsdl:fault name="UtenteNonAbilitatoException">
+<soap:fault name="UtenteNonAbilitatoException" use="literal"/>
+</wsdl:fault>
+<wsdl:fault name="FlussiWsException">
+<soap:fault name="FlussiWsException" use="literal"/>
+</wsdl:fault>
+</wsdl:operation>
+</wsdl:binding>
+<wsdl:service name="FlussiWsService">
+<wsdl:port binding="tns:FlussiWsServiceSoapBinding" name="FlussiWsPort">
+<soap:address location="https://siseps.regione.emilia-romagna.it/flussi/FlussiWs"/>
+</wsdl:port>
+</wsdl:service>
+</wsdl:definitions>

@@ -1,0 +1,1521 @@
+package it.eng.care.domain.flow.drools.service.impl;
+
+import java.io.File;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+
+import javax.sql.DataSource;
+
+import org.hibernate.ScrollableResults;
+import org.hibernate.Session;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
+
+import it.eng.care.domain.flow.b2b.model.ErrorFieldsDTO;
+import it.eng.care.domain.flow.b2b.model.ErrorModelDTO;
+import it.eng.care.domain.flow.b2b.model.ErrorsDTO;
+import it.eng.care.domain.flow.b2b.model.FieldErrorsDTO;
+import it.eng.care.domain.flow.b2b.model.KeysDTO;
+import it.eng.care.domain.flow.b2b.utils.ErrorService;
+import it.eng.care.domain.flow.core.auditLog.FlowAvvioValidazioneConverter;
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.FlowDAO;
+import it.eng.care.domain.flow.core.dao.ResetValidationRequestDAO;
+import it.eng.care.domain.flow.core.dao.SecondLevelValidationRequestDAO;
+import it.eng.care.domain.flow.core.dao.VersionDAO;
+import it.eng.care.domain.flow.core.dto.ExtractionErrorMessage;
+import it.eng.care.domain.flow.core.dto.FlowOperationResult;
+import it.eng.care.domain.flow.core.dto.ValidationFilter;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.entity.ConfigurationDO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowVersionDO;
+import it.eng.care.domain.flow.core.entity.ResetValidationRequestDO;
+import it.eng.care.domain.flow.core.entity.SecondLevelValidationRequestDO;
+import it.eng.care.domain.flow.core.entity.VersionDO;
+import it.eng.care.domain.flow.core.enumeration.JobExecutionStatus;
+import it.eng.care.domain.flow.core.service.FlowViewService;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.domain.flow.core.service.QueryGenerator;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.crypt.CryptoManager;
+import it.eng.care.domain.flow.drools.controller.impl.ValidatorControllerImpl;
+import it.eng.care.domain.flow.drools.model.row.DroolsError;
+import it.eng.care.domain.flow.drools.model.row.Row;
+import it.eng.care.domain.flow.drools.model.row.Section;
+import it.eng.care.domain.flow.drools.model.row.ValidationBean;
+import it.eng.care.domain.flow.drools.model.rule.KieSessionWrapper;
+import it.eng.care.domain.flow.drools.model.status.BeanValidationStatusEnum;
+import it.eng.care.domain.flow.drools.model.status.ValidationResultWrapper;
+import it.eng.care.domain.flow.drools.service.api.DroolsService;
+import it.eng.care.domain.flow.drools.service.api.FlowValidator;
+import it.eng.care.domain.flow.drools.utility.api.RowConverter;
+import it.eng.care.platform.audit.api.model.privacymanager.annotation.PrivacyManagerLog;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventActionEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventCategoryEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityTypeEnum;
+import it.eng.care.platform.authentication.api.service.LoggedUserService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import jakarta.persistence.EntityManager;
+
+@Transactional(propagation = Propagation.REQUIRED)
+public class FlowValidatorImpl implements FlowValidator {
+
+    @Autowired
+    private DataSource dataSource;
+
+	@Autowired
+	private DroolsService droolsService;
+
+	@Autowired
+	private RowConverter rowConverter;
+
+	@Autowired
+	private FormFlowService formFlowService;
+
+	@Autowired
+	private FlowViewService flowViewService;
+
+	@Autowired
+	private EntityManager entityManager;
+
+	@Autowired
+	private ErrorService errorService;
+
+	@Autowired
+	private FlowDAO flowDAO;
+
+	@Autowired
+	private VersionDAO versionDAO;
+	
+	@Autowired
+	private ResetValidationRequestDAO resetValidationRequestDAO;
+	
+	@Autowired
+	private SecondLevelValidationRequestDAO secondLevelValidationRequestDAO;
+	
+	@Autowired
+    private LoggedUserService loggedUserService;
+	
+	@Autowired
+	private CryptoManager cryptoManager;
+	
+	@Autowired
+    private ConfigurationDAO configuration;
+
+	private QueryGenerator queryGenerator = new QueryGenerator();
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(ValidatorControllerImpl.class);
+	
+	@Override
+	public String createSecondLevelValidationRequest(String flowId, String month, String year) {
+		SecondLevelValidationRequestDO secondLevelValidationRequestDO = new SecondLevelValidationRequestDO();
+		secondLevelValidationRequestDO.setId(UUID.randomUUID().toString());
+		secondLevelValidationRequestDO.setFlow(flowDAO.getOne(flowId));
+		secondLevelValidationRequestDO.setMonth(month);
+		secondLevelValidationRequestDO.setYear(year);
+		secondLevelValidationRequestDO.setCreationDate(new Date());
+		secondLevelValidationRequestDO.setUserId(loggedUserService.getCurrentUser().getUsername());
+		secondLevelValidationRequestDO.setStatus(JobExecutionStatus.TO_VALIDATE.name());
+		SecondLevelValidationRequestDO req = secondLevelValidationRequestDAO.save(secondLevelValidationRequestDO);
+		return req.getId();
+	}
+	
+	@Override
+	public String createResetValidationRequest(String flowId, String month, String year) {
+		ResetValidationRequestDO resetValidationRequestDO = new ResetValidationRequestDO();
+		resetValidationRequestDO.setId(UUID.randomUUID().toString());
+		resetValidationRequestDO.setFlow(flowDAO.getOne(flowId));
+		
+		if(month != null && month.trim().length() == 1) {
+			month = "0" + month;
+		}
+		
+		resetValidationRequestDO.setMonth(month);
+		resetValidationRequestDO.setYear(year);
+		resetValidationRequestDO.setCreationDate(new Date());
+		resetValidationRequestDO.setUserId(loggedUserService.getCurrentUser().getUsername());
+		resetValidationRequestDO.setStatus(JobExecutionStatus.TO_RESET.name());
+		ResetValidationRequestDO req = resetValidationRequestDAO.save(resetValidationRequestDO);
+		return req.getId();
+	}
+	
+	@Override
+	public Boolean isTerminatedResetValidationRequests(String id) {
+		ResetValidationRequestDO req = (id== null || id.isBlank()) ? null : resetValidationRequestDAO.findById(id).orElse(null);
+		if(req != null) {
+			return req.getStatus().equals(JobExecutionStatus.FINISHED.name()) || req.getStatus().equals(JobExecutionStatus.ERROR.name());
+		}
+		
+		return true;
+	}
+	
+	@Override
+	public Boolean isTerminatedSecondLevelValidationRequests(String id) {
+		SecondLevelValidationRequestDO req = (id== null || id.isBlank()) ? null : secondLevelValidationRequestDAO.findById(id).orElse(null);
+		if(req != null) {
+			return req.getStatus().equals(JobExecutionStatus.FINISHED.name()) || req.getStatus().equals(JobExecutionStatus.ERROR.name());
+		}
+		
+		return true;
+	}
+	
+	@Override
+	public List<ResetValidationRequestDO> getResetValidationRequests() {
+
+	    List<ResetValidationRequestDO> list =
+	        resetValidationRequestDAO.findAllByStatus(JobExecutionStatus.TO_RESET.name());
+
+	    List<ResetValidationRequestDO> list2 = new ArrayList<>();
+
+	    for (ResetValidationRequestDO req : list) {
+	        ResetValidationRequestDO req2 = new ResetValidationRequestDO();
+	        req2.setId(req.getId());
+	        req2.setMonth(req.getMonth());
+	        req2.setYear(req.getYear());
+	        req2.setStatus(req.getStatus());
+	        req2.setUserId(req.getUserId());
+	        req2.setCreationDate(req.getCreationDate());
+	        req2.setProcessingDate(req.getProcessingDate());
+
+	        FlowDO flow = new FlowDO();
+	        flow.setId(req.getFlow().getId());
+	        flow.setName(req.getFlow().getName());
+	        flow.setCode(req.getFlow().getCode());
+
+	        Set<FlowVersionDO> vs2 = new HashSet<>();
+	        Set<FlowVersionDO> vs = req.getFlow().getVersions();
+	        if (vs != null) {
+	            for (FlowVersionDO fv : vs) {
+	                FlowVersionDO fv2 = new FlowVersionDO();
+	                VersionDO v2 = new VersionDO();
+	                v2.setId(fv.getVersion().getId());
+	                v2.setVersion(fv.getVersion().getVersion());
+	                fv2.setVersion(v2);
+	                fv2.setFlow(flow);
+	                vs2.add(fv2);
+	            }
+	        }
+	        flow.setVersions(vs2);
+
+	        req2.setFlow(flow);
+	        list2.add(req2);
+	    }
+
+	    return list2;
+	}
+	
+	@Override
+	public ResetValidationRequestDO getResetValidationRequest(String id) {
+		ResetValidationRequestDO example = new ResetValidationRequestDO();
+		example.setStatus(JobExecutionStatus.TO_RESET.name());
+		ResetValidationRequestDO req = (id== null || id.isBlank()) ? null : resetValidationRequestDAO.findById(id).orElse(null);
+		ResetValidationRequestDO req2 = new ResetValidationRequestDO();
+		req2.setId(req.getId());
+		req2.setMonth(req2.getMonth());
+		req2.setStatus(req.getStatus());
+		req2.setYear(req.getYear());
+		FlowDO flow = new FlowDO();
+		flow.setId(req.getFlow().getId());
+		flow.setName(req.getFlow().getName());
+		flow.setCode(req.getFlow().getCode());
+		Set<FlowVersionDO> vs2 = new HashSet<FlowVersionDO>();
+		Set<FlowVersionDO> vs = req.getFlow().getVersions();
+		if(vs != null) {
+			for (FlowVersionDO fv : vs) {
+				FlowVersionDO fv2 = new FlowVersionDO();
+				VersionDO v2 = new VersionDO();
+				v2.setId(fv.getVersion().getId());
+				v2.setVersion(fv.getVersion().getVersion());
+				fv2.setVersion(v2);
+				fv2.setFlow(flow);
+				vs2.add(fv2);
+			}
+		}
+		
+		flow.setVersions(vs2);
+		req2.setFlow(flow);
+			
+		return req2;
+	}
+	
+	@Override
+	public List<SecondLevelValidationRequestDO> getCrossValidationRequests() {
+
+	    List<SecondLevelValidationRequestDO> list =
+	        secondLevelValidationRequestDAO.findAllByStatus(JobExecutionStatus.TO_VALIDATE.name());
+
+	    List<SecondLevelValidationRequestDO> list2 = new ArrayList<>();
+
+	    for (SecondLevelValidationRequestDO req : list) {
+	        SecondLevelValidationRequestDO req2 = new SecondLevelValidationRequestDO();
+	        req2.setId(req.getId());
+	        req2.setMonth(req.getMonth());
+	        req2.setYear(req.getYear());
+	        req2.setStatus(req.getStatus());
+	        req2.setUserId(req.getUserId());
+	        req2.setCreationDate(req.getCreationDate());
+	        req2.setProcessingDate(req.getProcessingDate());
+
+	        FlowDO flow = new FlowDO();
+	        flow.setId(req.getFlow().getId());
+	        flow.setName(req.getFlow().getName());
+	        flow.setCode(req.getFlow().getCode());
+
+	        Set<FlowVersionDO> vs2 = new HashSet<>();
+	        Set<FlowVersionDO> vs = req.getFlow().getVersions();
+	        if (vs != null) {
+	            for (FlowVersionDO fv : vs) {
+	                FlowVersionDO fv2 = new FlowVersionDO();
+	                VersionDO v2 = new VersionDO();
+	                v2.setId(fv.getVersion().getId());
+	                v2.setVersion(fv.getVersion().getVersion());
+	                fv2.setVersion(v2);
+	                fv2.setFlow(flow);
+	                vs2.add(fv2);
+	            }
+	        }
+	        flow.setVersions(vs2);
+
+	        req2.setFlow(flow);
+	        list2.add(req2);
+	    }
+
+	    return list2;
+	}
+	
+	@Override
+	public SecondLevelValidationRequestDO getCrossValidationRequest(String id) {
+		SecondLevelValidationRequestDO example = new SecondLevelValidationRequestDO();
+		example.setStatus(JobExecutionStatus.TO_VALIDATE.name());
+		SecondLevelValidationRequestDO req = (id== null || id.isBlank()) ? null : secondLevelValidationRequestDAO.findById(id).orElse(null);
+		SecondLevelValidationRequestDO req2 = new SecondLevelValidationRequestDO();
+		req2.setId(req.getId());
+		req2.setMonth(req.getMonth());
+		req2.setStatus(req.getStatus());
+		req2.setYear(req.getYear());
+		FlowDO flow = new FlowDO();
+		flow.setId(req.getFlow().getId());
+		flow.setName(req.getFlow().getName());
+		flow.setCode(req.getFlow().getCode());
+		Set<FlowVersionDO> vs2 = new HashSet<FlowVersionDO>();
+		Set<FlowVersionDO> vs = req.getFlow().getVersions();
+		
+		if(vs != null) {
+			for (FlowVersionDO fv : vs) {
+				FlowVersionDO fv2 = new FlowVersionDO();
+				VersionDO v2 = new VersionDO();
+				v2.setId(fv.getVersion().getId());
+				v2.setVersion(fv.getVersion().getVersion());
+				fv2.setVersion(v2);
+				fv2.setFlow(flow);
+				vs2.add(fv2);
+			}
+		}
+		
+		flow.setVersions(vs2);
+		req2.setFlow(flow);
+		
+		return req2;
+	}
+	
+	@Override
+	public void changeResetValidationRequestStatus(String id, String status) {
+		ResetValidationRequestDO req = resetValidationRequestDAO.getOne(id);
+		req.setStatus(status);
+	}
+	
+	@Override
+	public void changeSecondLevelValidationRequestStatus(String id, String status) {
+		SecondLevelValidationRequestDO req = secondLevelValidationRequestDAO.getOne(id);
+		req.setProcessingDate(new Date());
+		req.setStatus(status);
+	}
+	
+	@Override
+	public Boolean secondLevelValidationByMonthAndYear(String requestId) {
+		return false;
+	}
+	
+	@Override
+	public Boolean resetValidationByMonthAndYear(String requestId, Boolean crossValidation) {
+		try {
+			ResetValidationRequestDO req = resetValidationRequestDAO.getOne(requestId);
+			String versionId = req.getFlow().getVersions().iterator().next().getVersion().getId();
+			return resetValidationByMonthAndYear(req.getFlow().getId(), versionId, req.getMonth(), req.getYear(), crossValidation);
+		} catch (Exception ex) {
+			LogUtil.logException(LOGGER, "", ex);
+//			ex.printStackTrace();
+			return false;
+		}
+	}
+
+	@Override
+	public Boolean resetValidationByMonthAndYear(String flowId, String versionId, String month, String year, Boolean crossValidation) throws SQLException {
+
+	    FormFlowDTO configuration = retrieveConfiguration(flowId, versionId);
+
+	    if (configuration == null) {
+	        LOGGER.error("ERRORE RESET VALIDAZIONE RECORD: configurazione flusso non trovata. FLUSSO='{}' VERSIONE='{}'",
+	                flowId, versionId);
+	        return false;
+	    }
+
+	    final Map<Integer, String> deleteMessageMap = queryGenerator.generateDeleteMessageQueryForReset(configuration, crossValidation);
+	    final Map<Integer, String> updateMap = queryGenerator.generateUpdateRecordQueryForReset(configuration);
+	    final String monthF = month;
+	    final String yearF = year;
+	    final boolean cross = Boolean.TRUE.equals(crossValidation);
+
+	    try {
+	        Session session = entityManager.unwrap(Session.class);
+	        session.doWork(conn -> {
+	            try {
+	                for (Integer sec : deleteMessageMap.keySet()) {
+
+	                    try (PreparedStatement del = conn.prepareStatement(deleteMessageMap.get(sec))) {
+	                        del.setObject(1, monthF);
+	                        del.setObject(2, yearF);
+	                        del.executeUpdate();
+	                    }
+
+	                    if (!cross) {
+	                        try (PreparedStatement upt = conn.prepareStatement(updateMap.get(sec))) {
+	                            upt.setObject(1, monthF);
+	                            upt.setObject(2, yearF);
+	                            upt.executeUpdate();
+	                        }
+	                    }
+	                }
+	            } catch (SQLException e) {
+					LogUtil.logException(LOGGER, "", e);
+					
+	                throw new RuntimeException("Errore resetValidationByMonthAndYear JDBC", e);
+	            }
+	        });
+
+	        return true;
+
+	    } catch (RuntimeException re) {
+	    	LogUtil.logException(LOGGER, "", re);
+	        Throwable c = re.getCause();
+	        if (c instanceof SQLException se) throw se;
+	        throw new SQLException("Errore resetValidationByMonthAndYear", re);
+	    }
+	}
+
+	
+	private static void closeQuietly(AutoCloseable c) {
+	    if (c != null) try { c.close(); } catch (Exception ignore) {}
+	}
+	
+	@Override
+	public void resetValidation(ValidationFilter request) {
+
+	    try {
+	        FormFlowDTO configuration = retrieveConfiguration(request.getFlowId(), request.getVersionId());
+	        if (configuration == null) {
+	            LOGGER.error("ERRORE RESET VALIDAZIONE RECORD: configurazione flusso non trovata. FLUSSO='{}' VERSIONE='{}'",
+	                    request.getFlowId(), request.getVersionId());
+	            return;
+	        }
+
+	        String flowPrefix = "fm_flow_" + configuration.getName() + "_";
+
+	        List<FormFlowTableFieldDTO> pkListCfg = new ArrayList<>();
+	        List<FormFlowTableFieldDTO> groupListCfg = new ArrayList<>();
+	        getPkAndGroupFields(configuration, pkListCfg, groupListCfg, flowPrefix);
+
+	        ScrollableResults scroll = flowViewService.scrollForValidation(request, configuration, groupListCfg);
+
+	        // Query delete messaggi
+	        final Map<Integer, String> deleteMessageMap = queryGenerator.generateDeleteMessageQuery(configuration);
+
+	        Session session = entityManager.unwrap(Session.class);
+	        session.doWork(conn -> {
+	            Map<Integer, PreparedStatement> pstatMap = new HashMap<>();
+
+	            try {
+	                // prepara PS una volta
+	                for (Integer sec : deleteMessageMap.keySet()) {
+	                    pstatMap.put(sec, conn.prepareStatement(deleteMessageMap.get(sec)));
+	                }
+
+	                int idx = 0;
+	                boolean next = scroll.next();
+
+	                while (next) {
+	                    Map<String, Object> rowMap = (Map<String, Object>) scroll.get();
+	                    next = scroll.next();
+
+	                    for (Integer sec : pstatMap.keySet()) {
+	                        String rowId = joinFields(pkListCfg, rowMap, sec);
+	                        PreparedStatement stat = pstatMap.get(sec);
+	                        stat.setObject(1, rowId);
+	                        stat.addBatch();
+
+	                        if ((idx > 0 && idx % 1000 == 0) || !next) {
+	                            stat.executeBatch();
+	                            stat.clearBatch();
+	                            stat.clearParameters();
+	                        }
+	                    }
+
+	                    idx++;
+	                }
+
+	            } catch (Exception e) {
+	            	LogUtil.logException(LOGGER, "Errore resetValidation JDBC", e);
+	            	
+	                throw new RuntimeException("Errore resetValidation JDBC", e);
+	            } finally {
+	                // chiudi PS
+	                for (PreparedStatement st : pstatMap.values()) {
+	                    try { if (st != null) st.close(); } catch (Exception ignore) {}
+	                }
+	                pstatMap.clear();
+
+	                try { if (scroll != null) scroll.close(); } catch (Exception ignore) {}
+	            }
+	        });
+
+	    } catch (Exception ex) {
+	    	LogUtil.logException(LOGGER, "ERRORE RESET VALIDAZIONE RECORD", ex);
+	    }
+	}
+
+	
+	@Override
+	public ValidationResultWrapper executeValidation(ValidationFilter request, Boolean sendResult, String ruleType) {
+		return executeValidation(request, sendResult, ruleType, null);
+	}
+
+	@Override
+	public ValidationResultWrapper executeValidation(ValidationFilter request, Boolean sendResult, String ruleType, SecondLevelValidationRequestDO secLevReq) {
+		ValidationResultWrapper wrapper = new ValidationResultWrapper();
+
+		try {
+
+			LOGGER.info(" ******************  VALIDAZIONE RECORD : INIZIO : flusso: " + //
+					request.getFlowId() + " versione: " + //
+					request.getVersionId() + " import: " + //
+					request.getImportId() + " import_type: " + //
+					request.getImportType() + //
+			"  ************************* ");
+
+			wrapper = validateRows(request, sendResult, ruleType, secLevReq);
+
+			LOGGER.info(" ******************  VALIDAZIONE RECORD : FINE ************************* ");
+
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "******************  ERRORE VALIDAZIONE RECORD *************************", e);
+//			e.printStackTrace();
+			wrapper = new ValidationResultWrapper();
+			wrapper.setUnvalidable(true);
+		}
+
+		return wrapper;
+	}
+	
+	/**
+	 * Esegue le regole di validazione sui record di un flusso
+	 * 
+	 * @param idEstrazione
+	 * @param flowId
+	 * @param versionId
+	 * @return
+	 * @throws Exception
+	 */
+	private ValidationResultWrapper validateRows(ValidationFilter request, Boolean sendResult, String ruleType, SecondLevelValidationRequestDO secLevReq) throws Exception {
+
+	    // wrapper e flag che devono uscire dalla lambda
+	    final AtomicReference<ValidationResultWrapper> wrapperRef = new AtomicReference<>(new ValidationResultWrapper());
+	    final AtomicBoolean noErrorsRef = new AtomicBoolean(true);
+	    final AtomicReference<Exception> errorRef = new AtomicReference<>(null);
+
+	    // RECUPERA CONFIGURAZIONE FLUSSO
+	    FormFlowDTO configuration = retrieveConfiguration(request.getFlowId(), request.getVersionId());
+	    String flowPrefix = "fm_flow_" + configuration.getName() + "_";
+
+	    // PK e GROUP (queste sono liste che non vengono riassegnate: ok fuori lambda)
+	    List<FormFlowTableFieldDTO> pkListCfg = new ArrayList<>();
+	    List<FormFlowTableFieldDTO> groupListCfg = new ArrayList<>();
+	    getPkAndGroupFields(configuration, pkListCfg, groupListCfg, flowPrefix);
+
+	    LOGGER.info(" ******************  VALIDAZIONE RECORD : LETTURA RECORD DA VALIDARE ************************* ");
+	    ScrollableResults scroll = flowViewService.scrollForValidation(request, configuration, groupListCfg);
+
+	    try {
+	        Session session = entityManager.unwrap(Session.class);
+	        session.doWork((Connection connectionLocal) -> {
+
+	            // ==== TUTTE le variabili “mutabili” stanno QUI dentro ====
+
+	            Map<String, String> elaboratedPkMap = new HashMap<>();
+
+	            List<Map<String, Object>> groupMap = null;
+	            String lastRecordGroup = "";
+	            int indexGroup = 0;
+
+	            List<ValidationBean> beansToValidate = new ArrayList<>();
+
+	            int currentRow = 0;
+
+	            String currentExtraction = "";
+	            String lastExtraction = "";
+
+	            KieSessionWrapper kieSessionWrapper = null;
+
+	            Map<Integer, PreparedStatement> prepStatInsertMap = null;
+	            Map<Integer, PreparedStatement> prepStatUpdateMap = null;
+	            Map<Integer, PreparedStatement> prepStatUpdateRecordMap = null;
+	            Map<Integer, PreparedStatement> prepStatUpdateGroupMap = null;
+
+	            try {
+	                // query di inserimento dei messaggi di errore per ogni sezione
+	                prepStatInsertMap = generateInsertQueriesBatch(connectionLocal, configuration, pkListCfg);
+
+	                // query di aggiornamento dello stato di validazione dei record per ogni sezione
+	                prepStatUpdateMap = generateUpdateQueriesBatch(connectionLocal, configuration, pkListCfg);
+	                prepStatUpdateRecordMap = generateUpdateRecordCrossBatch(connectionLocal, configuration, pkListCfg);
+	                prepStatUpdateGroupMap = generateUpdateGroupCrossBatch(connectionLocal, configuration, pkListCfg);
+
+	                Boolean next = scroll.next();
+
+	                if (next) {
+	                    LOGGER.info(" ******************  VALIDAZIONE RECORD : INIT MOTORE VALIDAZIONE ************************* ");
+	                    kieSessionWrapper = droolsService.createKieSession(request.getFlowId(), request.getVersionId(), ruleType, secLevReq);
+
+	                    if (kieSessionWrapper == null) {
+	                        ValidationResultWrapper w = wrapperRef.get();
+	                        w.setUnvalidable(true);
+	                        wrapperRef.set(w);
+	                        return;
+	                    }
+
+	                    if (kieSessionWrapper.getFiles() == null) {
+	                        ValidationResultWrapper w = wrapperRef.get();
+	                        w.setAbsentRules(true);
+	                        wrapperRef.set(w);
+	                        LOGGER.info(" ******************  VALIDAZIONE RECORD : INIT MOTORE VALIDAZIONE - REGOLE DI VALIDAZIONE NON CARICATE ************************* ");
+	                        return;
+	                    }
+	                }
+
+	                while (next) {
+
+	                    Map<String, Object> rowMap = (Map<String, Object>) scroll.get();
+
+	                    currentExtraction = (String) rowMap.get("extractionId");
+
+	                    // calcola chiave record
+	                    String pkRecord = joinFields(pkListCfg, rowMap);
+
+	                    // valida un record solo una volta
+	                    if (!elaboratedPkMap.containsKey(pkRecord)) {
+	                        elaboratedPkMap.put(pkRecord, "");
+
+	                        // calcola chiave di raggruppamento della pratica
+	                        String currentGroupRecord = joinFields(groupListCfg, rowMap);
+
+	                        // raggruppa i record per la chiave di raggruppamento
+	                        if (lastRecordGroup.isEmpty() || !lastRecordGroup.equals(currentGroupRecord)) {
+
+	                            // converti gruppo
+	                            if (groupMap != null && !groupMap.isEmpty()) {
+	                                ValidationBean bean = rowConverter.convertRows(groupMap, configuration, flowPrefix, pkListCfg);
+	                                beansToValidate.add(bean);
+	                                indexGroup++;
+	                            }
+
+	                            // inizio nuovo gruppo
+	                            groupMap = new ArrayList<>();
+	                        }
+
+	                        // aggiungi record al gruppo in elaborazione
+	                        groupMap.add(rowMap);
+	                        lastRecordGroup = currentGroupRecord;
+	                    }
+
+	                    currentRow++;
+	                    next = scroll.next();
+
+	                    Boolean newExtraction = currentExtraction != null && !currentExtraction.isEmpty()
+	                            && lastExtraction != null && !lastExtraction.isEmpty()
+	                            && !currentExtraction.equals(lastExtraction);
+
+	                    // salva i risultati ogni n prestazioni oppure fine oppure cambio extraction
+	                    if ((indexGroup % 5000 == 0 && indexGroup > 0) || !next || newExtraction) {
+
+	                        // caso limite: ultimo record è unico della extraction corrente -> invia precedente
+	                        if (newExtraction && !next) {
+	                            if (!beansToValidate.isEmpty()) {
+
+	                                List<ValidationBean> validatedBeans =
+	                                        droolsService.validateBeans(beansToValidate, kieSessionWrapper.getKieSession());
+
+	                                Boolean errorsSaved = saveValidationResults(
+	                                        validatedBeans, flowPrefix, configuration, pkListCfg, secLevReq != null,
+	                                        prepStatInsertMap,
+	                                        prepStatUpdateMap,
+	                                        prepStatUpdateGroupMap,
+	                                        prepStatUpdateRecordMap
+	                                );
+
+	                                if (noErrorsRef.get() && errorsSaved) {
+	                                    noErrorsRef.set(false);
+	                                }
+
+	                                if (sendResult) {
+	                                    FlowDO flow = (request.getFlowId() == null || request.getFlowId().isBlank())
+	                                            ? null : flowDAO.findById(request.getFlowId()).orElse(null);
+	                                    if (flow != null) {
+	                                        sendResults(validatedBeans, flow.getCode());
+	                                    }
+	                                }
+
+	                                beansToValidate = new ArrayList<>();
+	                            }
+	                        }
+
+	                        if (!next && groupMap != null && !groupMap.isEmpty()) {
+	                            // recupera eventuali pratiche residue
+	                            ValidationBean bean = rowConverter.convertRows(groupMap, configuration, flowPrefix, pkListCfg);
+	                            beansToValidate.add(bean);
+	                        }
+
+	                        if (!beansToValidate.isEmpty()) {
+
+	                            List<ValidationBean> validatedBeans =
+	                                    droolsService.validateBeans(beansToValidate, kieSessionWrapper.getKieSession());
+
+	                            Boolean errorsSaved = saveValidationResults(
+	                                    validatedBeans, flowPrefix, configuration, pkListCfg, secLevReq != null,
+	                                    prepStatInsertMap,
+	                                    prepStatUpdateMap,
+	                                    prepStatUpdateGroupMap,
+	                                    prepStatUpdateRecordMap
+	                            );
+
+	                            if (noErrorsRef.get() && errorsSaved) {
+	                                noErrorsRef.set(false);
+	                            }
+
+	                            if (sendResult) {
+	                                FlowDO flow = (request.getFlowId() == null || request.getFlowId().isBlank())
+	                                        ? null : flowDAO.findById(request.getFlowId()).orElse(null);
+	                                if (flow != null) {
+	                                    sendResults(validatedBeans, flow.getCode());
+	                                }
+	                            }
+
+	                            beansToValidate = new ArrayList<>();
+	                        }
+	                    }
+
+	                    lastExtraction = currentExtraction;
+	                }
+
+	            } catch (Exception ex) {
+	            	LogUtil.logException(LOGGER, "", ex);
+	                errorRef.set(ex);
+	            } finally {
+	                try { closeStatement(prepStatInsertMap); } catch (Exception ignore) {}
+	                try { closeStatement(prepStatUpdateGroupMap); } catch (Exception ignore) {}
+	                try { closeStatement(prepStatUpdateRecordMap); } catch (Exception ignore) {}
+	                try { closeStatement(prepStatUpdateMap); } catch (Exception ignore) {}
+
+	                // libera le risorse occupate
+	                droolsService.resetLookupMap();
+
+	                if (kieSessionWrapper != null) {
+	                    if (kieSessionWrapper.getKieSession() != null) {
+	                        kieSessionWrapper.getKieSession().dispose();
+	                    }
+
+	                    if (kieSessionWrapper.getFiles() != null) {
+	                        File files[] = kieSessionWrapper.getFiles();
+	                        if (files != null) {
+	                            for (File f : files) {
+	                                try { f.delete(); } catch (Exception ignore) {}
+	                            }
+	                        }
+	                    }
+	                }
+
+	                // pulizie (non indispensabili, ma mantengo lo “stile” del tuo codice)
+	                try { if (beansToValidate != null) beansToValidate.clear(); } catch (Exception ignore) {}
+	                try { if (elaboratedPkMap != null) elaboratedPkMap.clear(); } catch (Exception ignore) {}
+	                try { if (groupMap != null) groupMap.clear(); } catch (Exception ignore) {}
+	                // pkListCfg/groupListCfg sono fuori: le pulisco fuori, come nel tuo finally originale
+	            }
+	        });
+
+	        if (errorRef.get() != null) {
+	            throw errorRef.get();
+	        }
+
+	    } finally {
+	        try { if (pkListCfg != null) pkListCfg.clear(); } catch (Exception ignore) {}
+	        try { if (groupListCfg != null) groupListCfg.clear(); } catch (Exception ignore) {}
+	        try { if (scroll != null) scroll.close(); } catch (Exception ignore) {}
+	    }
+
+	    ValidationResultWrapper wrapper = wrapperRef.get();
+	    wrapper.setNoErrors(noErrorsRef.get());
+	    return wrapper;
+	}
+
+
+	
+	/**
+	 * Salva i messaggi di errore e aggiorna lo stato di validazione dei record
+	 * 
+	 * @param validatedBeans
+	 * @return numero di pratiche errate
+	 * @throws SQLException
+	 */
+	private Boolean saveValidationResults(
+	        List<ValidationBean> validatedBeans,
+	        String flowPrefix,
+	        FormFlowDTO configuration,
+	        List<FormFlowTableFieldDTO> pkListCfg,
+	        Boolean crossValidation,
+	        Map<Integer, PreparedStatement> prepStatInsertMap,
+	        Map<Integer, PreparedStatement> prepStatUpdateMap,
+	        Map<Integer, PreparedStatement> prepStatUpdateGroupMap,
+	        Map<Integer, PreparedStatement> prepStatUpdateRecordMap
+	) throws SQLException {
+
+	    boolean errorsSaved = false;
+
+	    for (ValidationBean validationBean : validatedBeans) {
+
+	        if (validationBean.getErrors() != null && !validationBean.getErrors().isEmpty()) {
+	            errorsSaved = true;
+	            for (DroolsError droolsError : validationBean.getErrors()) {
+	            	if (!prepStatInsertMap.isEmpty() && !pkListCfg.isEmpty()) {
+	            		addErrorMessageInsertBatch(prepStatInsertMap, droolsError, pkListCfg, configuration);
+	            	}
+	            }
+	        }
+
+	        for (Section section : validationBean.getSections()) {
+	            for (Row row : section.getRows()) {
+	                if (Boolean.TRUE.equals(crossValidation)) {
+	                	if (!prepStatUpdateRecordMap.isEmpty() && !pkListCfg.isEmpty()) {
+	                		addRowUpdateBatchCross(prepStatUpdateRecordMap, prepStatUpdateGroupMap, section.getIndex(), row, validationBean, pkListCfg);
+	                	}
+	                } else {
+	                	if (!prepStatUpdateMap.isEmpty() && !pkListCfg.isEmpty()) {
+	                		addRowUpdateBatch(prepStatUpdateMap, section.getIndex(), row, validationBean, pkListCfg);
+	                	}
+	                }
+	            }
+	        }
+	    }
+
+	    // INSERT error messages
+	    for (PreparedStatement st : prepStatInsertMap.values()) {
+	        if (st != null) {
+	            st.executeBatch();
+	            st.clearBatch();
+	            st.clearParameters();
+	            st.clearWarnings();
+	        }
+	    }
+
+	    if (Boolean.TRUE.equals(crossValidation)) {
+	        for (PreparedStatement st : prepStatUpdateRecordMap.values()) {
+	            if (st != null) {
+	                st.executeBatch();
+	                st.clearBatch();
+	                st.clearParameters();
+	                st.clearWarnings();
+	            }
+	        }
+	        for (PreparedStatement st : prepStatUpdateGroupMap.values()) {
+	            if (st != null) {
+	                st.executeBatch();
+	                st.clearBatch();
+	                st.clearParameters();
+	                st.clearWarnings();
+	            }
+	        }
+	    } else {
+	        for (PreparedStatement st : prepStatUpdateMap.values()) {
+	            if (st != null) {
+	                st.executeBatch();
+	                st.clearBatch();
+	                st.clearParameters();
+	                st.clearWarnings();
+	            }
+	        }
+	    }
+
+	    // ❌ niente commit: lo fa Spring a fine transazione
+	    return errorsSaved;
+	}
+
+	
+	private void closeStatement(Map<Integer, PreparedStatement>  stMap) throws SQLException {
+		if(stMap != null && !stMap.isEmpty()) {
+			for (PreparedStatement st : stMap.values()) {
+				if (st != null) {
+					st.close();
+					st = null;
+				}
+			}
+		}
+	}
+
+	/**
+	 * query di inserimento dei messaggi di errore per ogni sezione
+	 * 
+	 * @param connectionLocal
+	 * @param configuration
+	 * @param pkListCfg
+	 * @return
+	 * @throws SQLException
+	 */
+	private Map<Integer, PreparedStatement> generateInsertQueriesBatch(Connection connectionLocal,
+			FormFlowDTO configuration, List<FormFlowTableFieldDTO> pkListCfg) throws SQLException {
+		Map<Integer, String> insertMessageMap = queryGenerator.generateFlowRecordMessageInsertQuery(configuration);
+		Map<Integer, PreparedStatement> prepStatInsertMap = new HashMap<Integer, PreparedStatement>();
+		for (Integer key : insertMessageMap.keySet()) {
+			prepStatInsertMap.put(key, connectionLocal.prepareStatement(insertMessageMap.get(key)));
+		}
+		return prepStatInsertMap;
+	}
+
+	/**
+	 * query di aggiornamento dello stato di validazione dei record per ogni sezione
+	 * 
+	 * @param connectionLocal
+	 * @param configuration
+	 * @param pkListCfg
+	 * @return
+	 * @throws SQLException
+	 */
+	private Map<Integer, PreparedStatement> generateUpdateQueriesBatch(Connection connectionLocal, FormFlowDTO configuration, List<FormFlowTableFieldDTO> pkListCfg) throws SQLException {
+		Map<Integer, String> updateMessageMap = queryGenerator.generateFlowRecordUpdateQuery(configuration, pkListCfg);
+		Map<Integer, PreparedStatement> prepStatUpdateMap = new HashMap<Integer, PreparedStatement>();
+
+		for (Integer key : updateMessageMap.keySet()) {
+			prepStatUpdateMap.put(key, connectionLocal.prepareStatement(updateMessageMap.get(key)));
+		}
+		return prepStatUpdateMap;
+	}
+	
+	private Map<Integer, PreparedStatement> generateUpdateRecordCrossBatch(Connection connectionLocal, FormFlowDTO configuration, List<FormFlowTableFieldDTO> pkListCfg) throws SQLException {
+		Map<Integer, String> updateMessageMap = queryGenerator.generateCrossUpdateRecordQuery(configuration, pkListCfg);
+		Map<Integer, PreparedStatement> prepStatUpdateMap = new HashMap<Integer, PreparedStatement>();
+
+		for (Integer key : updateMessageMap.keySet()) {
+			prepStatUpdateMap.put(key, connectionLocal.prepareStatement(updateMessageMap.get(key)));
+		}
+		return prepStatUpdateMap;
+	}
+	
+	private Map<Integer, PreparedStatement> generateUpdateGroupCrossBatch(Connection connectionLocal, FormFlowDTO configuration, List<FormFlowTableFieldDTO> pkListCfg) throws SQLException {
+		Map<Integer, String> updateMessageMap = queryGenerator.generateCrossUpdateGroupQuery(configuration, pkListCfg);
+		Map<Integer, PreparedStatement> prepStatUpdateMap = new HashMap<Integer, PreparedStatement>();
+
+		for (Integer key : updateMessageMap.keySet()) {
+			prepStatUpdateMap.put(key, connectionLocal.prepareStatement(updateMessageMap.get(key)));
+		}
+		return prepStatUpdateMap;
+	}
+
+	/**
+	 * Aggiunge il batch di update dello stato di validazione di un record
+	 * 
+	 * @param prepStatUpdateMap
+	 * @param section
+	 * @param row
+	 * @param pkListCfg
+	 * @param status
+	 * @throws SQLException
+	 */
+	private void addRowUpdateBatch(Map<Integer, PreparedStatement> prepStatUpdateMap, Integer section, Row row,
+	        ValidationBean validationBean, List<FormFlowTableFieldDTO> pkListCfg) throws SQLException {
+
+	    Timestamp timestamp = new Timestamp(System.currentTimeMillis());
+	    PreparedStatement prepStatUpdate = prepStatUpdateMap.get(section);
+	    prepStatUpdate.setObject(1, row.getSeverity());
+	    prepStatUpdate.setTimestamp(2, timestamp);
+	    prepStatUpdate.setObject(3, validationBean.getValidationStatus().name());
+
+	    Date dateRif = validationBean.getReferenceDate();
+	    String year = null, month = null;
+	    if (dateRif != null) {
+	        Calendar cal = Calendar.getInstance();
+	        cal.setTime(dateRif);
+	        year = cal.get(Calendar.YEAR) + "";
+	        int monthInt = cal.get(Calendar.MONTH) + 1;
+	        month = (monthInt < 10 ? "0" : "") + monthInt;
+	    }
+
+	    prepStatUpdate.setObject(4, year);
+	    prepStatUpdate.setObject(5, month);
+
+	    int i = 6;
+	    for (FormFlowTableFieldDTO formFlowTableFieldDTO : pkListCfg) {
+	        if (formFlowTableFieldDTO.getSection().equals(section)) {
+	            Object pkValue = row.getFieldValue(formFlowTableFieldDTO.getName());
+
+	            setPkStatementValue(prepStatUpdate, i++, pkValue, formFlowTableFieldDTO);
+	            setPkStatementValue(prepStatUpdate, i++, pkValue, formFlowTableFieldDTO);
+	        }
+	    }
+
+	    prepStatUpdate.addBatch();
+	}
+
+	private void addRowUpdateBatchCross(Map<Integer, PreparedStatement> prepStatUpdateMapRecord,
+	        Map<Integer, PreparedStatement> prepStatUpdateMapGroup, Integer section, Row row,
+	        ValidationBean validationBean, List<FormFlowTableFieldDTO> pkListCfg) throws SQLException {
+
+	    Timestamp timestamp = new Timestamp(System.currentTimeMillis());
+
+	    if (validationBean.getValidationStatus().equals(BeanValidationStatusEnum.VALID)) {
+	        return;
+	    }
+
+	    PreparedStatement prepStatUpdate = null;
+	    int i = 3;
+
+	    if (row.getSeverity().equals(BeanValidationStatusEnum.VALID.name())) {
+	        prepStatUpdate = prepStatUpdateMapGroup.get(section);
+	        prepStatUpdate.setTimestamp(1, timestamp);
+	        prepStatUpdate.setObject(2, validationBean.getValidationStatus().name());
+	    } else {
+	        prepStatUpdate = prepStatUpdateMapRecord.get(section);
+	        prepStatUpdate.setObject(1, row.getSeverity());
+	        prepStatUpdate.setTimestamp(2, timestamp);
+	    }
+
+	    for (FormFlowTableFieldDTO formFlowTableFieldDTO : pkListCfg) {
+	        if (formFlowTableFieldDTO.getSection().equals(section)) {
+	            Object pkValue = row.getFieldValue(formFlowTableFieldDTO.getName());
+
+	            setPkStatementValue(prepStatUpdate, i++, pkValue, formFlowTableFieldDTO);
+	            setPkStatementValue(prepStatUpdate, i++, pkValue, formFlowTableFieldDTO);
+	        }
+	    }
+
+	    prepStatUpdate.addBatch();
+	}
+
+	/**
+	 * Aggiunge il batch di insert del record validato
+	 * 
+	 * @param prepStatInsertMap
+	 * @param droolsError
+	 * @param severity
+	 * @throws SQLException
+	 */
+	private void addErrorMessageInsertBatch(Map<Integer, PreparedStatement> prepStatInsertMap,
+	        DroolsError droolsError,
+	        List<FormFlowTableFieldDTO> pkListCfg,
+	        FormFlowDTO configuration) throws SQLException {
+
+	    Timestamp timestamp = new Timestamp(System.currentTimeMillis());
+	    PreparedStatement prepStatInsert = prepStatInsertMap.get(droolsError.getRow().getSection().getIndex());
+
+	    prepStatInsert.setObject(2, droolsError.getMessage().getId());
+
+	    Object fieldValue = droolsError.getFieldValue();
+
+	    for (FormFlowTableDTO table : configuration.getFlowTableList()) {
+	        if (table.getSection() == droolsError.getRow().getSection().getIndex().intValue()) {
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                if (field.isCrypto() && field.getName().equalsIgnoreCase(droolsError.getFieldName())) {
+	                    fieldValue = cryptoManager.encryptObject(fieldValue);
+	                    break;
+	                }
+	            }
+	        }
+	    }
+
+	    prepStatInsert.setObject(3, fieldValue);
+	    prepStatInsert.setObject(4, droolsError.getFieldName());
+	    prepStatInsert.setTimestamp(5, timestamp);
+	    prepStatInsert.setObject(6, droolsError.getSeverity());
+
+	    int indexPk = 7;
+	    StringBuilder rowIdSource = new StringBuilder();
+
+	    for (FormFlowTableFieldDTO pk : pkListCfg) {
+	        if (pk.getSection().equals(droolsError.getRow().getSection().getIndex())) {
+	            Object pkValue = droolsError.getRow().getRowIdMap().get(pk.getName());
+
+	            if (pk.isCrypto() && pkValue != null) {
+	                pkValue = cryptoManager.encryptObject(pkValue);
+	            }
+
+	            if (pkValue == null) {
+	                if ("Date".equalsIgnoreCase(pk.getFieldType())) {
+	                    prepStatInsert.setNull(indexPk, java.sql.Types.TIMESTAMP);
+	                } else {
+	                    prepStatInsert.setNull(indexPk, java.sql.Types.VARCHAR);
+	                }
+	            } else if (pkValue instanceof Date) {
+	                prepStatInsert.setTimestamp(indexPk, new Timestamp(((Date) pkValue).getTime()));
+	            } else {
+	                prepStatInsert.setObject(indexPk, pkValue);
+	            }
+
+	            rowIdSource
+	                    .append(pk.getName())
+	                    .append("=")
+	                    .append(normalizeRowIdValue(pkValue))
+	                    .append("|");
+
+	            indexPk++;
+	        }
+	    }
+
+	    prepStatInsert.setObject(1, buildRowId(rowIdSource.toString()));
+	    prepStatInsert.addBatch();
+	}
+	
+	private void setPkStatementValue(PreparedStatement ps, int index, Object value, FormFlowTableFieldDTO field)
+	        throws SQLException {
+
+	    if (value == null) {
+	        ps.setNull(index, resolveSqlType(field));
+	        return;
+	    }
+
+	    if (value instanceof Date) {
+	        ps.setTimestamp(index, new Timestamp(((Date) value).getTime()));
+	        return;
+	    }
+
+	    ps.setObject(index, value);
+	}
+
+	private int resolveSqlType(FormFlowTableFieldDTO field) {
+	    if (field != null && "Date".equalsIgnoreCase(field.getFieldType())) {
+	        return Types.TIMESTAMP;
+	    }
+	    return Types.VARCHAR;
+	}
+
+	private String normalizeRowIdValue(Object value) {
+	    if (value == null) {
+	        return "<NULL>";
+	    }
+
+	    if (value instanceof Date) {
+	        SimpleDateFormat sdf = new SimpleDateFormat("yyyyMMddHHmmss");
+	        return sdf.format((Date) value);
+	    }
+
+	    return String.valueOf(value).trim();
+	}
+
+	private String buildRowId(String source) {
+	    try {
+	        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+	        byte[] digest = md.digest(source.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+	        return toHex(digest); // 64 char
+	    } catch (Exception e) {
+	        throw new RuntimeException("Errore nella generazione del ROW_ID", e);
+	    }
+	}
+
+	private String toHex(byte[] bytes) {
+	    StringBuilder sb = new StringBuilder(bytes.length * 2);
+	    for (byte b : bytes) {
+	        sb.append(String.format("%02x", b));
+	    }
+	    return sb.toString();
+	}
+	
+	/**
+	 * RECUPERA CAMPI PK E DI RAGGRUPPAMENTO
+	 * 
+	 * @param configuration
+	 * @param pkListCfg
+	 * @param groupListCfg
+	 * @param flowPrefix
+	 */
+	private void getPkAndGroupFields(FormFlowDTO configuration, List<FormFlowTableFieldDTO> pkListCfg,
+			List<FormFlowTableFieldDTO> groupListCfg, String flowPrefix) {
+		List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+		for (FormFlowTableDTO table : tableList) {
+			for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+				field.setSectionName(flowPrefix + table.getSection());
+				field.setSection(table.getSection());
+				if (field.isPk()) {
+					pkListCfg.add(field);
+				
+					// i campi chiave della prima sezione sono anche i campi chiave della pratica
+					if(field.getSection().intValue() == 0) {
+						groupListCfg.add(field);	
+					}
+				}
+				/*if (field.getGroups()) {
+					groupListCfg.add(field);
+				}*/
+			}
+		}
+
+		pkListCfg.sort(new Comparator<FormFlowTableFieldDTO>() {
+
+			@Override
+			public int compare(FormFlowTableFieldDTO o1, FormFlowTableFieldDTO o2) {
+				int c1 = o1.getSection().compareTo(o2.getSection());
+				if (c1 != 0) {
+					return c1;
+				}
+
+				return o1.getPosition().compareTo(o2.getPosition());
+			}
+		});
+
+		groupListCfg.sort(new Comparator<FormFlowTableFieldDTO>() {
+
+			@Override
+			public int compare(FormFlowTableFieldDTO o1, FormFlowTableFieldDTO o2) {
+				int c1 = o1.getSection().compareTo(o2.getSection());
+				if (c1 != 0) {
+					return c1;
+				}
+
+				return o1.getPosition().compareTo(o2.getPosition());
+			}
+		});
+
+	}
+
+	/**
+	 * Recupera la configurazione di un flusso
+	 * 
+	 * @param flowId
+	 * @param versionId
+	 * @return
+	 */
+	private FormFlowDTO retrieveConfiguration(String flowId, String versionId) {
+		BaseSearchInput searchInput = new BaseSearchInput();
+		searchInput.setValue("flowId", flowId);
+		searchInput.setValue("versionId", versionId);
+		// searchInput.setValue("isReferenceDate", false);
+		Pair<List<FormFlowDTO>, SearchInfo> searchResults = formFlowService.retrieveAllFiltered(searchInput);
+		FormFlowDTO configuration = searchResults.getFirst().get(0);
+		return configuration;
+	}
+
+	/**
+	 * Concatena i valori dei campi forniti + extraction_id
+	 * 
+	 * @param fields
+	 * @param rowMap
+	 * @return
+	 */
+	private String joinFields(List<FormFlowTableFieldDTO> fields, Map<String, Object> rowMap) {
+		String pkRecord = "";
+		for (FormFlowTableFieldDTO field : fields) {
+			Object fieldValue = rowMap.get(getFieldKey(rowMap, field));
+			if (fieldValue != null) {
+				
+				if(field.isCrypto()) {
+					fieldValue = cryptoManager.decryptObject(fieldValue);
+				}
+				
+				pkRecord += field.getSectionName() + (fieldValue != null ? fieldValue.toString() : "") + " ";
+			}
+		}
+
+		if (rowMap.containsKey("extractionId")) {
+			String extractionId = (String) rowMap.get("extractionId");
+			pkRecord += extractionId;
+		}
+
+		return pkRecord;
+	}
+
+	private String joinFields(List<FormFlowTableFieldDTO> fields, Map<String, Object> rowMap, Integer section) {
+		String pkRecord = "";
+		for (FormFlowTableFieldDTO field : fields) {
+			if (field.getSection().equals(section)) {
+				Object fieldValue = rowMap.get(getFieldKey(rowMap, field));
+				
+				if(field.isCrypto()) {
+					fieldValue = cryptoManager.decryptObject(fieldValue);
+				}
+				
+				pkRecord += (fieldValue != null ? fieldValue.toString() : "");
+			}
+		}
+
+		return pkRecord;
+	}
+
+	private String getFieldKey(Map<String, Object> rowMap, FormFlowTableFieldDTO field) {
+		for (String key : rowMap.keySet()) {
+			// S + sezione + contatore + nomecampo
+			if (key.toLowerCase().startsWith("s" + field.getSection() + "_" + field.getPosition() + "_")) {
+				return key;
+			}
+		}
+
+		return "";
+	}
+
+	public void sendResults(List<ValidationBean> validatedBeanList, String flowName) {
+		LOGGER.info("VALIDAZIONE RECORD : INVIO RISULTATI");
+
+		ConfigurationDO cfgObj = configuration.findByKeyId("flowToCopy");
+		if(cfgObj!=null && !StringUtils.isEmpty(cfgObj.getValue())) {
+			String cfg = cfgObj.getValue();
+			String[] cfgSplitted = cfg.split("/");
+			for (int i = 0; i < cfgSplitted.length; i++) {
+				String value = cfgSplitted[i];
+				int iend = value.indexOf("(");
+				String flusso = value.substring(0,iend);
+				String flussoCopia = value.substring(iend+1,value.length()-1) + "";
+				if(flowName.equals(flussoCopia)) {
+					LOGGER.info("VALIDAZIONE RECORD : INVIO RISULTATI FLUSSO COPIA NON EFFETTUATO");
+					return;
+				}
+			}
+		}
+
+		ErrorModelDTO model = new ErrorModelDTO();
+//		model.setIdRequest(extractionId);
+		model.setErrors(new ArrayList<ErrorsDTO>());
+
+		boolean first = true;
+		for (ValidationBean validatedBean : validatedBeanList) {
+			
+			if(first) {
+				first = false;
+				model.setIdRequest(validatedBean.getExtractionId());
+				model.setCodiceAzienda(validatedBean.getCodiceAzienda());
+				LOGGER.info("VALIDAZIONE RECORD : INVIO RISULTATI ESTRAZIONE " + validatedBean.getExtractionId());
+			}
+
+			if (validatedBean.getErrors() != null && !validatedBean.getErrors().isEmpty()) {
+				Map<String, ErrorsDTO> groupMap = new HashMap<String, ErrorsDTO>();
+				Map<String, ErrorFieldsDTO> fieldMap = new HashMap<String, ErrorFieldsDTO>();
+
+				for (DroolsError dError : validatedBean.getErrors()) {
+
+					/*** elaborazione chiave della pratica ***/
+					// ordina campi pratica per nome
+					List<String> keySet = new ArrayList(dError.getRowGroupMap().keySet());
+					keySet.sort(new Comparator<String>() {
+						@Override
+						public int compare(String o1, String o2) {
+							return o1.compareTo(o2);
+						}
+					});
+
+					List<KeysDTO> keys = new ArrayList<KeysDTO>();
+					String keyToString = "";
+					// valorizza struttura dati contenente i campi della pratica
+					for (String groupField : keySet) {
+						Object groupValue = dError.getRowGroupMap().get(groupField);
+						KeysDTO key = new KeysDTO();
+						key.setKey(groupField);
+						if (groupValue != null) {
+							key.setValue(groupValue.toString());
+						}
+						keys.add(key);
+						keyToString += groupField + "_" + groupValue + ";";
+					}
+					/*** elaborazione chiave della pratica : FINE ***/
+
+					// verifica se esiste già il raggruppamento degli errori per la pratica corrente
+					ErrorsDTO errorsDTO = groupMap.get(keyToString);
+					if (errorsDTO == null) {
+						// inizializza la pratica corrente
+						errorsDTO = new ErrorsDTO();
+						errorsDTO.setKeys(keys); // chiave della pratica
+						errorsDTO.setFields(new ArrayList<ErrorFieldsDTO>()); // campi errati della pratica (tutte le
+																				// sezioni)
+						model.getErrors().add(errorsDTO);
+						groupMap.put(keyToString, errorsDTO);
+					}
+
+					// verifica se esiste già il raggruppamento degli errori di validazione del
+					// campo del flusso
+					// la verifica avviene cercando per nome e sezione
+					String fieldMapKey = keyToString + "_" + dError.getFieldName() + "_" + dError.getRow().getSection().getIndex() + ";";
+					ErrorFieldsDTO errorField = fieldMap.get(fieldMapKey);
+					if (errorField == null) {
+						// inizializza il campo del flusso
+						errorField = new ErrorFieldsDTO();
+						errorField.setField(dError.getFieldName()); // nome del campo
+						errorField.setSection(dError.getRow().getSection().getDescription()); // sezione del campo
+						errorField.setFieldErrors(new ArrayList<FieldErrorsDTO>()); // errori segnalati sul campo
+						errorsDTO.getFields().add(errorField);
+						fieldMap.put(fieldMapKey, errorField);
+					}
+
+					// errore segnalato
+					FieldErrorsDTO error = new FieldErrorsDTO();
+					error.setErrorKey(dError.getMessage().getDescription()); // messaggio di errore
+					error.setErrorValue(dError.getFieldValue()); // valore del campo errato
+					error.setSeverity(dError.getMessage().getSeverity());
+					errorField.getFieldErrors().add(error);
+
+				}
+
+			} else {
+				// la pratica non contiene errori: invia comunque al verticale
+				ErrorsDTO errorsDTO = new ErrorsDTO();
+
+				/*** elaborazione chiave della pratica ***/
+				// ordina campi pratica per nome
+				List<String> keySet = new ArrayList(validatedBean.getRowGroupMap().keySet());
+				keySet.sort(new Comparator<String>() {
+					@Override
+					public int compare(String o1, String o2) {
+						return o1.compareTo(o2);
+					}
+				});
+
+				List<KeysDTO> keys = new ArrayList<KeysDTO>();
+				// valorizza struttura dati contenente i campi della pratica
+				for (String groupField : keySet) {
+					Object groupValue = validatedBean.getRowGroupMap().get(groupField);
+					KeysDTO key = new KeysDTO();
+					key.setKey(groupField);
+					if (groupValue != null) {
+						key.setValue(groupValue.toString());
+					}
+					keys.add(key);
+				}
+				/*** elaborazione chiave della pratica : FINE ***/
+
+				errorsDTO.setKeys(keys); // chiave della pratica
+				errorsDTO.setFields(new ArrayList<ErrorFieldsDTO>());
+				model.getErrors().add(errorsDTO);
+			}
+
+		}
+
+		try {
+			LOGGER.info("VALIDAZIONE RECORD : INVIO RISULTATI ESTRAZIONE " + model.getIdRequest() + " - INVOCAZIONE SERVIZIO");
+			errorService.getAndSendErrors(model, flowName);
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "VALIDAZIONE RECORD : INVIO RISULTATI", e);
+//			e.printStackTrace();
+		}
+
+		LOGGER.info("VALIDAZIONE RECORD : FINE INVIO RISULTATI");
+
+	}
+
+	@Override
+	public ErrorModelDTO buidErrorsToSend(String extractionId, String flowName, String versionName) {
+		ErrorModelDTO model = new ErrorModelDTO();
+		model.setIdRequest(extractionId);
+		List<ErrorsDTO> modelErrors = new ArrayList<ErrorsDTO>();
+		model.setErrors(modelErrors);
+
+		FlowDO flow = new FlowDO();
+		flow.setName(flowName);
+		flow = (flow.getId() == null || flow.getId().isBlank()) ? null : flowDAO.findById(flow.getId()).orElse(null);
+
+		VersionDO version = new VersionDO();
+		version.setVersion(versionName);
+		version = (version.getId() == null || version.getId().isBlank()) ? null : versionDAO.findById(version.getId()).orElse(null);;
+
+		if (flow != null && version != null) {
+			FormFlowDTO configuration = retrieveConfiguration(flow.getId(), version.getId());
+			List<ExtractionErrorMessage> errors = flowViewService.getExtractionErrors(configuration, extractionId);
+			if (errors != null) {
+				Map<String, ErrorFieldsDTO> fieldErrorsMap = new HashMap<String, ErrorFieldsDTO>();
+				Map<String, ErrorsDTO> groupMap = new HashMap<String, ErrorsDTO>();
+				for (ExtractionErrorMessage error : errors) {
+
+					List<KeysDTO> keys = new ArrayList<KeysDTO>();
+					for (String key : error.getKeys().keySet()) {
+						Object keyValue = error.getKeys().get(key);
+						KeysDTO keyModel = new KeysDTO();
+						keyModel.setKey(key);
+						keyModel.setValue(keyValue + "");
+						keys.add(keyModel);
+					}
+
+					keys.sort(new Comparator<KeysDTO>() {
+						@Override
+						public int compare(KeysDTO o1, KeysDTO o2) {
+							return o1.getKey().compareTo(o2.getKey());
+						}
+					});
+
+					String keyGroup = "";
+					for (KeysDTO item : keys) {
+						keyGroup += item.getValue() + "_";
+					}
+
+					ErrorsDTO modelError = groupMap.get(keyGroup);
+					if (modelError == null) {
+						modelError = new ErrorsDTO();
+						modelError.setKeys(keys);
+						modelError.setFields(new ArrayList<ErrorFieldsDTO>());
+						modelErrors.add(modelError);
+						groupMap.put(keyGroup, modelError);
+					}
+
+					String fieldErrorsMapKey = keyGroup + "_" + error.getFieldName() + "_" + error.getSectionName() + ";";
+					ErrorFieldsDTO fieldErrors = fieldErrorsMap.get(fieldErrorsMapKey);
+					if (fieldErrors == null) {
+						fieldErrors = new ErrorFieldsDTO();
+						fieldErrors.setField(error.getFieldName());
+						fieldErrors.setSection(error.getSectionName());
+						fieldErrors.setFieldErrors(new ArrayList<FieldErrorsDTO>());
+						modelError.getFields().add(fieldErrors);
+						fieldErrorsMap.put(fieldErrorsMapKey, fieldErrors);
+					}
+
+					FieldErrorsDTO fieldError = new FieldErrorsDTO();
+					fieldError.setErrorKey(error.getErrorDescription());
+					fieldError.setErrorValue(error.getFieldValue());
+					fieldError.setSeverity(error.getSeverity());
+					fieldErrors.getFieldErrors().add(fieldError);
+				}
+			}
+		}
+
+		return model;
+	}
+	
+	@Override
+	@PrivacyManagerLog(action = AuditEventActionEnum.UPDATE, category = AuditEventCategoryEnum.ACCESS_LOG, description="Validazione pratica di un assistito", converter= FlowAvvioValidazioneConverter.class, entity= EntityEnum.PAZIENTE, entityType= EntityTypeEnum.ASSISTITO)
+	public FlowOperationResult<?> sendAuditAvviaValidazioneToPM(ValidationFilter validationFilter, FlowOperationResult<?> result) {
+		return result;
+	}
+	
+}

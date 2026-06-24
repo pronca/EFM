@@ -1,0 +1,46 @@
+### DATASOURCE H2 ###
+datasource.url=jdbc:hsqldb:mem:privacy_access_testdb;
+datasource.username=sa
+datasource.password=
+datasource.driver=org.hsqldb.jdbcDriver
+hibernate.dialect=org.hibernate.dialect.H2Dialect
+hibernate.hbm2ddl.auto=update
+
+### DATASOURCE POSTGRESQL ###
+#datasource.url=jdbc:postgresql://161.27.202.52:5432/privacy_access
+#datasource.username=postgres
+#datasource.password=postgres
+#datasource.driver=org.postgresql.Driver
+#hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+#hibernate.hbm2ddl.auto=update
+
+
+### HIBERNATE CONFIG ###
+hibernate.default_schema=public
+hibernate.jdbc.batch_size=30
+hibernate.cache.use_query_cache=false
+hibernate.cache.region.factory_class=org.hibernate.cache.ehcache.EhCacheRegionFactory
+hibernate.cache.use_second_level_cache=false
+hibernate.cache.use_structured_entries=false
+hibernate.cache.use_minimal_puts=false
+hibernate.search.default.directory_provider=filesystem
+hibernate.search.default.indexBase=target/lucenefiles
+hibernate.search.lucene_version=LUCENE_CURRENT
+hibernate.implicit_naming_strategy.applyTo=*
+hibernate.show_sql=true
+hibernate.format_sql=true
+
+### C3P0 ### 
+datasource.c3p0.acquire.increment=5
+datasource.c3p0.idle.connection.test.period=60
+datasource.c3p0.initial.pool.size=1
+datasource.c3p0.min.pool.size=1
+datasource.c3p0.max.pool.size=15
+datasource.c3p0.max.statements=50
+datasource.c3p0.debug.unreturned.connection.stack.traces=false
+datasource.c3p0.unreturned.connection.timeout=60
+
+
+# encryptor for jasypt
+encryptor.password=master
+encryptor.algorithm=PBEWithMD5AndDES

@@ -1,0 +1,1251 @@
+package it.eng.care.domain.flow.flowupload.service.impl;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
+
+import javax.sql.DataSource;
+
+import org.apache.commons.io.FileUtils;
+import org.apache.poi.openxml4j.opc.OPCPackage;
+import org.apache.poi.ss.usermodel.DateUtil;
+import org.apache.poi.xssf.eventusermodel.ReadOnlySharedStringsTable;
+import org.apache.poi.xssf.eventusermodel.XSSFReader;
+import org.apache.poi.xssf.model.StylesTable;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.hibernate.Session;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.statemachine.state.State;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.xml.sax.Attributes;
+import org.xml.sax.InputSource;
+import org.xml.sax.SAXException;
+import org.xml.sax.XMLReader;
+import org.xml.sax.helpers.DefaultHandler;
+import org.xml.sax.helpers.XMLReaderFactory;
+
+import com.google.common.io.Files;
+
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.FlowForeignKeyDAO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowForeignKeyDO;
+import it.eng.care.domain.flow.core.entity.FlowTableDO;
+import it.eng.care.domain.flow.core.entity.FlowTableFieldDO;
+import it.eng.care.domain.flow.core.entity.VersionDO;
+import it.eng.care.domain.flow.core.enumeration.MachineEvent;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.domain.flow.core.spring.statemachine.StateMachineFlow;
+import it.eng.care.domain.flow.core.utility.FileUtility;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.flowupload.bean.WellFormedStatusEnum;
+import it.eng.care.domain.flow.flowupload.dao.FlowFileUploadRequestDAO;
+import it.eng.care.domain.flow.flowupload.model.FlowFileUploadRequestDO;
+import it.eng.care.domain.flow.flowupload.model.FlowFileUploadRequestErrorDO;
+import it.eng.care.domain.flow.flowupload.model.FlowSectionFileDO;
+import it.eng.care.domain.flow.flowupload.service.WellFormedService;
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import jakarta.persistence.EntityManager;
+
+@Transactional(propagation = Propagation.REQUIRED)
+public class WellFormedServiceImpl implements WellFormedService {
+
+    @Autowired
+    private DataSource dataSource;
+
+	@Autowired
+	private FormFlowService formFlowService;
+	
+	@Autowired
+	private FlowFileUploadRequestDAO flowFileUploadRequestErrorDAO;
+	
+	@Autowired
+	private ConfigurationDAO configuration;
+	
+	@Autowired
+	private FlowForeignKeyDAO flowForeignKeyDAO; 
+	
+	@Autowired(required = false)
+    private StateMachineFlow stateMachineFlow;
+	
+	@Autowired
+	private FlowManagerProfileService flowManagerProfileService;
+	
+	@Autowired
+	private TabgenDelegate tabgenDelegate;
+	
+	@Autowired
+    EntityManager entityManager;
+	
+	private MachineEvent machineEvent;
+	
+	private static final Logger logger = LoggerFactory.getLogger(WellFormedServiceImpl.class);
+	
+	/**
+	 * Verifica la presenza delle sezioni obbligatorie
+	 * 
+	 * @param flowConfiguration
+	 * @param sections
+	 * @return
+	 */
+	@Override
+	public WellFormedStatusEnum checkRequiredAndEmptySections(FlowFileUploadRequestDO request) {
+		FormFlowDTO flowConfiguration = retrieveConfiguration(request.getFlow(), request.getVersion());
+		
+		List<FlowFileUploadRequestErrorDO> errors = new ArrayList<FlowFileUploadRequestErrorDO>();
+		for (FormFlowTableDTO table : flowConfiguration.getFlowTableList()) {
+			boolean notFound = false;
+			if (table.getRequired() != null && table.getRequired()) {
+				notFound = true;
+				if (request.getFiles() != null) {
+					for (FlowSectionFileDO flowSectionFile : request.getFiles()) {
+						Integer section = flowSectionFile.getSection();
+						if (table.getSection() == section.intValue()) {
+							notFound = isEmptyFile(flowSectionFile);
+							break;
+						}
+					}
+				}
+			}
+			if (notFound) {
+				errors.add(createError("'" + table.getDescription() + "' assente", request, table.getSection(), null));
+			}
+		}
+		
+		if(request.getErrors() == null) {
+			request.setErrors(new ArrayList<FlowFileUploadRequestErrorDO>());
+		}
+		request.getErrors().addAll(errors);
+		
+		
+		if(!errors.isEmpty()) {
+        	try {
+				State<String, String> stateUpload = stateMachineFlow.execute(request.getId() + "_UPLOAD", "UPLOAD", MachineEvent.UPLOAD_INCOMPLETO.getEvent());
+				request.setStatus(stateUpload.getId());
+        	} catch (Exception e) {
+        		LogUtil.logException(logger, "", e);
+//				e.printStackTrace();
+			}
+		} else {
+			try {
+				State<String, String> stateUpload = stateMachineFlow.execute(request.getId() + "_UPLOAD", "UPLOAD", MachineEvent.UPLOAD_COMPLETO.getEvent());
+				request.setStatus(stateUpload.getId());
+        	} catch (Exception e) {
+        		LogUtil.logException(logger, "", e);
+//				e.printStackTrace();
+			}	
+		}
+		
+		flowFileUploadRequestErrorDAO.save(request);
+		
+		return WellFormedStatusEnum.valueOf(request.getStatus());
+
+	}
+	
+	@Override
+	public WellFormedStatusEnum checkFiles(FlowFileUploadRequestDO request) throws IOException, SQLException {
+
+		FormFlowDTO flowConfiguration = retrieveConfiguration(request.getFlow(), request.getVersion());
+		List<FlowFileUploadRequestErrorDO> errors = new ArrayList<FlowFileUploadRequestErrorDO>();
+			
+		/***RECUPERO CONFIGUARAZIONE TIPOLOGIA IMPORT DATI (MODE_IMPORT_FILE_CONF)***/
+		boolean skipColumnName=false;
+		TabgenValue tabGenValueAnaImportConf = new TabgenValue();
+		//FLOW_UPLOAD_CONF
+		TabgenValueFilter filterAnaImportConf = new TabgenValueFilter();
+		filterAnaImportConf.setTabgenId("MODE_IMPORT_FILE_CONF");
+		BasePagingLoadResult<Tabgen> list = new BasePagingLoadResult<Tabgen>(null);
+		list = tabgenDelegate.searchValue(filterAnaImportConf);
+		if (list != null && list.getTotalLength() > 0 && list.getList() != null
+				&& !list.getList().isEmpty()) {
+			Tabgen flowAnaImportConf = list.getList().get(0);
+			if (flowAnaImportConf != null && "MODE_IMPORT_FILE_CONF".equals(flowAnaImportConf.getId())) {
+				List<TabgenValue> tabgenValues = flowAnaImportConf.getTabgenValues();
+				if (tabgenValues != null && !tabgenValues.isEmpty()) {
+					for (TabgenValue tabgenValue : tabgenValues) {
+						tabGenValueAnaImportConf=tabgenValue;
+					}
+				}
+			}
+		}
+		if (null != tabGenValueAnaImportConf && null != tabGenValueAnaImportConf.getField1()) {
+			if (tabGenValueAnaImportConf.getField1().equalsIgnoreCase("S") || tabGenValueAnaImportConf.getField1().equalsIgnoreCase("SI") || tabGenValueAnaImportConf.getField1().equalsIgnoreCase("1")) {
+				skipColumnName = true;
+			}
+		}
+		
+		// LUNGHEZZA RECORD + CAMPI PK + FORMATO DATA DI RIFERIMENTO + PK DUPLICATE + COLLEGAMENTO TRA SEZIONI
+		// errors.addAll(checkRecords(flowConfiguration, request));
+		Boolean res = checkRecords(flowConfiguration, request, skipColumnName);
+		
+//		request.setValidationDate(new Date());
+		request.setValidationDate(new Timestamp(new Date().getTime()));
+		
+		request.getErrors().clear();
+		//request.getErrors().addAll(errors);
+		
+		if(!res) {
+			try {
+				State<String, String> stateUpload = stateMachineFlow.execute(request.getId() + "_UPLOAD", "UPLOAD", MachineEvent.UPLOAD_NOT_WELL_FORMED.getEvent());
+				request.setStatus(stateUpload.getId());
+        	} catch (Exception e) {
+        		LogUtil.logException(logger, "", e);
+//				e.printStackTrace();
+			}
+		} else {
+			try {
+				State<String, String> stateUpload = stateMachineFlow.execute(request.getId() + "_UPLOAD", "UPLOAD", MachineEvent.UPLOAD_WELL_FORMED.getEvent());
+				request.setStatus(stateUpload.getId());
+        	} catch (Exception e) {
+        		LogUtil.logException(logger, "", e);
+//				e.printStackTrace();
+			}
+		}
+		
+		flowFileUploadRequestErrorDAO.save(request);
+		
+		return WellFormedStatusEnum.valueOf(request.getStatus());
+		
+	}
+
+	private boolean isEmptyFile(FlowSectionFileDO section) {
+		return section.getSectionFileList().get(0).getFile() == null || section.getSectionFileList().get(0).getFile().length == 0;
+	}
+	
+	/**
+	 * Verifica:
+	 * 1. La lunghezza di un record
+	 * 2. La valorizzazione di tutti i campi PK
+	 * 3. Il formato della data di riferimento
+	 * 4. L'univocità della pk di un record
+	 * 5. Il collegamento dei record della prima sezione con i record delle altre sezioni tramite i campi fk
+	 * 
+	 * @param flowConfiguration
+	 * @param sections
+	 * @return
+	 * @throws IOException
+	 */
+	private Boolean checkRecords(FormFlowDTO flowConfiguration, FlowFileUploadRequestDO request, boolean skipColumnName) throws IOException, SQLException {
+		
+	    Boolean result = true;
+	    
+	    List<FlowSectionFileDO> sections = request.getFiles(); // file da controllare
+	    List<FlowFileUploadRequestErrorDO> errors = new ArrayList<>(); // errori segnalati dal controllo
+	    List<FormFlowTableDTO> tables = flowConfiguration.getFlowTableList(); // definizione delle sezioni del flusso
+
+	    // ordina le sezioni del flusso per sezione
+	    tables.sort((o1, o2) -> new Integer(o1.getSection()).compareTo(new Integer(o2.getSection())));
+	    
+	    // formato delle date da configurazione
+	    String cfgDateFormatConf = configuration.findByKeyId("upload_file_date_format").getValue();
+	    String cfgDateFormat = "";
+	    String cfgDateFormatDefault = "[0-9]{4}-[0-9]{2}-[0-9]{2}";
+	    int dateLenght = 0;
+	    int dateLenghtDefault = 10;
+	    String[] cfgSplitted = cfgDateFormatConf.split("/");
+	    boolean foundCfg = false;
+	    for (String value : cfgSplitted) {
+	        int iend = value.indexOf("(");
+	        String nameAndLenght = value.substring(0, iend);
+	        String dateFormat = value.substring(iend + 1, value.length() - 1);
+	        String[] dateLenghtCfg = nameAndLenght.split("-");
+	        String nameCfg = dateLenghtCfg[0];
+	        String dateLenghtTmp = dateLenghtCfg[1];
+	        if (nameCfg.equals(flowConfiguration.getName())) {
+	            foundCfg = true;
+	            dateLenght = Integer.parseInt(dateLenghtTmp);
+	            cfgDateFormat = dateFormat;
+	            break;
+	        } else if ("DEFAULT".equals(nameCfg)) {
+	            dateLenghtDefault = Integer.parseInt(dateLenghtTmp);
+	            cfgDateFormatDefault = dateFormat;
+	        }
+	    }
+	    if (!foundCfg) {
+	        dateLenght = dateLenghtDefault;
+	        cfgDateFormat = cfgDateFormatDefault;
+	    }
+
+	    // aziende visibili dall'utente
+	    List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+
+	    for (FormFlowTableDTO table : tables) {
+	        List<FormFlowTableFieldDTO> fields = table.getFlowTableFieldList();
+	        List<String> aziendeLoadedInFile = new ArrayList<>();
+
+	        // ordina i campi della sezione per posizione
+	        fields.sort((arg0, arg1) -> arg0.getPosition().compareTo(arg1.getPosition()));
+	        
+	        int length = 0; // lunghezza record
+	        for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	            if (field.getFieldType().toLowerCase().equals("date") || field.isReferenceDate()) {
+	                if (field.getLength() != null) {
+	                    length += new Integer(field.getLength());
+	                } else if (field.getRegExp() != null) {
+	                    length += FileUtility.getMaxLengthRegex(field.getRegExp());
+	                } else {
+	                    length += dateLenght;
+	                }
+	            } else {
+	                length += new Integer(field.getLength());
+	            }
+	        }
+
+	        if (sections != null) {
+	            for (FlowSectionFileDO flowSectionFile : sections) {
+	                if (table.getSection() == flowSectionFile.getSection().intValue()) {
+	                    if (!isEmptyFile(flowSectionFile)) {
+	                    	
+	                    	//carico tutte le pk della sezione in corso per controllare duplicazioni pk su dati gia esistenti nella tabella del verticale
+	            	        Map<String, String> pkMapAll = loadPrimaryKeysMap(flowConfiguration.getCode(), table.getSection(), table.getFlowTableFieldList());
+	            	        
+	            	        //preparo la mappa per controllare duplicazini pk sui dati del file di importazione
+	                        Map<String, String> pkMap = new HashMap<>();
+
+	                        // crea file temporaneo
+	                        String ext = flowSectionFile.getSectionFileList().get(0).getExtension();
+	                        File file = File.createTempFile(table.getName(), "." + ext.toLowerCase());
+	                        FileUtils.writeByteArrayToFile(file, flowSectionFile.getSectionFileList().get(0).getFile());
+
+	                        // parsing generico
+	                        List<String> lines = new ArrayList<>();
+	                        List<File> listaZipFiles = new ArrayList<>();
+	                        try {
+	                            if (FileUtility.TEXT.equalsIgnoreCase(ext)) {
+	                                lines = readTxtLines(file, fields);
+	                            } else if (FileUtility.CSV.equalsIgnoreCase(ext)) {
+	                                lines = readCsvLines(file, skipColumnName);
+	                            } else if (FileUtility.XLS.equalsIgnoreCase(ext)) {
+	                                lines = readXlsLines(file, skipColumnName);
+	                            } else if (FileUtility.XLSX.equalsIgnoreCase(ext)) {
+	                                lines = readXlsxLines(file, skipColumnName);
+	                            } else if (FileUtility.ZIP.equalsIgnoreCase(ext)) {
+	                            	listaZipFiles = FileUtility.listZipFile(file);
+	                            } else if (FileUtility.TXT_GZIP.equalsIgnoreCase(ext) || FileUtility.CSV_GZIP.equalsIgnoreCase(ext) || FileUtility.XLS_GZIP.equalsIgnoreCase(ext) || FileUtility.XLSX_GZIP.equalsIgnoreCase(ext) || FileUtility.TAR_GZIP.equalsIgnoreCase(ext) || FileUtility.TGZ.equalsIgnoreCase(ext)) {
+	                            	listaZipFiles = FileUtility.listGzipFile(file, file.getName());
+	                            } else {
+	                                throw new IllegalArgumentException("Estensione file non supportata: " + ext);
+	                            }
+	                            for (File singleFileUnz : listaZipFiles) {
+	                				String extSingleFileUnz="";
+	                				int index = singleFileUnz.getName().lastIndexOf('.');
+	                				if(index > 0) {
+	                			    	extSingleFileUnz = singleFileUnz.getName().substring(index + 1);
+	                				}
+                					if (FileUtility.TEXT.equalsIgnoreCase(extSingleFileUnz)) {
+    	                                lines.addAll(readTxtLines(singleFileUnz, fields));
+    	                            } else if (FileUtility.CSV.equalsIgnoreCase(extSingleFileUnz)) {
+    	                                lines.addAll(readCsvLines(singleFileUnz, skipColumnName));
+    	                            } else if (FileUtility.XLS.equalsIgnoreCase(extSingleFileUnz)) {
+    	                                lines.addAll(readXlsLines(singleFileUnz, skipColumnName));
+    	                            } else if (FileUtility.XLSX.equalsIgnoreCase(extSingleFileUnz)) {
+    	                                lines.addAll(readXlsxLines(singleFileUnz, skipColumnName));
+    	                            } else {
+    	                                //throw new IllegalArgumentException("Estensione file non supportata: " + ext);
+    	                            }
+	                			}
+	                        } catch (Exception e) {
+	                        	LogUtil.logException(logger, "Errore lettura file "+ext+"", e);
+	                        }
+
+	                        // *** VALIDAZIONE RIGHE ***
+	                        try {
+	                            Integer seek = 0;
+
+	                            BaseSearchInput poInput = new BaseSearchInput();
+	                            poInput.setValue("idTable", table.getId());
+	                            List<FlowForeignKeyDO> fkList = flowForeignKeyDAO.cerca(poInput);
+	                            fkList.sort((o1, o2) -> o1.getIdFieldTableReferenced().getPosition()
+	                                    .compareTo(o2.getIdFieldTableReferenced().getPosition()));
+
+	                            Map<String, String> fkMap = extractFks(sections, fkList);
+	                            Map<String, Integer> headerIndexMap = new HashMap<>();
+	                            
+                            	if (FileUtility.TEXT.equalsIgnoreCase(ext) || FileUtility.CSV.equalsIgnoreCase(ext) || FileUtility.XLS.equalsIgnoreCase(ext) || FileUtility.XLSX.equalsIgnoreCase(ext)) {
+                            		headerIndexMap = loadHeaderLine(ext, skipColumnName, file, fields);
+                            	} else {
+                            		if (!listaZipFiles.isEmpty()) {
+                            			String extSingleFileUnz="";
+    	                				int index = listaZipFiles.get(0).getName().lastIndexOf('.');
+    	                				if(index > 0) {
+    	                			    	extSingleFileUnz = listaZipFiles.get(0).getName().substring(index + 1);
+    	                				}
+                            			headerIndexMap = loadHeaderLine(extSingleFileUnz, skipColumnName, listaZipFiles.get(0), fields);
+                            		}
+                            	}
+	                            
+	                            for (String line : lines) {
+	                                seek++;
+	                                String pkValue = "";
+	                                String pkDescription = "";
+	                                Boolean checkPk = true;
+	                                int fieldPosition = 0;
+	                                String[] splittedLine = line.split(";");
+
+	                                for (FormFlowTableFieldDTO field : fields) {
+
+	                                    String fieldValue = "";
+
+	                                    if (skipColumnName) {
+                                            if (fieldPosition < splittedLine.length) {
+                                                fieldValue = splittedLine[fieldPosition].trim();
+                                            } else {
+                                                fieldValue = "";
+                                            }
+	                                    } else {
+	                                        Integer colIndex = null;
+	                                        if (headerIndexMap.containsKey(field.getName().toUpperCase())) {
+	                                            colIndex = headerIndexMap.get(field.getName().toUpperCase());
+	                                        } else if (headerIndexMap.containsKey(field.getDescription().toUpperCase())) {
+	                                            colIndex = headerIndexMap.get(field.getDescription().toUpperCase());
+	                                        }
+	                                        if (colIndex != null) {
+	                                            fieldValue = (colIndex < splittedLine.length) ? splittedLine[colIndex].trim() : "";
+	                                        } else {
+	                                            errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                    + ": Colonna '" + field.getDescription()
+	                                                    + "' non trovata nell'intestazione file.",
+	                                                    request, table.getSection(), seek));
+	                                            fieldValue = "";
+	                                        }
+	                                    }
+
+	                                    // validazioni
+	                                    if ("CODICEAZIENDA".equalsIgnoreCase(field.getName()) || "CODICEAZIENDA".equalsIgnoreCase(field.getDescription())) {
+	                                    	if (aziende.isEmpty() || (!aziende.isEmpty() && aziende.contains(fieldValue))) {
+	                                    		aziendeLoadedInFile.add(fieldValue);
+	                                    	} else {
+	                                    		errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                    + ":  Azienda '" + fieldValue + "' non autorizzata rispetto alla profilatura configurata per l'utente loggato",
+	                                                    request, table.getSection(), seek));
+	                                    	}
+	                                    }
+
+	                                    if (field.isPk()) {
+	                                    	String normalizedPkFieldValue = normalizePkFragment(field, fieldValue);
+	                                        pkValue += normalizedPkFieldValue;
+	                                        pkDescription += field.getName() + "=" + fieldValue + " ";
+	                                        //considero campo chiave se è primary key e obbligatorio per consentire casi in cui il campo chiave potrebbe non esserci
+	                                        if (field.isMandatory() && fieldValue.isEmpty()) {
+	                                            checkPk = false;
+	                                            errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                    + ":  Campo chiave '" + field.getDescription() + "' assente",
+	                                                    request, table.getSection(), seek));
+	                                        }
+	                                    } else if (field.isMandatory() && fieldValue.isEmpty()) {
+	                                        errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                + ":  Campo obbligatorio '" + field.getDescription() + "' assente",
+	                                                request, table.getSection(), seek));
+	                                    }
+
+	                                    if ((field.isReferenceDate() || field.getFieldType().toLowerCase().equals("date")) && !fieldValue.isEmpty()) {
+	                                        if (field.getRegExp() != null && !field.getRegExp().isEmpty()) {
+	                                            if (!fieldValue.matches(FileUtility.normalizeRegexFromDb(field.getRegExp()))) {
+	                                                errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                        + ": Formato '" + field.getDescription()
+	                                                        + "' non valido per la data '" + fieldValue
+	                                                        + "'. Formato valido = '" + field.getRegExp() + "'",
+	                                                        request, table.getSection(), seek));
+	                                            } else if (!FileUtility.isValidDate(fieldValue)) {
+	                                                errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                        + ": Data '" + fieldValue + "' non valida.",
+	                                                        request, table.getSection(), seek));
+	                                            }
+	                                        } else {
+	                                            if (!fieldValue.matches(cfgDateFormat)) {
+	                                                errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                        + ": Formato '" + field.getDescription()
+	                                                        + "' non valido per la data '" + fieldValue
+	                                                        + "'. Formato valido = '" + cfgDateFormat + "'",
+	                                                        request, table.getSection(), seek));
+	                                            } else if (!FileUtility.isValidDate(fieldValue)) {
+	                                                errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                        + ": Data '" + fieldValue + "' non valida.",
+	                                                        request, table.getSection(), seek));
+	                                            }
+	                                        }
+	                                    } else if ("integer".equalsIgnoreCase(field.getFieldType()) && !fieldValue.isEmpty()) {
+	                                        if (!FileUtility.isValidInteger(fieldValue)) {
+	                                            errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                    + ": Numero '" + fieldValue + "' non valido.",
+	                                                    request, table.getSection(), seek));
+	                                        }
+	                                    }
+	                                    
+	                                    if (skipColumnName) {
+                                    		fieldPosition++;
+	                                    }
+	                                    
+	                                }
+
+	                                if (checkPk) {
+	                                    if (pkMap.containsKey(pkValue)) {
+	                                        errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                + ": Chiave duplicata = '" + pkMap.get(pkValue) + "' già presente nel file di importazione",
+	                                                request, table.getSection(), seek));
+	                                    } else {
+	                                        pkMap.put(pkValue, pkDescription);
+	                                    }
+	                                    
+	                                    if (pkMapAll.containsKey(pkValue)) {
+	                                        errors.add(createError("'" + table.getDescription() + "' - Riga " + seek
+	                                                + ": Chiave duplicata = '" + pkMap.get(pkValue) + "' già presente nella tabella del verticale FM_FLOW_" + flowConfiguration.getCode() + "_" + flowSectionFile.getSection() + ", importata tramite extraction id=" + pkMapAll.get(pkValue) + "",
+	                                                request, table.getSection(), seek));
+	                                    }
+	                                    
+	                                }
+	                            }
+	                        } finally {
+	                            if (!errors.isEmpty()) {
+	                                result = false;
+	                                File checkFile = File.createTempFile("controllo_" + table.getDescription(), "");
+	                                try (PrintStream ps = new PrintStream(checkFile)) {
+	                                    for (FlowFileUploadRequestErrorDO error : errors) {
+	                                        ps.println(error.getError());
+	                                    }
+	                                }
+	                                flowSectionFile.getSectionFileList().get(0)
+	                                        .setWellFormedFile(Files.toByteArray(checkFile));
+	                                errors.clear();
+	                            }
+	                            file.delete();
+	                        }
+	                    }
+	                }
+	            }
+	        }
+
+	        List<String> aziendeLoadedInFileRaggr = aziendeLoadedInFile.stream()
+	                .distinct().filter(Objects::nonNull).collect(Collectors.toList());
+	        request.setAziendeLoadedInFile(String.join(",", aziendeLoadedInFileRaggr));
+	    }
+
+	    return result;
+	}
+	
+	public static List<String> readXlsxStreaming(File file, boolean skipColumnName) throws Exception {
+        List<String> lines = new ArrayList<>();
+
+        try (OPCPackage pkg = OPCPackage.open(file)) {
+            ReadOnlySharedStringsTable strings = new ReadOnlySharedStringsTable(pkg);
+            XSSFReader xssfReader = new XSSFReader(pkg);
+            StylesTable styles = xssfReader.getStylesTable();
+
+            XSSFReader.SheetIterator iter = (XSSFReader.SheetIterator) xssfReader.getSheetsData();
+            if (!iter.hasNext()) {
+                throw new IllegalArgumentException("File XLSX vuoto");
+            }
+
+            // prendiamo il primo foglio
+            try (InputStream sheetStream = iter.next()) {
+            	XMLReader parser = XMLReaderFactory.createXMLReader();
+            	SheetXlsxStreamingHandler handler = new SheetXlsxStreamingHandler(strings, styles, lines, skipColumnName);
+                parser.setContentHandler(handler);
+                parser.parse(new InputSource(sheetStream));
+            }
+        } catch (Exception e) {
+        	LogUtil.logException(logger, "Errore lettura XLSX", e);
+        	
+	        throw new IOException("Errore lettura XLSX : ", e);
+	    }
+        return lines;
+    }
+	
+	static class SheetXlsxStreamingHandler extends DefaultHandler {
+		private final ReadOnlySharedStringsTable strings;
+	    private final StylesTable styles;
+	    private final List<String> lines;
+	    private final boolean skipColumnName;
+
+	    private boolean firstRow = true;
+	    private boolean isValue;
+	    private String cellType;
+	    private StringBuilder currentRow;
+	    private StringBuilder lastContentsBuilder = new StringBuilder();
+	    private int lastColumnIndex = -1;  // ultima colonna scritta
+	    
+	    // Formatter di uscita (sempre uniforme)
+	    final DateFormat df  = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
+	    
+	    // Formatter di uscita uniforme
+	    private static final ThreadLocal<DateFormat> OUTPUT_DF =
+	            ThreadLocal.withInitial(() -> new SimpleDateFormat("dd/MM/yyyy HH:mm:ss"));
+
+	    SheetXlsxStreamingHandler(ReadOnlySharedStringsTable strings,
+	                               StylesTable styles,
+	                               List<String> lines,
+	                               boolean skipColumnName) {
+	        this.strings = strings;
+	        this.styles = styles;
+	        this.lines = lines;
+	        this.skipColumnName = skipColumnName;
+	    }
+
+	    private int thisCol = -1;
+
+	    @Override
+	    public void startElement(String uri, String localName, String qName, Attributes attributes) {
+	        if ("row".equals(localName)) {
+	            currentRow = new StringBuilder(256);
+	            lastColumnIndex = -1;
+	        } else if ("c".equals(localName)) {
+	            cellType = attributes.getValue("t");
+	            String r = attributes.getValue("r");
+	            if (r != null) {
+	                String col = r.replaceAll("[0-9]", "");
+	                thisCol = nameToColumn(col);
+	            } else {
+	                thisCol = lastColumnIndex + 1;
+	            }
+
+	            // recupera lo style index
+	            String s = attributes.getValue("s");
+	            if (s != null) {
+	                try {
+	                    int styleIndex = Integer.parseInt(s);
+	                    XSSFCellStyle style = styles.getStyleAt(styleIndex);
+	                    if (DateUtil.isADateFormat(style.getDataFormat(), style.getDataFormatString())) {
+	                        cellType = "d"; // forza tipo "date"
+	                    }
+	                } catch (Exception ignore) {}
+	            }
+
+	            // aggiungi ; per eventuali celle vuote
+	            for (int i = lastColumnIndex + 1; i < thisCol; i++) {
+	                currentRow.append(";");
+	            }
+	        } else if ("v".equals(localName) || "t".equals(localName)) {
+	            isValue = true;
+	            lastContentsBuilder.setLength(0);
+	        }
+	    }
+
+	    @Override
+	    public void characters(char[] ch, int start, int length) {
+	        if (isValue) {
+	            lastContentsBuilder.append(ch, start, length);
+	        }
+	    }
+
+	    @Override
+	    public void endElement(String uri, String localName, String qName) {
+	    	if ("v".equals(localName) || "t".equals(localName)) {
+	    	    String lastContents = lastContentsBuilder.toString();
+	    	    String value = "";
+
+	    	    if ("s".equals(cellType)) {
+	    	        try {
+	    	            int idx = Integer.parseInt(lastContents);
+	    	            value = strings.getItemAt(idx).getString();
+	    	        } catch (NumberFormatException e) {
+	    	            value = "";
+	    	        }
+	    	    } else if ("d".equals(cellType)) {
+	    	        try {
+	    	            double d = Double.parseDouble(lastContents);
+//                        value = OUTPUT_DF.get().format(DateUtil.getJavaDate(d));
+	    	            value = FileUtility.tryParseDateToString(DateUtil.getJavaDate(d));
+	    	        } catch (NumberFormatException e) {
+	    	            value = lastContents;
+	    	        }
+	    	    } else { // numeri o altro
+	    	        value = lastContents;
+	    	    }
+
+	    	    currentRow.append(value);
+	    	    isValue = false;    	
+	    	    
+	        } else if ("c".equals(localName)) {
+	            // chiusura cella -> sempre aggiungere il separatore
+	            currentRow.append(";");
+	            lastColumnIndex = thisCol;
+	            
+	        } else if ("row".equals(localName)) {
+	            if (firstRow && !skipColumnName) {
+	                firstRow = false;
+	                return;
+	            }
+	            if (currentRow != null) {
+	                lines.add(currentRow.toString());
+	            }
+	            firstRow = false;
+	        }
+	    }
+
+	    private static int nameToColumn(String name) {
+	        int column = -1;
+	        for (int i = 0; i < name.length(); ++i) {
+	            int c = name.charAt(i);
+	            column = (column + 1) * 26 + c - 'A';
+	        }
+	        return column;
+	    }
+	}
+	
+	public static String readFirstRowXlsxStreaming(File file) throws Exception {
+	    final StringBuilder headerLine = new StringBuilder();
+
+	    try (OPCPackage pkg = OPCPackage.open(file)) {
+	        ReadOnlySharedStringsTable strings = new ReadOnlySharedStringsTable(pkg);
+	        XSSFReader xssfReader = new XSSFReader(pkg);
+
+	        XSSFReader.SheetIterator iter = (XSSFReader.SheetIterator) xssfReader.getSheetsData();
+	        if (!iter.hasNext()) {
+	            throw new IllegalArgumentException("File XLSX vuoto");
+	        }
+
+	        try (InputStream sheetStream = iter.next()) {
+	            XMLReader parser = XMLReaderFactory.createXMLReader();
+	            FirstRowXlsxStreamingHandler handler = new FirstRowXlsxStreamingHandler(strings, headerLine);
+	            parser.setContentHandler(handler);
+	            parser.parse(new InputSource(sheetStream));
+	        }
+	    }
+
+	    return headerLine.length() > 0 ? headerLine.toString().replaceAll(";$", "") : null;
+	}
+	
+	static class FirstRowXlsxStreamingHandler extends DefaultHandler {
+	    private final ReadOnlySharedStringsTable strings;
+	    private final StringBuilder headerLine;
+	    private boolean isValue;
+	    private String cellType;
+	    private StringBuilder lastContentsBuilder = new StringBuilder();
+	    private StringBuilder currentRow;
+	    private boolean finished = false; // per fermarsi dopo la prima riga
+
+	    FirstRowXlsxStreamingHandler(ReadOnlySharedStringsTable strings, StringBuilder headerLine) {
+	        this.strings = strings;
+	        this.headerLine = headerLine;
+	    }
+
+	    @Override
+	    public void startElement(String uri, String localName, String qName, Attributes attributes) throws SAXException {
+	        if (finished) return;
+
+	        if ("row".equals(localName)) {
+	            currentRow = new StringBuilder();
+	        } else if ("c".equals(localName)) {
+	            cellType = attributes.getValue("t"); 
+	        } else if ("v".equals(localName) || "t".equals(localName)) {
+	            isValue = true;
+	            lastContentsBuilder.setLength(0);
+	        }
+	    }
+
+	    @Override
+	    public void characters(char[] ch, int start, int length) throws SAXException {
+	        if (isValue && !finished) {
+	            lastContentsBuilder.append(ch, start, length);
+	        }
+	    }
+
+	    @Override
+	    public void endElement(String uri, String localName, String qName) throws SAXException {
+	        if (finished) return;
+
+	        if ("v".equals(localName) || "t".equals(localName)) {
+	            String lastContents = lastContentsBuilder.toString();
+	            String value = "";
+
+	            try {
+	                if ("s".equals(cellType)) {
+	                    int idx = Integer.parseInt(lastContents);
+	                    value = strings.getItemAt(idx).getString();
+	                } else {
+	                    value = lastContents;
+	                }
+	            } catch (Exception e) {
+	                value = "";
+	            }
+
+	            currentRow.append(value.trim()).append(";");
+	            isValue = false;
+	        }
+	        else if ("row".equals(localName)) {
+	            // alla chiusura della prima riga, salvi e ci fermiamo
+	            headerLine.append(currentRow.toString());
+	            finished = true;
+//	            throw new SAXException("STOP"); // forza lo stop del parser
+	        }
+	    }
+	}
+	
+	/**
+	 * RECUPERA LE FK - SE ESISTONO - DELLA SEZIONE REFERENZIATA DALLA SEZIONE REFERENZIANTE
+	 * 
+	 * @param referencingTable
+	 * @param flowSectionFilesToCheck
+	 * @return
+	 * @throws IOException
+	 */
+	private Map<String, String> extractFks(List<FlowSectionFileDO> flowSectionFilesToCheck, List<FlowForeignKeyDO> fkList) throws IOException {
+	    File referencedFile = null;
+	    Map<String, String> fkMap = new HashMap<>();
+
+	    if (fkList == null || fkList.isEmpty()) return fkMap;
+
+	    try {
+	        for (FlowForeignKeyDO fk : fkList) {
+	            FlowTableDO referencedTable = fk.getIdTableReferenced();
+	            Integer referencedSection = referencedTable.getSection();
+
+	            for (FlowSectionFileDO referencedSectionFile : flowSectionFilesToCheck) {
+	                if (referencedSectionFile.getSection().equals(referencedSection)) {
+	                    referencedFile = File.createTempFile(referencedTable.getName(), "." + FileUtility.TEXT);
+	                    FileUtils.writeByteArrayToFile(referencedFile, referencedSectionFile.getSectionFileList().get(0).getFile());
+	                    break;
+	                }
+	            }
+	            if (referencedFile != null) break;
+	        }
+
+	        if (referencedFile == null) {
+	            return fkMap; // niente da confrontare
+	        }
+
+	        try (BufferedReader referencedbr = new BufferedReader(new FileReader(referencedFile))) {
+	            String referencedLine = referencedbr.readLine();
+	            while (referencedLine != null) {
+	                String refedValue = "";
+	                for (FlowForeignKeyDO fk : fkList) {
+	                    FlowTableFieldDO referencedField = fk.getIdFieldTableReferenced();
+
+	                    int refPosition = 0;
+	                    for (FlowTableFieldDO afield : fk.getIdTableReferenced().getFields()) {
+	                        if (afield.getPosition().compareTo(referencedField.getPosition()) < 0) {
+	                            refPosition += afield.getLength();
+	                        }
+	                    }
+
+	                    int refLength = referencedField.getLength();
+	                    if ("date".equalsIgnoreCase(referencedField.getFieldType()) || Boolean.TRUE.equals(referencedField.getReferenceDate())) {
+	                        if (referencedField.getLength() != null) refLength = referencedField.getLength();
+	                        else if (referencedField.getRegExp() != null) refLength = FileUtility.getMaxLengthRegex(referencedField.getRegExp());
+	                        else refLength = 10;
+	                    }
+
+	                    if (referencedLine.length() >= refPosition + refLength) {
+	                        refedValue += referencedLine.substring(refPosition, refPosition + refLength).trim() + "_";
+	                    }
+	                }
+	                fkMap.put(refedValue, refedValue);
+	                referencedLine = referencedbr.readLine();
+	            }
+	        }
+
+	        return fkMap;
+
+	    } finally {
+	        if (referencedFile != null) {
+	            try { referencedFile.delete(); } catch (Exception ignore) {}
+	        }
+	    }
+	}
+
+	private FlowFileUploadRequestErrorDO createError(String description, FlowFileUploadRequestDO request, Integer section, Integer record) {
+		FlowFileUploadRequestErrorDO error = new FlowFileUploadRequestErrorDO();
+		error.setId(UUID.randomUUID().toString());
+		error.setRequest(request);
+		error.setError(description);
+		error.setSection(section);
+		error.setIndexRecord(record);
+		return error;
+	}
+
+	private FormFlowDTO retrieveConfiguration(FlowDO flow, VersionDO version) {
+		BaseSearchInput searchInput = new BaseSearchInput();
+		searchInput.setValue("flowId", flow.getId());
+		searchInput.setValue("versionId", version.getId());
+		Pair<List<FormFlowDTO>, SearchInfo> searchResults = formFlowService.retrieveAllFiltered(searchInput);
+		FormFlowDTO configuration = searchResults.getFirst().get(0);
+		return configuration;
+	}
+
+	private Map<String, String> loadPrimaryKeysMap(String tableName, int section, List<FormFlowTableFieldDTO> fieldList) throws SQLException {
+
+	    final List<FormFlowTableFieldDTO> pkFields = fieldList.stream()
+	            .filter(FormFlowTableFieldDTO::isPk)
+	            .sorted(Comparator.comparing(FormFlowTableFieldDTO::getPosition))
+	            .collect(Collectors.toList());
+
+	    if (pkFields.isEmpty()) {
+	        throw new IllegalStateException("Nessun campo PK definito per la tabella " + tableName);
+	    }
+
+	    final String pkColumns = pkFields.stream()
+	            .map(FormFlowTableFieldDTO::getName)
+	            .collect(Collectors.joining(", "));
+
+	    final String fullTableName = "FM_FLOW_" + tableName + "_" + section;
+	    final String sql = "SELECT " + pkColumns + ", EXTRACTION_ID FROM " + fullTableName;
+
+	    final AtomicReference<Map<String, String>> outRef = new AtomicReference<>(new LinkedHashMap<>());
+
+	    try {
+	        Session session = entityManager.unwrap(Session.class);
+	        session.doWork(conn -> {
+	            Map<String, String> pkMap = new LinkedHashMap<>();
+
+	            try (PreparedStatement ps = conn.prepareStatement(
+	                    sql,
+	                    ResultSet.TYPE_FORWARD_ONLY,
+	                    ResultSet.CONCUR_READ_ONLY
+	            )) {
+	                ps.setFetchSize(500);
+
+	                try (ResultSet rs = ps.executeQuery()) {
+	                    while (rs.next()) {
+	                        StringBuilder sb = new StringBuilder(128);
+
+	                        for (FormFlowTableFieldDTO f : pkFields) {
+	                            Object v = rs.getObject(f.getName());
+	                            sb.append(normalizePkFragment(f, v));
+	                        }
+
+	                        String pkValue = sb.toString();
+	                        String extractionId = rs.getString("EXTRACTION_ID");
+	                        pkMap.put(pkValue, extractionId != null ? extractionId : "");
+	                    }
+	                }
+
+	            } catch (SQLException e) {
+	                LogUtil.logException(logger, "", e);
+	                throw new RuntimeException("Errore caricamento PK per tabella " + fullTableName, e);
+	            }
+
+	            outRef.set(pkMap);
+	        });
+
+	        return outRef.get();
+
+	    } catch (RuntimeException re) {
+	        LogUtil.logException(logger, "", re);
+
+	        Throwable cause = re.getCause();
+	        if (cause instanceof SQLException se) {
+	            throw se;
+	        }
+	        throw new SQLException("Errore caricamento PK per tabella FM_FLOW_" + tableName + "_" + section, re);
+	    }
+	}
+	
+	private List<String> readTxtLines(File file, List<FormFlowTableFieldDTO> fields) throws IOException {
+	    List<String> lines = new ArrayList<>();
+
+	    // Ordina i campi per posizione
+	    fields.sort(Comparator.comparing(FormFlowTableFieldDTO::getPosition));
+
+	    // Calcola la lunghezza totale prevista della riga
+	    int totalLength = fields.stream()
+	            .mapToInt(f -> {
+	                try {
+	                    return Integer.parseInt(f.getLength());
+	                } catch (Exception e) {
+	                    return 0;
+	                }
+	            })
+	            .sum();
+
+	    try (BufferedReader br = new BufferedReader(
+	            new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+
+	        String line;
+	        int rowNum = 0;
+
+	        while ((line = br.readLine()) != null) {
+	            rowNum++;
+
+	            // 🔹 Rimozione sicura (mantiene la stessa lunghezza)
+	            line = line
+	                    .replace('\uFEFF', ' ') // BOM
+	                    .replaceAll("\"", " ")  // doppi apici
+	                    .replaceAll(";", " ")   // punti e virgola
+	                    .replaceAll("\\t", " ") // tabulazioni
+	                    .replaceAll("[\\r\\n]", " "); // CRLF
+
+	            // 🔹 Normalizza lunghezza (padding o taglio)
+	            if (line.length() < totalLength) {
+	                line = String.format("%-" + totalLength + "s", line);
+	            } else if (line.length() > totalLength) {
+	                line = line.substring(0, totalLength);
+	            }
+
+	            int pos = 0;
+	            StringBuilder sb = new StringBuilder();
+
+	            for (int i = 0; i < fields.size(); i++) {
+	                FormFlowTableFieldDTO field = fields.get(i);
+	                int len = 0;
+	                try {
+	                    len = Integer.parseInt(field.getLength());
+	                } catch (Exception e) {
+	                	LogUtil.logException(logger, "Errore su Campo "+field.getName()+" con lunghezza non valida", e);
+	                    continue;
+	                }
+
+	                int end = Math.min(pos + len, line.length());
+	                String fieldValue = line.substring(pos, end);
+	                pos = end;
+
+	                // Rimuove spazi di contorno ma mantiene lunghezza interna costante
+	                String trimmed = fieldValue.trim();
+
+	                sb.append(trimmed);
+	                if (i < fields.size() - 1) {
+	                    sb.append(";");
+	                }
+	            }
+
+	            lines.add(sb.toString());
+	        }
+
+	    } catch (Exception e) {
+	    	LogUtil.logException(logger, "Errore lettura TXT a larghezza fissa", e);
+	    	
+	        throw new IOException("Errore lettura TXT a larghezza fissa : ", e);
+	    }
+
+	    return lines;
+	}
+	
+	private List<String> readCsvLines(File file, boolean skipColumnName) throws IOException {
+	    List<String> lines = new ArrayList<>();
+	    try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+	        String line;
+	        boolean firstRow = true;
+	        while ((line = br.readLine()) != null) {
+	            if (!skipColumnName && firstRow) {
+	                firstRow = false;
+	                continue;
+	            }
+	            lines.add(line.replaceAll("\"", "").trim());
+	            firstRow = false;
+	        }
+	    } catch (Exception e) {
+	    	LogUtil.logException(logger, "Errore lettura CSV", e);
+	    	
+	        throw new IOException("Errore lettura CSV : ", e);
+	    }
+	    return lines;
+	}
+	
+	private List<String> readXlsLines(File file, boolean skipColumnName) throws IOException {
+	    List<String> lines = new ArrayList<>();
+	    jxl.Workbook workbook = null;
+	    try {
+	        workbook = jxl.Workbook.getWorkbook(file);
+	        jxl.Sheet sheet = workbook.getSheet(0);
+	        int rows = sheet.getRows();
+	        int cols = sheet.getColumns();
+	        for (int r = 0; r < rows; r++) {
+	            if (!skipColumnName && r == 0) continue;
+	            StringBuilder sb = new StringBuilder();
+	            for (int c = 0; c < cols; c++) {
+	                jxl.Cell cell = sheet.getCell(c, r);
+	                sb.append(cell.getContents());
+	                if (c < cols - 1) sb.append(";");
+	            }
+	            lines.add(sb.toString());
+	        }
+	    } catch (Exception e) {
+	    	LogUtil.logException(logger, "Errore lettura XLS", e);
+
+	        throw new IOException("Errore lettura XLS : ", e);
+	    } finally {
+	        if (workbook != null) workbook.close();
+	    }
+	    return lines;
+	}
+	
+	private List<String> readXlsxLines(File file, boolean skipColumnName) throws IOException {
+	    try {
+	        return readXlsxStreaming(file, skipColumnName); // usa la tua implementazione esistente
+	    } catch (Exception e) {
+	    	LogUtil.logException(logger, "Errore lettura XLSX", e);
+	    	
+	        throw new IOException("Errore lettura XLSX : ", e);
+	    }
+	}
+	
+	private Map<String, Integer> loadHeaderLine (String ext, boolean skipColumnName, File file,  List<FormFlowTableFieldDTO> fields) {
+		Map<String, Integer> headerIndexMap =  new HashMap<>();
+		try {
+			if (FileUtility.TEXT.equalsIgnoreCase(ext) || skipColumnName) {
+		        // Caso skipColumnName = true → popolo da DTO
+		        for (FormFlowTableFieldDTO field : fields) {
+		            if (field.getName() != null) {
+		                headerIndexMap.put(field.getName().trim().toUpperCase(), field.getPosition());
+		            } else {
+		            	// opzionale: posso anche aggiungere la description come chiave alternativa
+		                if (field.getDescription() != null) {
+		                    headerIndexMap.put(field.getDescription().trim().toUpperCase(), field.getPosition());
+		                }
+		            }
+		        }
+		    } else {
+		        // Caso skipColumnName = false → leggo intestazioni dal file
+		        String headerLine = null;
+		        if (FileUtility.CSV.equalsIgnoreCase(ext)) {
+		            try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+		                headerLine = br.readLine();
+		                if (headerLine != null) {
+		                    headerLine = headerLine
+		                    	    .replace("\uFEFF", "")    // rimuove BOM UTF-8
+		                    	    .replaceAll("\"", "")
+		                    	    .trim();
+		                }
+		            }
+		        } else if (FileUtility.XLS.equalsIgnoreCase(ext)) {
+		            jxl.Workbook wb = null;
+					try {
+						wb = jxl.Workbook.getWorkbook(file);
+					} catch (Exception e) {
+						LogUtil.logException(logger, "", e);
+//						e.printStackTrace();
+					}
+		            jxl.Sheet sheet = wb.getSheet(0);
+		            jxl.Cell[] headerCells = sheet.getRow(0);
+		            headerLine = Arrays.stream(headerCells).map(jxl.Cell::getContents)
+		                               .collect(Collectors.joining(";"));
+		            wb.close();
+		        } else if (FileUtility.XLSX.equalsIgnoreCase(ext)) {
+		        	try {
+		        		headerLine = readFirstRowXlsxStreaming(file);
+		        	} catch (Exception e) {
+		        		LogUtil.logException(logger, "", e);
+//						e.printStackTrace();
+					}
+		        }
+	
+		        if (headerLine != null) {
+		            String[] headers = headerLine.split(";");
+		            for (int i = 0; i < headers.length; i++) {
+		                String normalizedHeader = headers[i]
+		                    .replace("\uFEFF", "")
+		                    .trim()
+		                    .toUpperCase();
+		                headerIndexMap.put(normalizedHeader, i);
+		            }
+		        }
+		    }
+						
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+	    }
+		return headerIndexMap;
+	}
+	
+	private String normalizePkFragment(FormFlowTableFieldDTO field, Object rawValue) {
+	    if (rawValue == null) {
+	        return "";
+	    }
+
+	    if (!"Date".equalsIgnoreCase(field.getFieldType()) && !field.isReferenceDate()) {
+	        return String.valueOf(rawValue).trim();
+	    }
+
+	    Date dateValue;
+
+	    if (rawValue instanceof Timestamp) {
+	        dateValue = new Date(((Timestamp) rawValue).getTime());
+	    } else if (rawValue instanceof java.sql.Date) {
+	        dateValue = new Date(((java.sql.Date) rawValue).getTime());
+	    } else if (rawValue instanceof Date) {
+	        dateValue = (Date) rawValue;
+	    } else {
+	        dateValue = parsePkDateValue(String.valueOf(rawValue));
+	    }
+
+	    dateValue = normalizeDateForOracle(dateValue);
+
+	    SimpleDateFormat canonical = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+	    canonical.setLenient(false);
+	    return canonical.format(dateValue);
+	}
+
+	private Date parsePkDateValue(String value) {
+	    if (value == null || value.trim().isEmpty()) {
+	        return null;
+	    }
+
+	    String v = value.trim();
+
+	    List<String> patterns = Arrays.asList(
+	            "dd/MM/yyyy HH:mm:ss",
+	            "dd/MM/yyyy HH:mm",
+	            "dd/MM/yyyy",
+	            "yyyy-MM-dd HH:mm:ss",
+	            "yyyy-MM-dd HH:mm",
+	            "yyyy-MM-dd",
+	            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+	            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+	            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+	            "yyyy-MM-dd'T'HH:mm:ss"
+	    );
+
+	    for (String pattern : patterns) {
+	        try {
+	            SimpleDateFormat sdf = new SimpleDateFormat(pattern);
+	            sdf.setLenient(false);
+	            return normalizeDateForOracle(sdf.parse(v));
+	        } catch (ParseException e) {
+	            // provo il successivo
+	        }
+	    }
+
+	    throw new IllegalArgumentException("Formato data PK non gestito: " + value);
+	}
+
+	private Date normalizeDateForOracle(Date date) {
+	    if (date == null) {
+	        return null;
+	    }
+
+	    Calendar cal = Calendar.getInstance();
+	    cal.setTime(date);
+	    cal.set(Calendar.MILLISECOND, 0);
+	    return cal.getTime();
+	}
+	
+}

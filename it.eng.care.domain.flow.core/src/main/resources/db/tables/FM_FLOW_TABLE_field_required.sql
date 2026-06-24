@@ -1,0 +1,1 @@
+ALTER TABLE fm_flow_table ADD (REQUIRED number);

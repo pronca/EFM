@@ -1,0 +1,5 @@
+package it.eng.care.domain.flow.jobs.enumeration;
+
+public enum SchedulingIntervalEnum {
+    DAILY, WEEKLY, MONTHLY, YEARLY, MINUTES, SECONDS;
+}

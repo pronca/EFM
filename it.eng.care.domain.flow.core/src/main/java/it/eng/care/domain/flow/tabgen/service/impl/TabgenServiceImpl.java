@@ -1,0 +1,1794 @@
+package it.eng.care.domain.flow.tabgen.service.impl;
+
+import java.io.File;
+import java.lang.reflect.Method;
+import java.nio.file.Files;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.GregorianCalendar;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Pattern;
+
+import org.hibernate.ScrollableResults;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.dao.DataAccessException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.stereotype.Service;
+
+import it.eng.care.domain.flow.core.auditLog.ProfilaturaExportConverter;
+import it.eng.care.domain.flow.core.auditLog.ProfilaturaViewConverter;
+import it.eng.care.domain.flow.core.utility.ExcelUtil;
+import it.eng.care.domain.flow.core.utility.FileUtility;
+import it.eng.care.domain.flow.core.utility.GenericArchive;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.tabgen.converter.TabgenDOToDTOBareConverter;
+import it.eng.care.domain.flow.tabgen.converter.TabgenDOToDTOWithValuesConverter;
+import it.eng.care.domain.flow.tabgen.converter.TabgenFieldDOToDTOWithTableConverter;
+import it.eng.care.domain.flow.tabgen.converter.TabgenValueDOToDTOWithTableAndFieldConverter;
+import it.eng.care.domain.flow.tabgen.dao.TabgenDAO;
+import it.eng.care.domain.flow.tabgen.dao.TabgenFieldDAO;
+import it.eng.care.domain.flow.tabgen.dao.TabgenValueDAO;
+import it.eng.care.domain.flow.tabgen.dao.querySearch.TabgenDAOImpl;
+import it.eng.care.domain.flow.tabgen.dao.querySearch.TabgenValueDAOImpl;
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.CheckDateTypeEnum;
+import it.eng.care.domain.flow.tabgen.dto.OperationTypeEnum;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenField;
+import it.eng.care.domain.flow.tabgen.dto.TabgenFilter;
+import it.eng.care.domain.flow.tabgen.dto.TabgenMap;
+import it.eng.care.domain.flow.tabgen.dto.TabgenType;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueMap;
+import it.eng.care.domain.flow.tabgen.entity.TabgenDO;
+import it.eng.care.domain.flow.tabgen.entity.TabgenFieldDO;
+import it.eng.care.domain.flow.tabgen.entity.TabgenValueDO;
+import it.eng.care.domain.flow.tabgen.exception.InvalidTabgenOperationException;
+import it.eng.care.domain.flow.tabgen.service.TabgenService;
+import it.eng.care.domain.flow.tabgen.utility.TabgenUtility;
+import it.eng.care.platform.audit.api.model.privacymanager.annotation.PrivacyManagerLog;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventActionEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventCategoryEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityTypeEnum;
+import it.eng.care.platform.common.dozer.converter.DozerConverter;
+import it.eng.care.platform.common.lang.StringUtils;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Table;
+import jakarta.transaction.Transactional;
+
+@Service
+@Transactional
+public class TabgenServiceImpl implements TabgenService {
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(TabgenServiceImpl.class);
+	
+	//@Value("${tabgen.temp.dir}")
+	//private String expDir;
+	
+	@Autowired
+	private TabgenDAO tabgenDAO;
+	
+	@Autowired
+	private TabgenFieldDAO tabgenFieldDAO;
+	
+	@Autowired
+	private TabgenValueDAO tabgenValueDAO;
+	
+	@Autowired
+	private TabgenValueDAOImpl tabgenValueDAOImpl;
+	
+	@Autowired
+	private TabgenDAOImpl tabgenDAOImpl;
+	
+	@Autowired
+	private DozerConverter mapper;
+	
+	@Autowired
+	private TabgenValueDOToDTOWithTableAndFieldConverter tabgenValueDOToDTOWithTableAndFieldConverter;
+	
+	@Autowired
+    private EntityManager em;
+	
+	@Override
+	public TabgenDO getTabgenGetById(String id, String fetchRule) throws DataAccessException {
+		return tabgenDAO.getTabgenGetById(id, fetchRule);
+	}
+	
+	@Override
+	public Tabgen getTabgenDTOGetById(String id, String fetchRule) throws DataAccessException {
+		TabgenDO tabgenDO =  getTabgenGetById(id, fetchRule);
+		return mapper.convert(tabgenDO, Tabgen.class, fetchRule);
+	}
+	
+	
+	@Override
+	public TabgenDO saveTabgen(Tabgen tabgenDTO) throws DataAccessException, InvalidTabgenOperationException, Exception {
+		TabgenDO tabgenDO = mapper.convert(tabgenDTO, TabgenDO.class);
+		
+		if (!StringUtils.isEmpty(tabgenDTO.getId())) {
+			// controllo se è nuovo
+			TabgenDO oldTabgen = tabgenDAO.getTabgenGetById(tabgenDTO.getId(),TabgenDOToDTOWithValuesConverter.getMapId());
+			if (oldTabgen != null) {
+				// update
+				// se ha valori non è possibile modificarlo se non nella descrizione
+				if (oldTabgen.getTabgenValues() != null && !oldTabgen.getTabgenValues().isEmpty()) {
+					if (!oldTabgen.equals(tabgenDO)) {
+						InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Updating table is not valid");
+						ex.setOperation(OperationTypeEnum.SAVING_UPDATING_TABLE);
+						// ci sono valori associati alla tabella
+						ex.setTableAssociatedValues(true);
+						throw ex;
+					}
+				}
+				
+				tabgenDO.setDescription(tabgenDO.getDescription());
+			}
+			
+			Map<String, String> fieldsMap = new HashMap<String, String>();
+			Set<TabgenFieldDO> fields = tabgenDO.getTabgenFields();
+			if (fields != null && !fields.isEmpty()) {
+				for (TabgenFieldDO tabgenFieldDO : fields) {
+					
+					if(fieldsMap.containsKey(tabgenFieldDO.getDescription())) {
+						InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving/Updating field of table is not possible: valueColumnName duplicated");
+						ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+						List<String> fieldsE = new ArrayList<String>();
+						fieldsE.add(tabgenFieldDO.getDescription());
+						ex.setFields(fieldsE);
+						ex.setFieldTable(tabgenDO.getDescription());
+						ex.setDuplicatedValueColumnName(true);
+						throw ex;
+					}
+					
+					fieldsMap.put(tabgenFieldDO.getDescription(), tabgenFieldDO.getDescription());
+					
+					tabgenFieldDO.setTabgen(tabgenDO);
+					if (StringUtils.isEmpty(tabgenFieldDO.getTabgenValueColumn())) {
+						if (tabgenFieldDO.getProgressive() != null)
+							tabgenFieldDO.setTabgenValueColumn("FIELD" + tabgenFieldDO.getProgressive());
+					}
+					// controllo che siano field validi nel progressivo e nel valueColumnName
+					if (checkProgressive(tabgenFieldDO) && checkValueColumnName(tabgenFieldDO)) {
+
+					}
+					// se è un nuovo campo gli setto l'id
+					if (StringUtils.isEmpty(tabgenFieldDO.getId()))
+						tabgenFieldDO.setId(UUID.randomUUID().toString());
+				}
+				// setto il numero di campi del tabgen
+				tabgenDO.setFieldNum(fields.size());
+			} else {
+				tabgenDO.setFieldNum(0);
+				tabgenDO.setTabgenFields(new HashSet<TabgenFieldDO>());
+			}
+			if (tabgenDO.getTabgenValues() == null)
+				tabgenDO.setTabgenValues(new HashSet<TabgenValueDO>());
+			return tabgenDAO.save(tabgenDO);
+		} else
+			return null;
+
+	}
+	
+	/**
+	 * Controllo che non esista già tale progressivo per la stessa tabella
+	 * 
+	 * @param field
+	 * @return
+	 * @throws DataAccessException
+	 * @throws Exception
+	 */
+	private boolean checkProgressive(TabgenFieldDO field) throws DataAccessException, InvalidTabgenOperationException {
+		boolean isOk = true;
+		Integer progressive = field.getProgressive();
+		// controllo il progressive
+		if (progressive != null) {
+			BaseSearchInput filter = new BaseSearchInput();
+			filter.setValue("progressive", progressive);
+			filter.setValue("tabgenId", field.getTabgen().getId());
+			// se è un update controllo che sia un progressive non già esistente per tale tabella
+			if (!StringUtils.isEmpty(field.getId())) {
+				filter.setValue("notId", field.getId());
+			}
+			List<TabgenFieldDO> list = tabgenFieldDAO.searchTabgenFieldByFilter(filter);
+			if (list != null && !list.isEmpty()) {
+				InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving/Updating field of table is not possible: progressive already existing");
+				ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+				List<String> fields = new ArrayList<String>();
+				fields.add(field.getDescription());
+				ex.setFields(fields);
+				ex.setFieldTable(field.getTabgen().getId());
+				ex.setDuplicatedProgressive(true);
+				throw ex;
+			}
+		}
+		return isOk;
+	}
+	
+	/**
+	 * Controllo che non esista già un field per la stessa tabella con tale valueColumnName
+	 * 
+	 * @param field
+	 * @return
+	 * @throws DataAccessException
+	 * @throws Exception
+	 */
+	private boolean checkValueColumnName(TabgenFieldDO field) throws DataAccessException, Exception {
+		boolean isOk = true;
+		String valueColumnName = field.getTabgenValueColumn();
+		String columnDescription = field.getDescription();
+		// controllo il valueColumnName
+		if (!StringUtils.isEmpty(valueColumnName)) {
+			// controllo che sia compreso tra field1 e field20
+			String regex1 = "field[0-9]";
+			String regex2 = "field[1-4][0-9]";
+
+			if (!Pattern.matches(regex1, valueColumnName.toLowerCase()) && !Pattern.matches(regex2, valueColumnName.toLowerCase())) {
+				InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving/Updating field of table is not possible: valueColumnName is not valid");
+				ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+				List<String> fields = new ArrayList<String>();
+				fields.add(field.getDescription());
+				ex.setFields(fields);
+				ex.setFieldTable(field.getTabgen().getDescription());
+				ex.setInvalidValueColumnName(true);
+				throw ex;
+			}
+
+			BaseSearchInput filter = new BaseSearchInput();
+			//filter.setValue("tabgenValueColumn", valueColumnName);
+			filter.setValue("tabgenId", field.getTabgen().getId());
+			// se è un update controllo che sia un valueColumnName non già esistente per tale
+			// tabella
+			if (!StringUtils.isEmpty(field.getId())) {
+				filter.setValue("notId", field.getId());
+			}
+			List<TabgenFieldDO> list = tabgenFieldDAO.searchTabgenFieldByFilter(filter);
+			if (list != null && !list.isEmpty()) {
+				for (TabgenFieldDO tabgenFieldDO : list) {
+					if(tabgenFieldDO.getTabgenValueColumn().equals(valueColumnName) || tabgenFieldDO.getDescription().equals(columnDescription)) {
+						InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving/Updating field of table is not possible: valueColumnName already existing");
+						ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+						List<String> fields = new ArrayList<String>();
+						fields.add(field.getDescription());
+						ex.setFields(fields);
+						ex.setFieldTable(field.getTabgen().getDescription());
+						ex.setDuplicatedValueColumnName(true);
+						throw ex;
+					}
+				}
+			}
+		}
+		return isOk;
+	}
+	
+	@Override
+	public TabgenDO saveTabgenForTranscode(Tabgen tabgen) throws DataAccessException, InvalidTabgenOperationException, Exception {
+		// controllo se già esiste, in tal caso esco
+		TabgenDO oldTabgen = (tabgen.getId()== null || tabgen.getId().isBlank()) ? null : tabgenDAO.findById(tabgen.getId()).orElse(null);
+
+		if (oldTabgen != null) {
+			InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving transcode table is not possible: the table does already exists");
+			ex.setOperation(OperationTypeEnum.SAVING_TRANSCODE_TABLE);
+			ex.setDuplicatedTable(true);
+			ex.setSheetName(tabgen.getId());
+			throw ex;
+		}
+		
+		TabgenDO tabgenDO = mapper.convert(tabgen, TabgenDO.class);
+		
+		tabgenDO.setFieldNum(4);
+		tabgenDO.setVisible(1);
+		tabgenDO.setType(TabgenType.TRANSCODIFICHE.name());
+		// creo i 4 field
+		TabgenFieldDO field1 = new TabgenFieldDO();
+		field1.setId(UUID.randomUUID().toString());
+		field1.setProgressive(1);
+		field1.setTabgenValueColumn("FIELD1");
+		field1.setTabgen(tabgenDO);
+		field1.setDescription("VALORE_INPUT");
+		field1.setVisible(1);
+		TabgenFieldDO field2 = new TabgenFieldDO();
+		field2.setId(UUID.randomUUID().toString());
+		field2.setProgressive(2);
+		field2.setTabgenValueColumn("FIELD2");
+		field2.setTabgen(tabgenDO);
+		field2.setDescription("DESCRIZIONE_INPUT");
+		field2.setVisible(1);
+		TabgenFieldDO field3 = new TabgenFieldDO();
+		field3.setId(UUID.randomUUID().toString());
+		field3.setProgressive(3);
+		field3.setTabgenValueColumn("FIELD3");
+		field3.setTabgen(tabgenDO);
+		field3.setVisible(1);
+		field3.setDescription("VALORE_OUTPUT");
+		TabgenFieldDO field4 = new TabgenFieldDO();
+		field4.setId(UUID.randomUUID().toString());
+		field4.setProgressive(4);
+		field4.setTabgenValueColumn("FIELD4");
+		field4.setTabgen(tabgenDO);
+		field4.setDescription("DESCRIZIONE_OUTPUT");
+		field4.setVisible(1);
+		Set<TabgenFieldDO> fields = new HashSet<TabgenFieldDO>();
+		fields.add(field1);
+		fields.add(field2);
+		fields.add(field3);
+		fields.add(field4);
+		tabgenDO.setTabgenFields(fields);
+		return tabgenDAO.save(tabgenDO);
+	}
+
+	@Override
+	public boolean deleteTabgen(String tabgenId, boolean deleteAll, boolean deleteFields, boolean deleteValues) throws DataAccessException, InvalidTabgenOperationException, Exception {
+		TabgenDO tabgen = tabgenDAO.getTabgenGetById(tabgenId, TabgenDOToDTOWithValuesConverter.getMapId());
+		if (tabgen == null)
+			return false;
+		if (!deleteAll && !deleteFields && !deleteValues) {
+			// carico i campi e valori associati a tali campi della tabella
+			Set<TabgenFieldDO> tabgenFields = tabgen.getTabgenFields();
+			Set<TabgenValueDO> tabgenValues = tabgen.getTabgenValues();
+			List<String> fields = new ArrayList<String>();
+			List<String> referencedFields = new ArrayList<String>();
+			List<TabgenValueDO> tabgenFieldValues = null;
+			if (tabgenFields != null && !tabgenFields.isEmpty()) {
+				for (TabgenFieldDO tabgenFieldDO : tabgenFields) {
+					// campi figli di tale campo
+					Set<TabgenFieldDO> referencingFields = tabgenFieldDO.getTabgenFields();
+					if (referencingFields != null && !referencingFields.isEmpty())
+						referencedFields.add(tabgenFieldDO.getDescription());
+					String columnName = tabgenFieldDO.getTabgenValueColumn().toLowerCase();
+					// cerco i tabgenValue con il campo "columnName" valorizzato
+					tabgenFieldValues = getTabgenFieldValues(tabgenFieldDO, null, false, null, null, null);
+					fields.add(tabgenFieldDO.getDescription());
+				}
+			}
+			if ((tabgenFields != null && !tabgenFields.isEmpty()) || (tabgenValues != null && !tabgenValues.isEmpty())) {
+				InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Deleting table is not valid");
+				ex.setOperation(OperationTypeEnum.DELETING_TABLE);
+				// se ho entrambi gli errori
+				if ((tabgenValues != null && !tabgenValues.isEmpty()) && (tabgenFields != null && !tabgenFields.isEmpty())) {
+					// ci sono campi e valori associati alla tabella
+					ex.setTableToDelete(tabgen.getDescription());
+					ex.setTableAssociatedFields(true);
+					ex.setTableAssociatedValues(true);
+					if (!fields.isEmpty())
+						ex.setFields(fields);
+					if (tabgenFieldValues != null && !tabgenFieldValues.isEmpty())
+						ex.setFieldAssociatedValues(true);
+					if (!referencedFields.isEmpty()) {
+						ex.setReferencedFields(referencedFields);
+						ex.setFieldReferencingFields(true);
+					}
+				} else if ((tabgenValues != null && !tabgenValues.isEmpty()) && (tabgenFields == null || tabgenFields.isEmpty())) {
+					// ci sono valori associati alla tabella
+					ex.setTableToDelete(tabgen.getDescription());
+					ex.setTableAssociatedFields(false);
+					ex.setTableAssociatedValues(true);
+				} else if ((tabgenValues == null || tabgenValues.isEmpty()) && (tabgenFields != null && !tabgenFields.isEmpty())) {
+					// ci sono campi associati alla tabella
+					ex.setTableToDelete(tabgen.getDescription());
+					ex.setTableAssociatedFields(true);
+					ex.setTableAssociatedValues(false);
+					if (!fields.isEmpty())
+						ex.setFields(fields);
+					if (tabgenFieldValues != null && !tabgenFieldValues.isEmpty())
+						ex.setFieldAssociatedValues(true);
+					if (!referencedFields.isEmpty()) {
+						ex.setReferencedFields(referencedFields);
+						ex.setFieldReferencingFields(true);
+					}
+				}
+				throw ex;
+			} else {
+				tabgenDAO.deleteById(tabgenId);
+				return true;
+			}
+			// CANCELLA CAMPI E VALORI (ed eventuali legami tra tali campi ed altri campi di altre
+			// tabelle)
+		} else if (deleteAll) {
+			// rompo gli eventuali legami dei campi della tabella con altri campi e poi cancello
+			// tutto (tabella, campi e valori)
+			Set<TabgenFieldDO> fields = tabgen.getTabgenFields();
+			if (fields != null && !fields.isEmpty())
+				for (TabgenFieldDO field : fields) {
+					field = disableFkConstraint(field);
+				}
+			tabgenDAO.deleteById(tabgenId);
+			return true;
+		} else if (deleteFields) {
+			// cancello i campi e i valori, disabilito le eventuali fk
+			Set<TabgenFieldDO> fields = tabgen.getTabgenFields();
+			if (fields != null && !fields.isEmpty()) {
+				for (TabgenFieldDO tabgenFieldDO : fields) {
+					disableFkConstraint(tabgenFieldDO);
+				}
+				fields.clear();
+			}
+			Set<TabgenValueDO> values = tabgen.getTabgenValues();
+			if (values != null && !values.isEmpty())
+				values.clear();
+			// aggiorno il numero di campi della tabella
+			tabgen.setFieldNum(0);
+		} else if (deleteValues) { // cancello solo i values e disabilito eventuali fk
+			Set<TabgenValueDO> values = tabgen.getTabgenValues();
+			if (values != null && !values.isEmpty()) {
+				values.clear();
+			}
+		}
+		return true;
+	}
+
+	@Override
+	public List<TabgenValueDO> getTabgenFieldValues(TabgenFieldDO tabgenField, String value, boolean nullable, Date dtEnable, Date dtDisable, CheckDateTypeEnum check) throws DataAccessException, Exception {
+		List<TabgenValueDO> tabgenValues = null;
+		TabgenValueFilter filter = new TabgenValueFilter();
+		filter.setTabgenId(tabgenField.getTabgen().getId());
+		if (!StringUtils.isEmpty(tabgenField.getTabgenValueColumn())) {
+			String columnName = tabgenField.getTabgenValueColumn().toLowerCase();
+			String setMethodName = "set" + columnName.substring(0, 1).toUpperCase() + columnName.substring(1, columnName.length());
+			Method setMethod = TabgenUtility.getMethod(TabgenValueFilter.class, setMethodName);
+			if (!StringUtils.isEmpty(value) && setMethod != null) {
+				Object retObj = setMethod.invoke(filter, value);
+			} else { // controllo il nullable
+				if (!nullable) {
+					List<String> notNullColumnNames = new ArrayList<String>();
+					notNullColumnNames.add(columnName);
+					filter.setNotNullColumnNames(notNullColumnNames);
+				} else {
+					List<String> nullColumnNames = new ArrayList<String>();
+					nullColumnNames.add(columnName);
+					filter.setNullColumnNames(nullColumnNames);
+				}
+			}
+			if (check != null) {
+				switch (check) {
+				case OVERLAP:
+					filter.setEnabledDateToOverlap(dtEnable);
+					filter.setDisabledDateToOverlap(dtDisable);
+					filter.setCheckOverlap(true);
+					break;
+				case EXCLUSION:
+					filter.setExcludedEnabledDate(dtEnable);
+					filter.setExcludedDisabledDate(dtDisable);
+					filter.setCheckExclusion(true);
+					break;
+				}
+			}
+			tabgenValues = tabgenValueDAOImpl.searchTabgenValueByFilter(filter);
+		}
+		return tabgenValues;
+	}
+	
+	private TabgenFieldDO disableFkConstraint(TabgenFieldDO tabgenField) {
+		// carico eventuali campi che referenziano il tabgenField
+		Set<TabgenFieldDO> referencingFields = tabgenField.getTabgenFields();
+		if (referencingFields != null && !referencingFields.isEmpty()) {
+			for (TabgenFieldDO referencingField : referencingFields) {
+				referencingField.setTabgenField(null);
+			}
+		}
+		tabgenField.getTabgenFields().clear();
+		return tabgenField;
+	}
+	
+	
+	@Override
+	public List<Tabgen> searchTabgenByFilter(TabgenFilter filter) {
+		List<TabgenDO> list;
+		if(filter.getLimit() == 0) {
+			list = tabgenDAO.searchTabgenByFilter(filter, null);
+		}else {
+			Pageable page = PageRequest.of(filter.getOffset() / filter.getLimit(), filter.getLimit());
+			list = tabgenDAO.searchTabgenByFilter(filter, page);
+		}
+		List<Tabgen> result = (List<Tabgen>) mapper.convertCollection(list, Tabgen.class, TabgenDOToDTOBareConverter.getMapId());
+		return result;
+	}
+	
+	@Override
+	public List<TabgenField> searchFieldsByTabgenId(String tabgenId) {
+		BaseSearchInput baseSearchInput = new BaseSearchInput();
+		baseSearchInput.setParam("tabgenId", tabgenId);
+		List<TabgenFieldDO> result = tabgenFieldDAO.searchTabgenFieldByFilter(baseSearchInput);
+		if(result != null) {
+			List<TabgenField> fields = (List<TabgenField>) mapper.convertCollection(result, TabgenField.class, TabgenFieldDOToDTOWithTableConverter.getMapId());
+			return fields;
+		}
+		
+		return new ArrayList<TabgenField>();
+	}
+
+	@Override
+	public List<String> retriveColumnValueByColumnName(BaseSearchInput searchInput) {
+		return tabgenValueDAOImpl.retriveColumnValueByColumnName(searchInput);
+	}
+
+	@Override
+	public TabgenValueDO saveTabgenValue(TabgenValueDO tabgenValueDO) throws DataAccessException, InvalidTabgenOperationException, Exception {
+
+		boolean update = false;
+		TabgenValueDO oldTabgenValue = null;
+		// nuovo valore
+		if (StringUtils.isEmpty(tabgenValueDO.getId())) {
+			tabgenValueDO.setId(UUID.randomUUID().toString());
+		} else {
+			update = true;
+			oldTabgenValue = (tabgenValueDO.getId()== null || tabgenValueDO.getId().isBlank()) ? null : tabgenValueDAO.findById(tabgenValueDO.getId()).orElse(null);
+			oldTabgenValue.setOperationDate(new Date());
+		}
+
+		tabgenValueDO.setOperationDate(new Date());
+
+		String tabgenId = tabgenValueDO.getTabgen().getId();
+		// controllo che per tutti i valori settati in tabgenValue esiste un field in TabgenField
+		// carico i field della tabella
+		BaseSearchInput filter = new BaseSearchInput();
+		filter.setValue("tabgenId", tabgenId);
+		List<TabgenFieldDO> tabgenFields = tabgenFieldDAO.searchTabgenFieldByFilter(filter);
+		if (tabgenFields != null && !tabgenFields.isEmpty()) {
+			Method getMethod = null;
+			// eseguo il metodo getField su ogni field di tabgenValue
+			for (int i = 1; i <= 20; i++) {
+				String methodName = "getField" + i;
+				getMethod = TabgenUtility.getMethod(TabgenValueDO.class, methodName);
+				if (getMethod != null) {
+					String value = (String) getMethod.invoke(tabgenValueDO);
+					String column = "field" + i;
+					// cerco la colonna in tabgenField
+					TabgenFieldDO tabgenField = getFieldByTabgenValueColumn(tabgenFields, column);
+					// valore esistente: controlli vari sul valore che sto inserendo
+					if (!StringUtils.isEmpty(value)) {
+						// la colonna in tabgenField non esiste, errore
+						if (tabgenField == null) {
+							InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving or Updating value of table is not possible: the field does not exists");
+							ex.setOperation(OperationTypeEnum.SAVING_UPDATING_VALUE);
+							ex.setValue(value);
+							ex.setAbsentValueField(column);
+							ex.setValueTable((tabgenValueDO.getTabgen().getId()));
+							throw ex;
+						} else {// la colonna esiste e ha una fk su un'altra colonna, controllo
+								// quindi che il valore è ammissibile
+							if (tabgenField.getTabgenField() != null) {
+								// cerco se value è tra i possibili valori di tale campo
+								TabgenValueDO referencedValue = getTabgenFieldReferencedValue(tabgenField, value, tabgenValueDO.getEnabledDate(), tabgenValueDO.getDisabledDate());
+								if (referencedValue == null) {
+									InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving or Updating value of table is not possible: doesn't found mother key ");
+									ex.setOperation(OperationTypeEnum.SAVING_UPDATING_VALUE);
+									ex.setValue(value);
+									ex.setViolatedFk(true);
+									ex.setViolatedFkField(tabgenField.getDescription());
+									ex.setViolatedFkRefField(tabgenField.getTabgenField().getDescription());
+									ex.setViolatedFkRefFieldTable(tabgenField.getTabgenField().getTabgen().getId());
+									ex.setValueTable((tabgenValueDO.getTabgen().getId()));
+									throw ex;
+								}
+							}
+							// solo in caso di update controllo che non sto modificando un valore
+							// che è referenziato da altri
+							if (update) {
+								// ottengo il valore dell'oldTabgenValue
+								String oldValue = (String) getMethod.invoke(oldTabgenValue);
+								List<String> referencingValues = getTabgenFieldReferencingValues(tabgenField, oldValue, tabgenValueDO.getEnabledDate(), tabgenValueDO.getDisabledDate(), CheckDateTypeEnum.EXCLUSION);
+								if (referencingValues != null && !referencingValues.isEmpty() && !referencingValues.contains(value)) {
+									InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving or Updating value of table is not possible: found daugther key ");
+									ex.setOperation(OperationTypeEnum.SAVING_UPDATING_VALUE);
+									ex.setValue(value);
+									ex.setViolatedFk(true);
+									ex.setViolatedFkField(tabgenField.getDescription());
+									ex.setValueTable(tabgenValueDO.getTabgen().getId());
+									throw ex;
+								}
+							}
+						}
+					} // se non è valorizzato, ma la colonna esiste ed è not nullable, errore
+					else {
+						if (tabgenField != null) {
+							Integer nullable = tabgenField.getNullable();
+							if (nullable.equals(0)) {
+								InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving or Updating value of table is not possible: the field is not nullable");
+								ex.setOperation(OperationTypeEnum.SAVING_UPDATING_VALUE);
+								ex.setNotNullableField(tabgenField.getDescription());
+								ex.setNotNullable(true);
+								ex.setValueTable((tabgenValueDO.getTabgen().getId()));
+								throw ex;
+							}
+							// solo in caso di update controllo che non sto modificando un valore
+							// che è referenziato da altri
+							if (update) {
+								// ottengo il valore dell'oldTabgenValue
+								String oldValue = (String) getMethod.invoke(oldTabgenValue);
+								List<String> referencingValues = getTabgenFieldReferencingValues(tabgenField, oldValue, tabgenValueDO.getEnabledDate(), tabgenValueDO.getDisabledDate(), CheckDateTypeEnum.EXCLUSION);
+								if (referencingValues != null && !referencingValues.isEmpty() && !referencingValues.contains(value)) {
+									InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving or Updating value of table is not possible: found daugther key ");
+									ex.setOperation(OperationTypeEnum.SAVING_UPDATING_VALUE);
+									ex.setValue(value);
+									ex.setViolatedFk(true);
+									ex.setViolatedFkField(tabgenField.getDescription());
+									ex.setValueTable(tabgenValueDO.getTabgen().getId());
+									throw ex;
+								}
+							}
+						}
+
+					}
+				}
+			}
+			// controllo se violo qualche PK
+			// creo la lista di campi di pk
+			List<TabgenFieldDO> pkFields = new ArrayList<TabgenFieldDO>();
+			for (TabgenFieldDO tabgenFieldDO : tabgenFields) {
+				if (tabgenFieldDO.getPk().equals(1))
+					pkFields.add(tabgenFieldDO);
+			}
+			if (!checkValueViolatePk(tabgenValueDO, update, pkFields))
+				return tabgenValueDAO.save(tabgenValueDO);
+			else {
+				InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Saving or Updating value of table is not possible: pk violated ");
+				ex.setOperation(OperationTypeEnum.SAVING_UPDATING_VALUE);
+				ex.setViolatedPk(true);
+				ex.setValueTable(tabgenValueDO.getTabgen().getId());
+				throw ex;
+			}
+		} else
+			return null;
+	}
+	
+	private TabgenFieldDO getFieldByTabgenValueColumn(List<TabgenFieldDO> fields, String column) {
+		for (TabgenFieldDO tabgenFieldDO : fields) {
+			String tabgenValueColumn = tabgenFieldDO.getTabgenValueColumn();
+			if (tabgenValueColumn != null && tabgenValueColumn.toLowerCase().equals(column.toLowerCase()))
+				return tabgenFieldDO;
+		}
+		return null;
+	}
+	
+	@Override
+	public TabgenValueDO getTabgenFieldReferencedValue(TabgenFieldDO tabgenField, String value, Date dtEnable, Date dtDisable) throws DataAccessException, Exception {
+		TabgenValueDO tabgenValue = null;
+		if (tabgenField.getTabgenField() != null) { // se il campo referenzia un altro campo
+			// carico il field
+			TabgenFieldDO referencedField = (tabgenField.getTabgenField().getId()== null || tabgenField.getTabgenField().getId().isBlank()) ? null : tabgenFieldDAO.findById(tabgenField.getTabgenField().getId()).orElse(null);
+			if (!StringUtils.isEmpty(referencedField.getTabgenValueColumn())) {
+				// cerco tra i referencedValue (values di di referencedField) il value (contenuto
+				// nel periodo temporale)
+				tabgenValue = getTabgenFieldValue(referencedField, value, dtEnable, dtDisable);
+			}
+		}
+
+		return tabgenValue;
+	}
+	
+	@Override
+	public TabgenValueDO getTabgenFieldValue(TabgenFieldDO tabgenField, String value, Date dtEnable, Date dtDisable) throws DataAccessException, Exception {
+		List<TabgenValueDO> tabgenValues = null;
+		TabgenValueFilter filter = new TabgenValueFilter();
+		filter.setTabgenId(tabgenField.getTabgen().getId());
+		if (!StringUtils.isEmpty(tabgenField.getTabgenValueColumn())) {
+			String columnName = tabgenField.getTabgenValueColumn().toLowerCase();
+			String setMethodName = "set" + columnName.substring(0, 1).toUpperCase() + columnName.substring(1, columnName.length());
+			Method setMethod = TabgenUtility.getMethod(TabgenValueFilter.class, setMethodName);
+			if (!StringUtils.isEmpty(value) && setMethod != null) {
+				Object retObj = setMethod.invoke(filter, value);
+			}
+			filter.setIncludedEnabledDate(dtEnable);
+			filter.setIncludedDisabledDate(dtDisable);
+			filter.setCheckInclusion(true);
+			tabgenValues = tabgenValueDAOImpl.searchTabgenValueByFilter(filter);
+		}
+		if(tabgenValues == null) {
+			return null;
+		}
+		return (!tabgenValues.isEmpty()) ? tabgenValues.get(0) : null;
+	}
+	
+	@Override
+	public List<String> getTabgenFieldReferencingValues(TabgenFieldDO tabgenField, String value, Date dtEnable, Date dtDisable, CheckDateTypeEnum check) throws DataAccessException, Exception {
+		List<String> values = null;
+		// campi che referenziano tabgenField
+		Set<TabgenFieldDO> referencingFields = tabgenField.getTabgenFields();
+		if (referencingFields != null && !referencingFields.isEmpty()) {
+			values = new ArrayList<String>();
+			for (TabgenFieldDO referencingField : referencingFields) {
+				if (!StringUtils.isEmpty(referencingField.getTabgenValueColumn())) {
+					String referencingColumn = referencingField.getTabgenValueColumn().toLowerCase();
+					// carico tutti i valori del referencingField con referencingColumn not null
+					List<TabgenValueDO> referencingFieldValues = getTabgenFieldValues(referencingField, value, false, dtEnable, dtDisable, check);
+					if (referencingFieldValues != null && !referencingFieldValues.isEmpty()) {
+						for (TabgenValueDO tabgenValueDO : referencingFieldValues) {
+							// carico proprio le descrizioni
+							String getMethodName = "get" + referencingColumn.substring(0, 1).toUpperCase() + referencingColumn.substring(1, referencingColumn.length());
+							Method getMethod = TabgenUtility.getMethod(TabgenValueDO.class, getMethodName);
+							if (getMethod != null) {
+								String referencingValue = (String) getMethod.invoke(tabgenValueDO);
+								values.add(referencingValue);
+							}
+						}
+					}
+				}
+			}
+		}
+		return values;
+	}
+	
+	private boolean checkValueViolatePk(TabgenValueDO tabgenValue, boolean update, List<TabgenFieldDO> pkFields)
+	        throws Exception {
+
+	    if (pkFields == null || pkFields.isEmpty()) {
+	        return false;
+	    }
+
+	    //
+	    // 1️⃣ COSTRUISCO IL FILTRO DELLA PK (senza date)
+	    //
+	    TabgenValueFilter samePkFilter = new TabgenValueFilter();
+
+	    for (TabgenFieldDO pkField : pkFields) {
+
+	        String column = pkField.getTabgenValueColumn().toLowerCase();
+
+	        // accetta SOLO field1 .. field20 (che sono tutti String)
+	        if (!column.startsWith("field")) {
+	            continue; // IGNORA disabledDate, enabledDate, alwaysEnabled, etc.
+	        }
+
+	        // getter e setter
+	        String getterName = "get" + Character.toUpperCase(column.charAt(0)) + column.substring(1);
+	        String setterName = "set" + Character.toUpperCase(column.charAt(0)) + column.substring(1);
+
+	        Method getter = TabgenUtility.getMethod(TabgenValueDO.class, getterName);
+	        Method setter = TabgenUtility.getMethod(TabgenValueFilter.class, setterName);
+
+	        if (getter != null && setter != null) {
+
+	            String value = (String) getter.invoke(tabgenValue);
+
+	            if (!StringUtils.isEmpty(value)) {
+	                setter.invoke(samePkFilter, value);
+	            }
+	        }
+	    }
+
+	    if (update) {
+	        samePkFilter.setNotId(tabgenValue.getId());
+	    }
+
+	    // Primo controllo → solo PK secca
+	    samePkFilter.setCheckOverlap(false);
+
+	    List<TabgenValueDO> samePkList =
+	            tabgenValueDAOImpl.searchTabgenValueByFilter(samePkFilter);
+
+	    // Se non ci sono record con la stessa PK → nessuna violazione
+	    if (samePkList == null || samePkList.isEmpty()) {
+	        return false;
+	    }
+
+	    //
+	    // 2️⃣ SE PK EQUIVALENTE → ORA CONTROLLO L’OVERLAP DELLE DATE
+	    //
+	    samePkFilter.setEnabledDateToOverlap(tabgenValue.getEnabledDate());
+	    samePkFilter.setDisabledDateToOverlap(tabgenValue.getDisabledDate());
+	    samePkFilter.setCheckOverlap(true);
+
+	    List<TabgenValueDO> overlapping =
+	            tabgenValueDAOImpl.searchTabgenValueByFilter(samePkFilter);
+
+	    // PK violated SOLO se esiste un record stessa PK E overlapping
+	    return overlapping != null && !overlapping.isEmpty();
+	}
+
+	@Override
+	public boolean deleteTabgenValue(String id, boolean deleteConstraint) throws DataAccessException, InvalidTabgenOperationException, Exception {
+		boolean deletable = true;
+		TabgenValueDO tabgenValueDO = (id== null || id.isBlank()) ? null : tabgenValueDAO.findById(id).orElse(null);
+		if (tabgenValueDO != null) {
+			if (!deleteConstraint) {
+				deletable = checkValueDeletable(tabgenValueDO);
+			} else {
+				// rompo il legame con eventuali campi figli (disable logical fk constraint)
+				disableFkConstraint(tabgenValueDO);
+			}
+			if (deletable) {
+				// cancello il value
+				tabgenValueDAO.deleteById(id);
+				deletable = true;
+			}
+		} else
+			return false;
+		return deletable;
+	}
+	
+	
+	private boolean checkValueDeletable(TabgenValueDO tabgenValueDO) throws DataAccessException, Exception {
+		boolean deletable = true;
+		// pero gni valore del tabgenValueDO controllo se ci sono valori che lo referenziano
+
+		String tabgenId = tabgenValueDO.getTabgen().getId();
+		Method getMethod = null;
+		// eseguo il metodo getField su ogni field di tabgenValue
+		for (int i = 1; i <= 20; i++) {
+			String methodName = "getField" + i;
+			getMethod = TabgenUtility.getMethod(TabgenValueDO.class, methodName);
+			if (getMethod != null) {
+				String value = (String) getMethod.invoke(tabgenValueDO);
+				String field = "field" + i;
+				// cerco la colonna in tabgenField
+				TabgenFieldDO tabgenField = tabgenFieldDAO.getFieldByTabgenValueColumn(tabgenId, field);
+				// valore esistente: controlli vari sul valore che sto cancellando
+				if (!StringUtils.isEmpty(value) && tabgenField != null) {
+					// carico i valori che eventualmente referenziano value, contenuti nel suo
+					// periodo temporale
+					List<String> referencingValues = getTabgenFieldReferencingValues(tabgenField, value, tabgenValueDO.getEnabledDate(), tabgenValueDO.getDisabledDate(), CheckDateTypeEnum.EXCLUSION);
+					if (referencingValues != null && !referencingValues.isEmpty() && referencingValues.contains(value)) {
+						InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Deleting value of table is not possible: found daugther key ");
+						ex.setOperation(OperationTypeEnum.DELETING_VALUE);
+						ex.setValue(value);
+						ex.setViolatedFk(true);
+						ex.setViolatedFkField(tabgenField.getDescription());
+						ex.setValueTable(tabgenValueDO.getTabgen().getId());
+						ex.setValueReferencingValues(true);
+						throw ex;
+					}
+				}
+			}
+		}
+		return deletable;
+	}
+	
+	private void disableFkConstraint(TabgenValueDO tabgenValue) throws Exception {
+		String tabgenId = tabgenValue.getTabgen().getId();
+		BaseSearchInput filter = new BaseSearchInput();
+		filter.setValue("tabgenId", tabgenId);
+		List<TabgenFieldDO> tabgenFields = tabgenFieldDAO.searchTabgenFieldByFilter(filter);
+		// eseguo il metodo getField su ogni field di tabgenValue
+		for (int i = 1; i <= 20; i++) {
+			String methodName = "getField" + i;
+			Method getMethod = TabgenUtility.getMethod(TabgenValueDO.class, methodName);
+			if (getMethod != null) {
+				String value = (String) getMethod.invoke(tabgenValue);
+				String column = "field" + i;
+				// cerco la colonna in tabgenField
+				TabgenFieldDO tabgenField = getFieldByTabgenValueColumn(tabgenFields, column);
+				if (!StringUtils.isEmpty(value) && tabgenField != null) {
+					// carico i valori che eventualmente referenziano value
+					List<String> referencingValues = getTabgenFieldReferencingValues(tabgenField, value, tabgenValue.getEnabledDate(), tabgenValue.getDisabledDate(), CheckDateTypeEnum.EXCLUSION);
+					if (referencingValues != null && !referencingValues.isEmpty() && referencingValues.contains(value)) {
+						// se ci sono valori che lo referenziano rompo il legame tra di loro
+						// (disable constraint)
+						Set<TabgenFieldDO> referencingFields = tabgenField.getTabgenFields();
+						if (referencingFields != null && !referencingFields.isEmpty()) {
+							for (TabgenFieldDO referencingField : referencingFields) {
+								referencingField.setTabgenField(null);
+							}
+						}
+						tabgenField.getTabgenFields().clear();
+					}
+				}
+			}
+		}
+	}
+	
+	
+	
+	@Override
+	public byte[] exportTabGenValueByFilter(TabgenValueFilter filter) throws Exception {
+		//String outDir = expDir + "/" + UUID.randomUUID().toString();
+		File dir = Files.createTempDirectory(UUID.randomUUID().toString()).toFile();
+		String outDir = dir.getPath();
+
+		if (filter != null && filter.getFields() != null && !(filter.getTabgenId() + "").equals("FARMACI") && !(filter.getTabgenId() + "").equals("DISPOSITIVI")) {
+			Set<String> keySet = filter.getFields().keySet();
+			for (String fieldName : keySet) {
+				String fieldValue = filter.getFields().get(fieldName);
+				try {
+					filter.getClass().getMethod("set" + fieldName.replace("f", "F"), String.class).invoke(filter, fieldValue);
+				} catch (Exception e) {
+					LogUtil.logException(LOGGER, "", e);
+//					e.printStackTrace();
+				}
+			}
+		}
+
+		TabgenDO tabgen = new TabgenDO();
+		tabgen.setId(filter.getTabgenId());
+		tabgen.setDescription(filter.getTabgenId());
+		tabgen.setType("ANAGRAFICHE");
+
+		ExcelUtil excelUtil = null;
+		int rowIdx = 1;
+		int pagingIdx = 1;
+
+		ScrollableResults scroll = scrollTabgenValueByFilter(filter);
+
+		List<String> files = new ArrayList<String>();
+
+		while (scroll.next()) {
+			TabgenValueDO value = null;
+			
+			value = (TabgenValueDO) scroll.get();
+			tabgenValueDAOImpl.evictObj(value);
+
+			if (excelUtil == null || pagingIdx == 50000) {
+				Set<TabgenFieldDO> columns = value.getTabgen().getTabgenFields();
+				ArrayList headers = new ArrayList();
+
+				ArrayList<TabgenFieldDO> columnList = new ArrayList<TabgenFieldDO>(columns);
+				Collections.sort(columnList, new Comparator<TabgenFieldDO>() {
+					@Override
+					public int compare(TabgenFieldDO o1, TabgenFieldDO o2) {
+						return o1.getProgressive().compareTo(o2.getProgressive());
+					}
+				});
+				for (TabgenFieldDO tabgenFieldDO : columnList) {
+					headers.add(tabgenFieldDO.getDescription());
+				}
+				headers.add("DT_ENABLE");
+				headers.add("DT_DISABLE");
+				
+				if (excelUtil != null) {
+					excelUtil.close();
+				}
+				
+				files.add(filter.getTabgenId() + "_" + rowIdx + ".xls");
+				excelUtil = new ExcelUtil(filter.getTabgenId(), headers, outDir + "/" + filter.getTabgenId() + "_" + rowIdx + ".xls", dir);
+				pagingIdx = 0;
+			}
+
+			int colIdx = 1;
+			List<Object> values = new ArrayList<Object>();
+			for (TabgenFieldDO col : value.getTabgen().getTabgenFields()) {
+				String field = new String(value.getClass().getMethod("getField" + colIdx).invoke(value) + "");
+				values.add(field.equals("null") ? "" : field);
+				colIdx++;
+			}
+
+			if (!filter.getTabgenId().equals("FARMACI") && !filter.getTabgenId().equals("DISPOSITIVI")) {
+				DateFormat formatter = new SimpleDateFormat("dd/MM/yyyy");
+				values.add(new String(formatter.format(value.getEnabledDate())));
+				values.add(new String(formatter.format(value.getDisabledDate())));
+			}
+
+			pagingIdx++;
+			rowIdx++;
+			excelUtil.addRow(values, pagingIdx);
+
+		}
+
+		if (excelUtil != null) {
+			excelUtil.close();
+			Calendar time = new GregorianCalendar();
+			
+			Integer month = (time.get(Calendar.MONTH)+1);
+			String monthString = (month < 10 ? "0" : "") + month;
+			
+			String stamp = "_" + time.get(Calendar.DAY_OF_MONTH) + monthString + time.get(Calendar.YEAR) + "_" + time.get(Calendar.HOUR_OF_DAY) + "" + time.get(Calendar.MINUTE);
+			String[] sFile = new String[files.size()];
+			int i = 0;
+			for (String file : files) {
+				sFile[i] = file;
+				i++;
+			}
+			byte[] byt = FileUtility.compressingFiles(outDir, outDir + "/" + filter.getTabgenId() + "_" + stamp + ".zip", sFile);
+			GenericArchive.DelDir(dir);
+			
+			return byt;
+		}
+
+		byte[] byt = {0};
+		return byt;
+
+	}
+	
+
+	@Override
+	public ScrollableResults scrollTabgenValueByFilter(TabgenValueFilter filter) throws DataAccessException {
+		return tabgenValueDAOImpl.scrollTabgenValueByFilter(filter);
+	}
+	
+	@Override
+	public TabgenValueDO searchByFlussoVerticale(String flowname, String version) {
+		TabgenValueFilter filter = new TabgenValueFilter();
+		filter.setTabgenId("CODIFICA_FLUSSI_VERTICALE");
+		filter.setField1(flowname);
+		filter.setField2(version);			
+		List<TabgenValueDO> res = searchTabgenValueByFilter(filter);
+		if(res != null && !res.isEmpty()) {
+			return res.get(0);
+		}
+		
+		return null;
+	}
+	
+	@Override
+	public List<TabgenValueDO> searchTabgenValueByFilter(TabgenValueFilter filter) throws DataAccessException {
+		return tabgenValueDAOImpl.searchTabgenValueByFilter(filter);
+	}
+	
+	@Override
+	public List<TabgenValue> searchTabgenValueDTOByFilter(TabgenValueFilter filter) throws DataAccessException {
+		List<TabgenValueDO> list = searchTabgenValueByFilter(filter);
+		List<TabgenValue> result = (List<TabgenValue>) mapper.convertCollection(list, TabgenValue.class, TabgenValueDOToDTOWithTableAndFieldConverter.getMapId());
+		return result;
+	}
+	
+	@Override
+	public Long countTabgenValueByFilter(TabgenValueFilter filter) throws DataAccessException {
+		return tabgenValueDAOImpl.countTabgenValueByFilter(filter);
+	}
+	
+	@Override
+	public List<TabgenField> saveTabgenFields(List<TabgenFieldDO> tabgenFieldList, Boolean aggiornaProgressivo) throws DataAccessException, InvalidTabgenOperationException, Exception {
+		for (TabgenFieldDO field : tabgenFieldList) {
+			field = saveTabgenField(field, aggiornaProgressivo);
+		}
+		
+		List<TabgenField> result = (List<TabgenField>) mapper.convertCollection(tabgenFieldList, TabgenField.class, TabgenFieldDOToDTOWithTableConverter.getMapId());
+		
+		return result;
+	}
+	
+	@Override
+	public TabgenFieldDO saveTabgenField(TabgenFieldDO tabgenFieldDO, Boolean aggiornaProgressivo) throws DataAccessException, InvalidTabgenOperationException, Exception {
+		TabgenDO tabgen = getTabgenGetById(tabgenFieldDO.getTabgen().getId(), null);
+		TabgenFieldDO oldField = null;
+		if (tabgenFieldDO.getId() != null)
+			oldField = (tabgenFieldDO.getId()== null || tabgenFieldDO.getId().isBlank()) ? null : tabgenFieldDAO.findById(tabgenFieldDO.getId()).orElse(null);
+		// se è un campo nuovo di una tabella di transcodifica o è un campo già esistente di cui
+		// si
+		// vuole modificare il tabgenValueColumn -> ERRORE
+		if ((oldField == null && tabgen.getType() != null && tabgen.getType().equals(TabgenType.TRANSCODIFICHE.name()))
+				|| (tabgen.getType() != null && tabgen.getType().equals(TabgenType.TRANSCODIFICHE.name()) && oldField != null && !oldField.getTabgenValueColumn().equals(tabgenFieldDO.getTabgenValueColumn()))) {
+			InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Impossible to save field of table: the table is for transcode");
+			ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+			List<String> list = new ArrayList<String>();
+			list.add(tabgenFieldDO.getDescription());
+			ex.setFields(list);
+			ex.setFieldTable(tabgen.getId());
+			throw ex;
+		}
+		if (StringUtils.isEmpty(tabgenFieldDO.getTabgenValueColumn()) || aggiornaProgressivo) {
+			if (tabgenFieldDO.getProgressive() != null)
+				tabgenFieldDO.setTabgenValueColumn("FIELD" + tabgenFieldDO.getProgressive());
+		}
+		// controllo il progressive e il valueColumn
+		if (aggiornaProgressivo || (checkProgressive(tabgenFieldDO) && checkValueColumnName(tabgenFieldDO))) {
+			// nuovo field
+			if (StringUtils.isEmpty(tabgenFieldDO.getId())) {
+				// se il campo è nuovo e la tabella ha valori, non può essere nullable
+				if (tabgenFieldDO.getNullable().equals(0) && (tabgen.getTabgenValues() != null && !tabgen.getTabgenValues().isEmpty())) {
+					InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Impossible to enable not null constraint");
+					ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+					List<String> fields = new ArrayList<String>();
+					fields.add(tabgenFieldDO.getDescription());
+					ex.setFields(fields);
+					ex.setFieldTable(tabgenFieldDO.getTabgen().getId());
+					ex.setNotEnablingNotNullable(true);
+					throw ex;
+				}
+				tabgenFieldDO.setId(UUID.randomUUID().toString());
+				// aggiorno il numero di campi del tabgen
+				tabgen.setFieldNum(tabgen.getFieldNum() + 1);
+			} else {
+				// CONTROLLI VARI SULL'UPDATE DEL FIELD
+				if (aggiornaProgressivo || isTabgenFieldUpdatable(tabgenFieldDO)) {
+					// controllo se è una modifica che riguarda il nullable
+					checkNotNullableEnabling(tabgenFieldDO);
+					// controllo se è una modifica che riguarda l'abilitazione di una fk
+					checkFkEnabling(tabgenFieldDO);
+					// controllo se è una modifica che riguarda l'abilitazione di una pk
+					checkPkEnabling(tabgenFieldDO);
+				}
+			}
+		}
+		return tabgenFieldDAO.save(tabgenFieldDO);
+	}
+	
+	
+	private boolean isTabgenFieldUpdatable(TabgenFieldDO field) throws DataAccessException, InvalidTabgenOperationException, Exception {
+		// carico l'old tabgenField
+		TabgenFieldDO oldField = (field.getId()== null || field.getId().isBlank()) ? null : tabgenFieldDAO.findById(field.getId()).orElse(null);
+		// carico i valori di tale campo
+		List<TabgenValueDO> tabgenFieldValues = getTabgenFieldValues(oldField, null, false, null, null, null);
+		// carico i campi che lo referenziano
+		Set<TabgenFieldDO> referencingFields = oldField.getTabgenFields();
+		if (tabgenFieldValues != null && !tabgenFieldValues.isEmpty() || referencingFields != null && !referencingFields.isEmpty()) {
+			// il field con valori e/o campi associati è updatable solo nel visible, nel
+			// progressive, nella description, nel nullable, nel tabgen_field_id e pk)
+			if (oldField.equals(field))
+				return true;
+			else {
+				InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Updating field of table is not possible: the are associated values");
+				ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+				List<String> fields = new ArrayList<String>();
+				fields.add(oldField.getDescription());
+				ex.setFields(fields);
+				ex.setFieldTable(field.getTabgen().getId());
+				if ((tabgenFieldValues != null && !tabgenFieldValues.isEmpty()) && (referencingFields != null && !referencingFields.isEmpty())) {
+					// ci sono valori associati e campi referenziati
+					ex.setFieldReferencingFields(true);
+					ex.setFieldAssociatedValues(true);
+				} else if ((tabgenFieldValues != null && !tabgenFieldValues.isEmpty()) && (referencingFields == null || referencingFields.isEmpty())) {
+					// ci sono valori associati
+					ex.setFieldAssociatedValues(true);
+				} else if ((tabgenFieldValues == null || tabgenFieldValues.isEmpty()) && (referencingFields != null && !referencingFields.isEmpty())) {
+					// ci sono field che referenziano
+					ex.setFieldReferencingFields(true);
+				}
+				throw ex;
+			}
+		} else
+			return true;
+
+	}
+	
+	private boolean checkNotNullableEnabling(TabgenFieldDO field) throws DataAccessException, Exception {
+		boolean notNullEnabling = true;
+		TabgenFieldDO oldField = (field.getId()== null || field.getId().isBlank()) ? null : tabgenFieldDAO.findById(field.getId()).orElse(null);
+		// se sto abilitando un vincolo di not nullable
+		if (oldField.getNullable().equals(1) && field.getNullable().equals(0)) {
+			// controllo che sia abilitabile tale constraint
+			// seleziono i valori della tabella con tale campo nullo
+			List<TabgenValueDO> fieldValues = getTabgenFieldValues(field, null, true, null, null, null);
+			// se ce ne sono, errore
+			if (fieldValues != null && !fieldValues.isEmpty()) {
+				InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Impossible to enable not nullable constraint");
+				ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+				List<String> fields = new ArrayList<String>();
+				fields.add(field.getDescription());
+				ex.setFields(fields);
+				ex.setFieldTable(field.getTabgen().getId());
+				ex.setNotEnablingNotNullable(true);
+				throw ex;
+
+			}
+		}
+		return notNullEnabling;
+	}
+
+	private boolean checkFkEnabling(TabgenFieldDO field) throws DataAccessException, Exception {
+		boolean fkEnabling = true;
+		// carico il campo referenziato
+		TabgenFieldDO oldField = (field.getId()== null || field.getId().isBlank()) ? null : tabgenFieldDAO.findById(field.getId()).orElse(null);
+		// se sto abilitando un vincolo di FK
+		if (oldField.getTabgenField() == null && field.getTabgenField() != null) {
+			TabgenFieldDO refField = (field.getTabgenField().getId()== null || field.getTabgenField().getId().isBlank()) ? null : tabgenFieldDAO.findById(field.getTabgenField().getId()).orElse(null);
+			if (refField != null) {// sto abilitando una fk
+				// controllo che sia abilitabile
+				// seleziono i valori del campo in cui abilitare la fk
+				List<TabgenValueDO> fieldValues = getTabgenFieldValues(field, null, false, null, null, null);
+				if (fieldValues != null && !fieldValues.isEmpty()) {
+					if (!StringUtils.isEmpty(field.getTabgenValueColumn())) {
+						String referencedColumn = field.getTabgenValueColumn().toLowerCase();
+						// seleziono i valori possibili del campo referenziato
+						Map<String, Map<String, List<Date>>> possibleValuesMap = getTabgenFieldReferencedValuesWithDate(field);
+						String getMethodName = "get" + referencedColumn.substring(0, 1).toUpperCase() + referencedColumn.substring(1, referencedColumn.length());
+						Method getMethod = TabgenUtility.getMethod(TabgenValueDO.class, getMethodName);
+						if (getMethod != null) {
+							for (TabgenValueDO tabgenValue : fieldValues) {
+								String value = (String) getMethod.invoke(tabgenValue);
+								// se uno dei valori non è compreso tra quelli possibili
+								// (considerando anche il periodo temporale), errore
+								if (!StringUtils.isEmpty(value) && !checkValueInclusion(possibleValuesMap, value, tabgenValue.getEnabledDate(), tabgenValue.getDisabledDate())) {
+									InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Impossible to enable fk constraint");
+									ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+									List<String> fields = new ArrayList<String>();
+									fields.add(field.getDescription());
+									ex.setFields(fields);
+									ex.setFieldTable(field.getTabgen().getId());
+									ex.setNotEnablingFk(true);
+									ex.setReferencedField(refField.getDescription());
+									ex.setReferencedFieldTable(refField.getTabgen().getId());
+									throw ex;
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+		return fkEnabling;
+	}
+	
+	private Map<String, Map<String, List<Date>>> getTabgenFieldReferencedValuesWithDate(TabgenFieldDO tabgenField) throws DataAccessException, Exception {
+		Map<String, Map<String, List<Date>>> map = null;
+		if (tabgenField.getTabgenField() != null) { // se il campo referenzia un altro campo
+			map = new HashMap<String, Map<String, List<Date>>>();
+			// carico il referenced field
+			TabgenFieldDO referencedField = (tabgenField.getTabgenField().getId()== null || tabgenField.getTabgenField().getId().isBlank()) ? null : tabgenFieldDAO.findById(tabgenField.getTabgenField().getId()).orElse(null);
+			if (!StringUtils.isEmpty(referencedField.getTabgenValueColumn())) {
+				String referencedColumn = referencedField.getTabgenValueColumn().toLowerCase();
+				// seleziono tutti i valori del campo referenziato
+				// (field.getTabgenField.getTabgenValueColumn della tabella del field che ha la fk)
+				List<TabgenValueDO> tabgenValues = getTabgenFieldValues(referencedField, null, false, null, null, null);
+				if (tabgenValues != null && !tabgenValues.isEmpty()) {
+					String methodName = "get" + referencedColumn.substring(0, 1).toUpperCase() + referencedColumn.substring(1, referencedColumn.length());
+					Method getMethod = TabgenUtility.getMethod(TabgenValueDO.class, methodName);
+					if (getMethod != null)
+						for (TabgenValueDO tabgenValue : tabgenValues) {
+							String value = (String) getMethod.invoke(tabgenValue);
+							List<Date> dates = new ArrayList<Date>();
+							dates.add(tabgenValue.getEnabledDate());
+							dates.add(tabgenValue.getDisabledDate());
+							Map<String, List<Date>> childMap = new HashMap<String, List<Date>>();
+							childMap.put(value, dates);
+							map.put(tabgenValue.getId(), childMap);
+
+						}
+				}
+			}
+		}
+
+		return map;
+	}
+	
+	private boolean checkValueInclusion(Map<String, Map<String, List<Date>>> valuesMap, String tabgenValue, Date start, Date end) throws Exception {
+		boolean isIncluded = false;
+		if (valuesMap != null && !valuesMap.isEmpty()) {
+			for (Map.Entry<String, Map<String, List<Date>>> valuesEntry : valuesMap.entrySet()) {
+				Map<String, List<Date>> map = valuesEntry.getValue();
+				for (Map.Entry<String, List<Date>> entry : map.entrySet()) {
+					String value = entry.getKey();
+					List<Date> dates = entry.getValue();
+					Date dtEnable = dates.get(0);
+					Date dtDisable = dates.get(1);
+					if (tabgenValue.equals(value)) { // se i valori sono uguali controllo le date
+						isIncluded = TabgenUtility.isInclusion(dtEnable, dtDisable, start, end);
+						if (isIncluded)
+							return true;
+					}
+				}
+			}
+		} else
+			return false;
+		return isIncluded;
+	}
+	
+	private boolean checkPkEnabling(TabgenFieldDO field) throws DataAccessException, Exception {
+		boolean pkEnabling = true;
+		TabgenFieldDO oldField = (field.getId()== null || field.getId().isBlank()) ? null : tabgenFieldDAO.findById(field.getId()).orElse(null);
+		// se sto abilitando o disabilitando una pk
+		if (!oldField.getPk().equals(field.getPk())) {
+			boolean enable = false;
+			if (field.getPk().equals(1)) // sto abilitando la pk
+				enable = true;
+			else if (field.getPk().equals(0)) // sto disabilitando la pk
+				enable = false;
+			// controllo che sia abilitabile/disabilitabile tale constraint
+			// controllo prima se ci sono altri campi della stessa tabella pk
+			BaseSearchInput filter = new BaseSearchInput();
+			filter.setValue("tabgenId", field.getTabgen().getId());
+			filter.setValue("pk", 1);
+			List<TabgenFieldDO> pkFields = tabgenFieldDAO.searchTabgenFieldByFilter(filter);
+			if (enable) { // se sto abilitando, aggiungo il campo di pk
+				pkFields.add(field);
+			} else if (!enable) { // se sto disabilitando
+				if (pkFields.isEmpty())// se è l'unico, ok
+					return pkEnabling;
+				else
+					pkFields.remove(field);// rimuovo il campo dai campi di pk
+			}
+			// controllo i valori
+			TabgenFieldDO[] array = new TabgenFieldDO[pkFields.size()];
+			int i = 0;
+			for (TabgenFieldDO tabgenFieldDO : pkFields) {
+				array[i] = tabgenFieldDO;
+				i++;
+			}
+			// seleziono i valori della tabella di tale campo
+			List<TabgenValueDO> fieldValues = getTabgenFieldValues(false, array);
+			if (fieldValues != null && !fieldValues.isEmpty()) {
+				boolean checkEquals = checkEqualsOnPk(fieldValues, pkFields);
+				if (checkEquals) {
+					InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Impossible to enable/disable pk constraint");
+					ex.setOperation(OperationTypeEnum.SAVING_UPDATING_FIELD);
+					List<String> fields = new ArrayList<String>();
+					fields.add(field.getDescription());
+					ex.setFields(fields);
+					ex.setFieldTable(field.getTabgen().getId());
+					if (enable)
+						ex.setNotEnablingPk(true);
+					else
+						ex.setNotDisablingPk(true);
+					throw ex;
+				}
+			}
+		}
+		return pkEnabling;
+	}
+
+	public List<TabgenValueDO> getTabgenFieldValues(boolean nullable, TabgenFieldDO... tabgenFields) throws DataAccessException {
+		List<TabgenValueDO> tabgenValues = null;
+		TabgenValueFilter filter = new TabgenValueFilter();
+		if (tabgenFields != null && tabgenFields.length != 0) {
+			List<String> columnNames = new ArrayList<String>();
+			filter.setTabgenId(tabgenFields[0].getTabgen().getId());
+			for (TabgenFieldDO field : tabgenFields) {
+				if (!StringUtils.isEmpty(field.getTabgenValueColumn())) {
+					String columnName = field.getTabgenValueColumn().toLowerCase();
+					columnNames.add(columnName);
+				}
+			}
+			if (!nullable)
+				filter.setNotNullColumnNames(columnNames);
+			else
+				filter.setNullColumnNames(columnNames);
+
+			tabgenValues = searchTabgenValueByFilter(filter);
+		}
+		return tabgenValues;
+	}
+	
+	private boolean checkEqualsOnPk(List<TabgenValueDO> values, List<TabgenFieldDO> fields) throws Exception {
+		boolean isEquals = false;
+		Map<TabgenValueDO, String> map = new HashMap<TabgenValueDO, String>();
+		for (TabgenValueDO tabgenValueDO : values) {
+			String concatenatedPkValues = "";
+			for (TabgenFieldDO tabgenFieldDO : fields) {
+				String valueColumnName = tabgenFieldDO.getTabgenValueColumn().toLowerCase();
+				String getMethodName = "get" + valueColumnName.substring(0, 1).toUpperCase() + valueColumnName.substring(1, valueColumnName.length());
+				Method getMethod = TabgenUtility.getMethod(TabgenValueDO.class, getMethodName);
+				if (getMethod != null) {
+					String value = (String) getMethod.invoke(tabgenValueDO);
+					if (!StringUtils.isEmpty(value))
+						concatenatedPkValues += value;
+				}
+			}
+			map.put(tabgenValueDO, concatenatedPkValues);
+		}
+		// controllo se in mappa ci sono concatenatedPkValues uguali
+		List mapKeys = new ArrayList(map.keySet());
+		List mapValues = new ArrayList(map.values());
+		Iterator keyIt = mapKeys.iterator();// iterator sulle key
+		Iterator valueIt = mapValues.iterator();// iterator sui valori
+		while (keyIt.hasNext()) {
+			TabgenValueDO currentKey = (TabgenValueDO) keyIt.next();
+			String currentValue = map.get(currentKey).toString();
+			for (Map.Entry<TabgenValueDO, String> entry : map.entrySet()) {
+				TabgenValueDO key = entry.getKey();
+				String value = entry.getValue();
+				if (!currentKey.equals(key) && currentValue.equals(value)) {
+					// controllo se le date dei 2 tabgenValue si intersecano
+					boolean isOverlap = TabgenUtility.isOverlap(currentKey.getEnabledDate(), currentKey.getDisabledDate(), key.getEnabledDate(), key.getDisabledDate());
+					if (isOverlap) {
+						isEquals = true;
+						return isEquals;
+					}
+				}
+			}
+			map.remove(currentKey);
+		}
+		return isEquals;
+	}
+	
+
+	@Override
+	public Boolean tableExists(String tabgenId) {
+		return tabgenDAOImpl.tableExists(tabgenId);
+	}
+	
+	@Override
+	public Integer createTabgenTable(TabgenMap tabgenMap) throws Exception {
+		String query = " create table " + tabgenMap.getId() + "(";
+		
+		List<TabgenValueMap> columns = tabgenMap.getTabgenValueList();
+		for (TabgenValueMap columnMap : columns) {
+			String column = columnMap.getFieldName();
+			String type = "";
+			if(column.toLowerCase().contains("date")) {
+				type = "DATE";
+			} else {
+				type = "VARCHAR(" + columnMap.getLength() + ")";
+			}
+			query += column + " " + type + " , ";
+		}
+		
+		query = query.substring(0, query.length() - 3) + ")";
+		
+		Integer result = tabgenDAOImpl.executeSql(query);
+		
+		return (result != null ? 0 : -1);
+	}
+	
+	@Override
+	@CacheEvict(allEntries = false, cacheNames = "lookupCache", keyGenerator = "saveTabgenKeyGenerator")
+	public Integer createReplaceTabgenView(String tabgenId, String functionName) throws Exception {
+		TabgenDO table = tabgenDAO.getTabgenGetById(tabgenId, null);
+		
+		String query = " create or replace view " + table.getId() + " as select ";
+		
+		Set<TabgenFieldDO> fields = table.getTabgenFields();
+		for (TabgenFieldDO field : fields) {
+			String column = field.getTabgenValueColumn();
+			String description = field.getDescription();
+			query += column + " " + description + " , ";
+		}
+		
+		Table annotation = (Table) TabgenValueDO.class.getAnnotation(Table.class);
+		query += "dt_enable, dt_disable from " + annotation.name() + " where tabgen_id = '" + table.getId() + "'";
+		
+		Integer result = tabgenDAOImpl.executeSql(query);
+		
+		return (result != null ? 0 : -1);
+	}
+	
+	@Override
+	public Integer dropTabgenView(String sql) throws Exception {
+		Integer result = null;
+		result = tabgenDAOImpl.executeSql(sql);
+		return (result != null ? 0 : -1);
+	}
+	
+	@Override
+	public TabgenFieldDO getTabgenField(String id) throws DataAccessException {
+		return (id == null || id.isBlank())
+                ? null
+                : tabgenFieldDAO.findById(id).orElse(null);
+	}
+	
+	@Override
+	public TabgenField getTabgenFieldDTO(String id) throws DataAccessException {
+		TabgenFieldDO fieldDO =  (id== null || id.isBlank()) ? null : tabgenFieldDAO.findById(id).orElse(null);
+		TabgenField field = mapper.convert(fieldDO, TabgenField.class, TabgenFieldDOToDTOWithTableConverter.getMapId());
+		return field;
+	}
+	
+	@Override
+	public boolean deleteTabgenField(String id, boolean deleteValuesAndConstraint) throws DataAccessException, InvalidTabgenOperationException, Exception {
+		boolean deletable = true;
+		TabgenFieldDO tabgenFieldDO = (id== null || id.isBlank()) ? null : tabgenFieldDAO.findById(id).orElse(null);
+		if (tabgenFieldDO != null) {
+			TabgenDO tabgen = tabgenFieldDO.getTabgen();
+			
+			if (tabgen.getType() != null && tabgen.getType().equals(TabgenType.TRANSCODIFICHE.name())) {
+				InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Impossible to delete field of table: the table is for transcode");
+				ex.setOperation(OperationTypeEnum.DELETING_FIELD);
+				List<String> list = new ArrayList<String>();
+				list.add(tabgenFieldDO.getDescription());
+				ex.setFields(list);
+				ex.setFieldTable(tabgen.getId());
+				throw ex;
+			}
+			
+			
+			String columnName = tabgenFieldDO.getTabgenValueColumn().toLowerCase();
+
+			// se non devo cancellare valori ed eventuali constraint di fk su di esso
+			if (!deleteValuesAndConstraint) {
+				deletable = checkFieldDeletable(tabgenFieldDO);
+			} else {
+				// carico i valori della tabella con tale campo valorizzato
+				List<TabgenValueDO> tabgenFieldValues = getTabgenFieldValues(tabgenFieldDO, null, false, null, null, null);
+				// cancello eventuali valori, constraint e il campo stesso
+				if (tabgenFieldValues != null && !tabgenFieldValues.isEmpty()) {
+					String methodName = "set" + columnName.substring(0, 1).toUpperCase() + columnName.substring(1, columnName.length());
+					Method setMethod = TabgenUtility.getMethod(TabgenValueDO.class, methodName);
+					if (setMethod != null) {
+						// eseguo il metodo set su ogni TabgenValueDO mettendo a null il valore
+						for (TabgenValueDO tabgenValueDO : tabgenFieldValues) {
+							String empty = null;
+							Object retObj = setMethod.invoke(tabgenValueDO, empty);
+						}
+					}
+					// controllo se i tabgen_value non hanno più field settati, in quel caso li
+					// cancello
+					Method getMethod = TabgenUtility.getMethod(TabgenValueDO.class, "getAllField");
+					if (getMethod != null)
+						for (TabgenValueDO tabgenValueDO : tabgenFieldValues) {
+							String getAllField = (String) getMethod.invoke(tabgenValueDO);
+							if (StringUtils.isEmpty(getAllField))
+								tabgenValueDAO.deleteById(tabgenValueDO.getId());
+						}
+				}
+				// rompo il legame con eventuali campi figli (disable logical fk constraint)
+				tabgenFieldDO = disableFkConstraint(tabgenFieldDO);
+			}
+			if (deletable) {
+				// cancello il campo
+				tabgenFieldDAO.deleteById(id);
+				deletable = true;
+				// aggiorno il numero di campi del tabgen
+				tabgen.setFieldNum(tabgen.getFieldNum() - 1);
+				
+				// ricalcola i progressivi dei campi
+				BaseSearchInput filter = new BaseSearchInput();
+				filter.setValue("tabgenId", tabgen.getId());
+				
+				List<TabgenFieldDO> fields = tabgenFieldDAO.searchTabgenFieldByFilter(filter);
+				Integer progressive = 1;
+				for(TabgenFieldDO field : fields) {
+					field.setProgressive(progressive);
+					//field.setTabgenValueColumn("FIELD" + progressive);
+					progressive ++;
+				}
+				
+			}
+
+		} else
+			return false;
+		
+		return deletable;
+	}
+	
+	private boolean checkFieldDeletable(TabgenFieldDO tabgenFieldDO) throws DataAccessException, Exception {
+		boolean deletable = true;
+		TabgenDO tabgen = tabgenFieldDO.getTabgen();
+		String columnName = tabgenFieldDO.getTabgenValueColumn().toLowerCase();
+		// carico i valori della tabella con tale campo valorizzato
+		List<TabgenValueDO> tabgenFieldValues = getTabgenFieldValues(tabgenFieldDO, null, false, null, null, null);
+		// campi figli di tale campo (campo che referenziano tale campo)
+		Set<TabgenFieldDO> referencingFields = tabgenFieldDO.getTabgenFields();
+		if ((tabgenFieldValues != null && !tabgenFieldValues.isEmpty()) || (referencingFields != null && !referencingFields.isEmpty())) {
+			InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Impossible to delete field of table: there are value and/or field associated");
+			ex.setOperation(OperationTypeEnum.DELETING_FIELD);
+			// se ho entrambi gli errori
+			if ((tabgenFieldValues != null && !tabgenFieldValues.isEmpty()) && (referencingFields != null && !referencingFields.isEmpty())) {
+				// ci sono valori associati e campi associati
+				List<String> list = new ArrayList<String>();
+				List<String> referencingList = new ArrayList<String>();
+				for (TabgenFieldDO referencingField : referencingFields) {
+					referencingList.add(referencingField.getDescription() + "/" + referencingField.getTabgen().getId());
+				}
+				list.add(tabgenFieldDO.getDescription());
+				ex.setFields(list);
+				ex.setFieldTable(tabgen.getId());
+				ex.setFieldReferencingFields(true);
+				ex.setReferencedField(tabgenFieldDO.getDescription());
+				ex.setFieldAssociatedValues(true);
+				ex.setReferencingFields(referencingList);
+
+			} else if ((tabgenFieldValues != null && !tabgenFieldValues.isEmpty()) && (referencingFields == null || referencingFields.isEmpty())) {
+				// ci sono valori associati
+				List<String> list = new ArrayList<String>();
+				list.add(tabgenFieldDO.getDescription());
+				ex.setFields(list);
+				ex.setFieldTable(tabgen.getDescription());
+				ex.setFieldAssociatedValues(true);
+			} else if ((tabgenFieldValues == null || tabgenFieldValues.isEmpty()) && (referencingFields != null && !referencingFields.isEmpty())) {
+				// ci sono field associati
+				List<String> list = new ArrayList<String>();
+				list.add(tabgenFieldDO.getDescription());
+				List<String> referencingList = new ArrayList<String>();
+				for (TabgenFieldDO referencingField : referencingFields) {
+					referencingList.add(referencingField.getDescription() + "/" + referencingField.getTabgen().getId());
+				}
+				ex.setFields(list);
+				ex.setFieldTable(tabgen.getDescription());
+				ex.setFieldReferencingFields(true);
+				ex.setReferencingFields(referencingList);
+				ex.setReferencedField(tabgenFieldDO.getDescription());
+			}
+			throw ex;
+		}
+		return deletable;
+	}
+	
+	@Override
+	public TabgenDO loadExcelSheetInTabgen(File file, String enabledDate, int offset, int max, String extension, String fileName, boolean skipColumnName, String anagraficaTableId) throws InvalidTabgenOperationException, Exception {
+		TabgenDO tabgen = null;
+		DateFormat dateFormat = new SimpleDateFormat("dd/MM/yyyy");
+		String sheetName = null;
+
+		if (anagraficaTableId!=null && !anagraficaTableId.isEmpty()) {
+			sheetName = anagraficaTableId;
+		} else {
+			if (extension.equalsIgnoreCase(FileUtility.XLS)) {
+				sheetName = TabgenUtility.getCleanSheetName(TabgenUtility.checkSheetNameXls(file));
+			} else if (extension.equalsIgnoreCase(FileUtility.XLSX)) {
+				sheetName = TabgenUtility.getCleanSheetName(TabgenUtility.checkSheetNameXlsx(file));
+			} else {			
+				int firstDot = fileName.indexOf('.');
+				sheetName = (firstDot != -1) ? fileName.substring(0, firstDot) : fileName;
+			}
+		}
+		
+		Date enabledDte = null;
+		if (!StringUtils.isEmpty(enabledDate)) {
+			enabledDte = dateFormat.parse(enabledDate);
+		}
+		// controllo se già esiste la tabella dato l'id (sheetName), con i campi, altrimenti
+		// errore
+		tabgen = (sheetName== null || sheetName.isBlank()) ? null : tabgenDAO.findById(sheetName).orElse(null);
+
+		if (tabgen == null) {
+			InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Loading data is not valid: the table doesn't exists");
+			ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL);
+			ex.setSheetName(sheetName);
+			ex.setAbsentTable(true);
+			throw ex;
+		} else if (tabgen != null && (tabgen.getTabgenFields() == null || tabgen.getTabgenFields().isEmpty())) {
+			InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Loading data is not valid: the fields table doesn't exists");
+			ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL);
+			ex.setSheetName(sheetName);
+			ex.setAbsentFields(true);
+			throw ex;
+		} else { // la tabella esiste con i campi, carico i dati
+			// controllo che lo schema della tabella è lo stesso di quello esistente
+			boolean checkSheetHeader = false;
+			if (!skipColumnName) {
+				if (extension.equalsIgnoreCase(FileUtility.XLS)) {
+					checkSheetHeader = TabgenUtility.checkSheetHeaderXls(tabgen, file);
+				} else if (extension.equalsIgnoreCase(FileUtility.XLSX)) {
+					checkSheetHeader = TabgenUtility.checkSheetHeaderXlsx(tabgen, file);
+				} else {
+					checkSheetHeader = TabgenUtility.checkCsvHeader(tabgen, file);
+				}
+			} else {
+				checkSheetHeader = true;
+			}
+			
+			if (checkSheetHeader) {
+				// inserisco i nuovi valori dell'excel
+				Map<Integer, TabgenValueDO> newValues = null;
+				if (extension.equalsIgnoreCase(FileUtility.XLS)) {
+//					  newValues = TabgenUtility.getTabgenValuesFromSheetXls(tabgen, file, enabledDte, offset, max, skipColumnName);
+					newValues = TabgenUtility.getTabgenValuesFromSheetXlsOptimized(tabgen, file, enabledDte, offset, max, skipColumnName);
+				} else if (extension.equalsIgnoreCase(FileUtility.XLSX)) {
+//					  newValues = TabgenUtility.getTabgenValuesFromSheetXlsx(tabgen, file, enabledDte, offset, max, skipColumnName);
+//					  newValues = TabgenUtility.getTabgenValuesFromSheetXlsxOptimized(tabgen, file, enabledDte, offset, max, skipColumnName);
+					newValues = TabgenUtility.getTabgenValuesFromSheetXlsxStreaming(tabgen, file, enabledDte, offset, max, skipColumnName);
+				} else if (extension.equalsIgnoreCase(FileUtility.CSV)) {
+//					  newValues = TabgenUtility.getTabgenValuesFromCsv(tabgen, file, enabledDte, offset, max, skipColumnName);
+//					  newValues = TabgenUtility.getTabgenValuesFromCsvParser(tabgen, file, enabledDte, offset, max, skipColumnName);
+					newValues = TabgenUtility.getTabgenValuesFromCsvParserStreaming(tabgen, file, enabledDte, offset, max, skipColumnName);
+				}
+				// controllo tutti i nuovi valori (fk, nullable, pk, ecc.) e li inserisco
+				if (newValues != null && !newValues.isEmpty()) {
+//						for (Map.Entry<Integer, TabgenValueDO> entry : newValues.entrySet()) {
+//							Integer rowNumber = entry.getKey();
+//							TabgenValueDO tabgenValueDO = entry.getValue();
+//							try {
+//								saveTabgenValue(tabgenValueDO);
+//							} catch (InvalidTabgenOperationException e) {
+//								e.setErrorExcelRowNumber(rowNumber);
+//								throw e;
+//							}
+//						}
+					saveTabgenValuesBatch(newValues);
+				} else {
+					return null;
+				}
+
+			}
+		}
+		
+		if (tabgen != null)
+			tabgen = tabgenDAO.save(tabgen);
+		
+		return tabgen;
+		
+	}
+	
+	public void saveTabgenValuesBatch(Map<Integer, TabgenValueDO> values)
+	        throws SQLException, ParseException {
+
+	    String sql = "INSERT INTO FM_TABGEN_VALUE (" +
+	            "TV_ID, DT_DISABLE, DT_ENABLE, " +
+	            "FIELD1, FIELD2, FIELD3, FIELD4, FIELD5, FIELD6, FIELD7, FIELD8, FIELD9, FIELD10, " +
+	            "FIELD11, FIELD12, FIELD13, FIELD14, FIELD15, FIELD16, FIELD17, FIELD18, FIELD19, " +
+	            "FIELD20, FIELD21, FIELD22, FIELD23, FIELD24, FIELD25, FIELD26, FIELD27, FIELD28, " +
+	            "FIELD29, FIELD30, FIELD31, FIELD32, FIELD33, FIELD34, FIELD35, FIELD36, FIELD37, " +
+	            "FIELD38, FIELD39, FIELD40, OPERATION_DATE, TABGEN_ID" +
+	            ") VALUES (" + String.join(",", Collections.nCopies(45, "?")) + ")";
+
+	    em.unwrap(org.hibernate.Session.class).doWork(conn -> {
+
+	        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+
+	            conn.setAutoCommit(false);
+
+	            int batchSize = 1000;
+	            int count = 0;
+
+	            for (TabgenValueDO v : values.values()) {
+
+	                int i = 1;
+	                ps.setString(i++, UUID.randomUUID().toString());
+	                ps.setDate(i++, v.getDisabledDate() != null ? new java.sql.Date(v.getDisabledDate().getTime()) : null);
+	                ps.setDate(i++, v.getEnabledDate() != null ? new java.sql.Date(v.getEnabledDate().getTime()) : null);
+
+	                ps.setString(i++, v.getField1());
+	                ps.setString(i++, v.getField2());
+	                ps.setString(i++, v.getField3());
+	                ps.setString(i++, v.getField4());
+	                ps.setString(i++, v.getField5());
+	                ps.setString(i++, v.getField6());
+	                ps.setString(i++, v.getField7());
+	                ps.setString(i++, v.getField8());
+	                ps.setString(i++, v.getField9());
+	                ps.setString(i++, v.getField10());
+	                ps.setString(i++, v.getField11());
+	                ps.setString(i++, v.getField12());
+	                ps.setString(i++, v.getField13());
+	                ps.setString(i++, v.getField14());
+	                ps.setString(i++, v.getField15());
+	                ps.setString(i++, v.getField16());
+	                ps.setString(i++, v.getField17());
+	                ps.setString(i++, v.getField18());
+	                ps.setString(i++, v.getField19());
+	                ps.setString(i++, v.getField20());
+	                ps.setString(i++, v.getField21());
+	                ps.setString(i++, v.getField22());
+	                ps.setString(i++, v.getField23());
+	                ps.setString(i++, v.getField24());
+	                ps.setString(i++, v.getField25());
+	                ps.setString(i++, v.getField26());
+	                ps.setString(i++, v.getField27());
+	                ps.setString(i++, v.getField28());
+	                ps.setString(i++, v.getField29());
+	                ps.setString(i++, v.getField30());
+	                ps.setString(i++, v.getField31());
+	                ps.setString(i++, v.getField32());
+	                ps.setString(i++, v.getField33());
+	                ps.setString(i++, v.getField34());
+	                ps.setString(i++, v.getField35());
+	                ps.setString(i++, v.getField36());
+	                ps.setString(i++, v.getField37());
+	                ps.setString(i++, v.getField38());
+	                ps.setString(i++, v.getField39());
+	                ps.setString(i++, v.getField40());
+
+	                ps.setTimestamp(i++, new java.sql.Timestamp(System.currentTimeMillis()));
+	                ps.setString(i++, v.getTabgen() != null ? v.getTabgen().getId() : null);
+
+	                ps.addBatch();
+	                if (++count % batchSize == 0) {
+	                    ps.executeBatch();
+	                }
+	            }
+
+	            ps.executeBatch();
+	            conn.commit();
+
+	        } catch (Exception e) {
+	        	LogUtil.logException(LOGGER, "", e);
+	            conn.rollback();
+//	            e.printStackTrace();
+	        }
+	    });
+	}
+	
+	@Override
+	@PrivacyManagerLog(action = AuditEventActionEnum.READ, category = AuditEventCategoryEnum.ACCESS_LOG, description="Visualizzazione dati profilatura", converter= ProfilaturaViewConverter.class, entity= EntityEnum.FLUSSI, entityType= EntityTypeEnum.ACCESSO)
+	public BasePagingLoadResult<Tabgen> sendAuditVisuaProfilToPM(BaseSearchInput baseSearchInput, BasePagingLoadResult<Tabgen> tabGenValues) {
+		return tabGenValues;
+	}
+	
+	@Override
+	@PrivacyManagerLog(action = AuditEventActionEnum.SEARCH, category = AuditEventCategoryEnum.ACCESS_LOG, description="Ricerca dati profilatura", converter= ProfilaturaViewConverter.class, entity= EntityEnum.FLUSSI, entityType= EntityTypeEnum.ACCESSO)
+	public BasePagingLoadResult<Tabgen> sendAuditSearchProfilToPM(BaseSearchInput baseSearchInput, BasePagingLoadResult<Tabgen> tabGenValues) {
+		return tabGenValues;
+	}
+	
+	@Override
+	@PrivacyManagerLog(action = AuditEventActionEnum.READ, category = AuditEventCategoryEnum.ACCESS_LOG, description="Export Profilatura", converter= ProfilaturaExportConverter.class, entity= EntityEnum.FLUSSI, entityType= EntityTypeEnum.ACCESSO)
+	public byte[] sendAuditExportProfilToPM(TabgenValueFilter filterDO, byte[] byt) {
+		return byt;
+	}
+	
+	@Override
+	public TabgenValueDO findById(String id) {
+	    if (id == null) return null;
+	    return em.find(TabgenValueDO.class, id);
+	}
+	
+}
+

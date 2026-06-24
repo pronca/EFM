@@ -1,0 +1,390 @@
+package it.eng.care.domain.flow.flowupload.controller.impl;
+
+import java.io.File;
+import java.io.IOException;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.google.common.io.Files;
+
+import it.eng.care.domain.flow.core.config.LogAccessiPMConfig;
+import it.eng.care.domain.flow.core.dto.FlowOperationResult;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.utility.FileUtility;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.flowupload.bean.FlowFileUploadRequest;
+import it.eng.care.domain.flow.flowupload.bean.FlowFileUploadRequestError;
+import it.eng.care.domain.flow.flowupload.bean.WellFormedStatusEnum;
+import it.eng.care.domain.flow.flowupload.controller.FlowFileUploadController;
+import it.eng.care.domain.flow.flowupload.converter.FlowFileUploadRequestDOtoFlowFileUploadRequestDTO;
+import it.eng.care.domain.flow.flowupload.converter.FlowFileUploadRequestDTOtoFlowFileUploadRequestDO;
+import it.eng.care.domain.flow.flowupload.model.FlowFileUploadRequestDO;
+import it.eng.care.domain.flow.flowupload.model.FlowFileUploadRequestErrorDO;
+import it.eng.care.domain.flow.flowupload.model.SectionFileDO;
+import it.eng.care.domain.flow.flowupload.service.FlowFileUploadService;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventActionEnum;
+import it.eng.care.platform.common.dozer.converter.DozerConverter;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+import it.eng.care.platform.tool.transport.operations.SaveOperationResult;
+import it.eng.care.platform.tool.transport.operations.SearchOperationResult;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import jakarta.annotation.PostConstruct;
+
+@RestController
+@RequestMapping("/fm/FlowFileUploadDTO")
+public class FlowFileUploadControllerImpl implements FlowFileUploadController {
+	
+    private static final Logger LOGGER = LoggerFactory.getLogger(FlowFileUploadControllerImpl.class);
+    
+    @Autowired
+    private FlowFileUploadService flowFileUploadService;
+    
+    @Autowired
+	private ConversionService conversionService;
+    
+    @Autowired
+	private DozerConverter mapper;
+    
+    @Autowired
+	private FlowFileUploadRequestDOtoFlowFileUploadRequestDTO FlowFileUploadRequestDOtoFlowFileUploadRequestDTOConverter;
+
+	@Autowired
+	private FlowFileUploadRequestDTOtoFlowFileUploadRequestDO FlowFileUploadRequestDTOtoFlowFileUploadRequestDOConverter;
+	
+	@Autowired
+    private FlowManagerProfileService flowManagerProfileService;
+	
+	@Autowired
+	private LogAccessiPMConfig logAccessiPMConfig;
+    
+	@PostConstruct
+	public void post() {
+    conversionService.registerConverter(FlowFileUploadRequestDO.class, FlowFileUploadRequest.class,
+    		FlowFileUploadRequestDOtoFlowFileUploadRequestDTOConverter);
+	conversionService.registerConverter(FlowFileUploadRequest.class, FlowFileUploadRequestDO.class,
+			FlowFileUploadRequestDTOtoFlowFileUploadRequestDOConverter);
+	}
+	
+	@Override
+	@PostMapping("/_search")
+	@ResponseBody
+	public SearchOperationResult<FlowFileUploadRequest> search(@RequestBody BaseSearchInput searchInput) {
+		//caricamento lista aziende visibili dall'utente
+		List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+		
+		searchInput.setParam("aziende", aziende);
+		searchInput.setValue("aziende", aziende);
+		Pair<List<FlowFileUploadRequestDO>, SearchInfo> searchResults = flowFileUploadService.retrieveAllFiltered(searchInput);
+		
+		List<FlowFileUploadRequest> dtos = new ArrayList<FlowFileUploadRequest>();
+		for(int i=0; i<searchResults.getFirst().size(); i++) {
+			FlowFileUploadRequest dto = mapper.convert(searchResults.getFirst().get(i), FlowFileUploadRequest.class);
+			dtos.add(dto);
+		}
+		
+		//Ordina per creationDate in ordine decrescente
+	    dtos.sort((a, b) -> {
+	        if (a.getCreationDate() == null && b.getCreationDate() == null) return 0;
+	        if (a.getCreationDate() == null) return 1;
+	        if (b.getCreationDate() == null) return -1;
+	        return b.getCreationDate().compareTo(a.getCreationDate());
+	    });
+
+	    
+		return SearchOperationResult.success(dtos, searchResults.getSecond());
+	}
+	
+	@Override
+	@PostMapping(value = "/_downloadFiles", produces = "application/zip", consumes = "application/json")
+	@ResponseBody
+	public HttpEntity<byte[]> downloadFiles(@RequestBody FlowFileUploadRequest flowUpload) throws IOException {
+
+	    HttpHeaders header = new HttpHeaders();
+	    header.set("Content-Disposition", "attachment;");
+	    
+	    List<SectionFileDO> sectionFiles = flowFileUploadService.getFlowSectionFile(flowUpload);
+
+	    List<File> files = new ArrayList<>();
+	    for (SectionFileDO sectionFile : sectionFiles) {
+	        try {
+	            String fileName = flowUpload.getFlow().getName() + "_" + sectionFile.getSection().getSection();
+	            if (sectionFile.getFile() != null) {
+	                String extension = sectionFile.getExtension();
+
+	                if (FileUtility.TEXT.equalsIgnoreCase(extension) || extension == null || extension.isEmpty()) {
+	                    byte[] byt = sectionFile.getFile();
+	                    File file = File.createTempFile(fileName, "." + FileUtility.TEXT);
+	                    File file2 = new File(file.getParent() + File.separator + fileName + "." + FileUtility.TEXT);
+	                    file.renameTo(file2);
+	                    Files.write(byt, file2);
+	                    files.add(file2);
+
+	                } else if (FileUtility.XLS.equalsIgnoreCase(extension)) {
+	                    byte[] byt = sectionFile.getFile();
+	                    File file = File.createTempFile(fileName, "." + FileUtility.XLS);
+	                    File file2 = new File(file.getParent() + File.separator + fileName + "." + FileUtility.XLS);
+	                    file.renameTo(file2);
+	                    Files.write(byt, file2);
+	                    files.add(file2);
+
+	                } else if (FileUtility.XLSX.equalsIgnoreCase(extension)) {
+	                    byte[] byt = sectionFile.getFile();
+	                    File file = File.createTempFile(fileName, "." + FileUtility.XLSX);
+	                    File file2 = new File(file.getParent() + File.separator + fileName + "." + FileUtility.XLSX);
+	                    file.renameTo(file2);
+	                    Files.write(byt, file2);
+	                    files.add(file2);
+
+	                } else if (FileUtility.CSV.equalsIgnoreCase(extension)) {
+	                    byte[] byt = sectionFile.getFile();
+	                    File file = File.createTempFile(fileName, "." + FileUtility.CSV);
+	                    File file2 = new File(file.getParent() + File.separator + fileName + "." + FileUtility.CSV);
+	                    file.renameTo(file2);
+	                    Files.write(byt, file2);
+	                    files.add(file2);
+	                }
+	            }
+	        } catch (IOException e) {
+	        	LogUtil.logException(LOGGER, "", e);
+//	            e.printStackTrace();
+	        }
+	    }
+
+	    if (files != null && !files.isEmpty()) {
+	        String[] fileNames = new String[files.size()];
+	        int i = 0;
+	        for (File file : files) {
+	            fileNames[i] = file.getName();
+	            i++;
+	        }
+
+	        byte[] byt = FileUtility.compressingFiles(
+	                files.get(0).getParent(),
+	                files.get(0).getParent() + "/extraction.zip",
+	                fileNames
+	        );
+
+	        if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogDownFileCaricati())) {
+	            flowFileUploadService.sendAuditDownXMLFileUplToPM(flowUpload, byt);
+	        }
+
+	        return new HttpEntity<>(byt, header);
+	    }
+
+	    return null;
+	}
+	
+	@Override
+	@PostMapping(value = "/_downloadLogs", produces = "application/zip", consumes = "application/json")
+	@ResponseBody
+	public HttpEntity<byte[]> downloadLogs(@RequestBody FlowFileUploadRequest flowUpload) throws IOException {
+
+		HttpHeaders header = new HttpHeaders();
+		header.set("Content-Disposition", "attachment;");
+		
+		List<SectionFileDO> sectionFiles = flowFileUploadService.getFlowSectionFile(flowUpload);
+
+		List<File> files = new ArrayList<>();
+		for(SectionFileDO sectionFile: sectionFiles) {
+			try {
+				String fileName = flowUpload.getFlow().getName() + "_" + sectionFile.getSection().getSection() + "_ERRORS";
+				if (sectionFile.getWellFormedFile() != null) {
+					byte[] byt = sectionFile.getWellFormedFile();
+					File file = File.createTempFile(fileName, ".txt");
+					File file2 = new File(file.getParent()+"\\"+fileName + ".txt");
+					file.renameTo(file2);
+					Files.write(byt, file2);
+					files.add(file2);
+				}
+			} catch (IOException e) {
+				LogUtil.logException(LOGGER, "", e);
+//				e.printStackTrace();
+			}
+		};
+		
+		if (files != null && files.size() > 0) {
+			String[] fileNames = new String[files.size()];
+			int i = 0;
+			for (File file : files) {
+				fileNames[i] = file.getName();
+				i++;
+			}
+
+			byte[] byt = FileUtility.compressingFiles(files.get(0).getParent(),
+					files.get(0).getParent() + "/extraction.zip", fileNames);
+			
+			if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogDownFileErrCaricati())) {
+	    		byte[] resultsLogAccessi = flowFileUploadService.sendAuditDownLOGFileUplToPM(flowUpload, byt);
+	        }
+	    	
+			return new HttpEntity<byte[]>(byt, header);
+		}
+		
+		return null;
+	}
+	
+	@Override
+	@PostMapping("/delete")
+	@ResponseBody
+	public OperationResult<Boolean> delete(@RequestBody List<FlowFileUploadRequest> flowFileUploadRequestDTOS) {
+
+		for(FlowFileUploadRequest flowExportRequest: flowFileUploadRequestDTOS) {
+			
+			if(!flowManagerProfileService.checkFlowById(flowExportRequest.getFlow().getId())) {
+	    		continue;
+	    	}
+			
+			flowFileUploadService.deleteRequest(flowExportRequest.getId());
+			
+			if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogCaricamentoFile())) {
+				byte[] resultsLogAccessi = flowFileUploadService.sendAuditUploadCaricamentoFile(flowExportRequest.getId(), flowExportRequest.getFlow().getName(), null, AuditEventActionEnum.DELETE, null);
+	        }
+		}
+		
+		return OperationResult.success(true);
+	}
+	
+	@Override
+	@PostMapping("/getUploadFlowErrors")
+	@ResponseBody
+	public OperationResult<List<String>> getUploadFlowErrors(@RequestBody FlowFileUploadRequest flowFileUploadRequest) {
+		
+		List<String> errors = flowFileUploadService.getFlowErrors(flowFileUploadRequest);
+		
+		return OperationResult.success(errors);
+	}
+	
+	@Override
+	@PostMapping("/save")
+	@ResponseBody
+	public SaveOperationResult<String> save(@RequestBody FlowFileUploadRequest flowFileUploadRequest) {
+		
+		String flowId = flowFileUploadRequest.getFlow().getId();
+    	if(!flowManagerProfileService.checkFlowById(flowId)) {
+    		return SaveOperationResult.failure();
+    	}
+		
+		FlowOperationResult<String> result = flowFileUploadService.upload(flowFileUploadRequest);
+		if(result.getSuccess()) {
+			return SaveOperationResult.success(result.getResult());
+		}else {
+			return SaveOperationResult.failure();
+		}
+	}
+	
+	@Override
+    @PostMapping(path = "/_saveRequest")
+    @ResponseBody
+    public OperationResult<Boolean> saveRequest(
+            @RequestHeader(name = "fileUpload", defaultValue = "unknown") String idEstraz,
+            @RequestHeader(name = "fileName", defaultValue = "unknown") String fileName,
+            @RequestHeader(name = "section", defaultValue = "unknown") String section,
+            @RequestHeader(name = "extension", defaultValue = "unknown") String extension,
+            @RequestHeader(name = "flowName", defaultValue = "unknown") String flowName,
+            @RequestBody byte[] bytes) {
+		
+    	if(!flowManagerProfileService.checkFlowById(flowFileUploadService.getFlowId(idEstraz))) {
+    		return SaveOperationResult.failure();
+    	}
+
+		int sec = Integer.parseInt(section);
+		FlowOperationResult<Boolean> result = flowFileUploadService.uploadFile(idEstraz, bytes, sec, extension);
+		
+		if(result.getSuccess()) {
+			if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogCaricamentoFile())) {
+				byte[] resultsLogAccessi = flowFileUploadService.sendAuditUploadCaricamentoFile(idEstraz, flowName, fileName, AuditEventActionEnum.CREATE, bytes);
+	        }
+			return SaveOperationResult.success(result.getSuccess());
+		}else {
+			return SaveOperationResult.failure();
+		}
+
+    }
+	
+	@Override
+	@PostMapping("/deleteFile")
+	@ResponseBody
+	public FlowOperationResult<Boolean> deleteFile(@RequestBody BaseSearchInput input) {
+		
+		String requestId = (String)input.getValue("requestId");
+		
+		if(!flowManagerProfileService.checkFlowById(flowFileUploadService.getFlowId(requestId))) {
+    		return null;
+    	}
+		
+		String section = (String)input.getValue("section");
+		int sec = Integer.parseInt(section);
+		FlowOperationResult<Boolean> found = new FlowOperationResult<Boolean>();
+		if(requestId != null) {
+			found = flowFileUploadService.checkSectionFile(requestId, sec);
+		}else {
+			found.setSuccess(false);
+		}
+		return found;
+	}
+	
+	@Override
+	@PostMapping("/validation")
+	@ResponseBody
+	public OperationResult<HashMap<String,Date>> validation(@RequestBody FlowFileUploadRequest flowFileUploadRequest) {
+		
+		String requestId = flowFileUploadRequest.getId();
+		
+		if(!flowManagerProfileService.checkFlowById(flowFileUploadService.getFlowId(requestId))) {
+    		return null;
+    	}
+		
+		HashMap<String,Date> mapResult = new HashMap<String,Date>();
+		String result;
+		try {
+			WellFormedStatusEnum wellfoormedStatusEnum = flowFileUploadService.checkUploadedFiles(requestId);
+			result = wellfoormedStatusEnum.toString();
+			mapResult.put(result, new Date());
+		} catch (IOException e) {
+			LogUtil.logException(LOGGER, "", e);
+			result = "ERROR";
+//			e.printStackTrace();
+		} catch (SQLException e) {
+			LogUtil.logException(LOGGER, "", e);
+			
+            throw new RuntimeException(e);
+        }
+
+        return OperationResult.success(mapResult);
+	}
+	
+	@Override
+	@PostMapping("/checkIncompleteErrors")
+	@ResponseBody
+	public OperationResult<List<FlowFileUploadRequestError>> checkIncompleteErrors(@RequestBody FlowFileUploadRequest flowFileUploadRequest) {
+		
+		List<FlowFileUploadRequestErrorDO> errorList = flowFileUploadService.checkIncompleteErrors(flowFileUploadRequest);
+		
+		List<FlowFileUploadRequestError> dtos = new ArrayList<FlowFileUploadRequestError>();
+		for(int i=0; i<errorList.size(); i++) {
+			FlowFileUploadRequestError dto = mapper.convert(errorList.get(i), FlowFileUploadRequestError.class);
+			dtos.add(dto);
+		}
+
+		return OperationResult.success(dtos);
+	}
+
+}

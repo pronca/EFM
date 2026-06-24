@@ -1,0 +1,34 @@
+package it.eng.care.domain.flow.jobs.jobs;
+
+import org.quartz.DisallowConcurrentExecution;
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.jobs.look.LockJob;
+import it.eng.care.domain.flow.jobs.service.JobSendErrorService;
+
+@DisallowConcurrentExecution
+public class SendRestErrors implements Job{
+
+	@Autowired
+	JobSendErrorService sendError;
+	
+	
+	@Override
+	@LockJob(entity = "SendRestErrors", untilCfg = "SendRestErrors.locktimeout")
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+		
+		try {
+			sendError.getPendingErrorAndSend();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+	}
+
+	
+	
+}

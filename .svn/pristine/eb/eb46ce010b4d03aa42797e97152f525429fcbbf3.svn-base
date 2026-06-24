@@ -1,0 +1,211 @@
+package org.it.eng.care.domain.flow.FlowManager;
+
+import it.eng.care.domain.flow.core.config.C3P0DataSource;
+import it.eng.care.domain.flow.core.dto.DataSourceDTO;
+import it.eng.care.domain.flow.core.dto.DriverDTO;
+import it.eng.care.domain.flow.core.dto.ExtractionFilter.ExtractionFilterDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.service.FlowExtractionService;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import org.junit.FixMethodOrder;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.MethodSorters;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+
+import java.sql.*;
+import java.util.Calendar;
+import java.util.List;
+
+@RunWith(SpringJUnit4ClassRunner.class)
+@ContextConfiguration(classes = { FlowManagerTestConfig.class })
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
+public class FlowManagerTest {
+
+	@Autowired
+	private FormFlowService formFlowService;
+
+	@Autowired
+	private FlowExtractionService flowExtractionService;
+
+	@Test
+	public void extractionTest() {
+		ExtractionFilterDTO extractionFilterDTO = new ExtractionFilterDTO();
+		BaseSearchInput baseSearchInput = new BaseSearchInput();
+		// 390c8220-88e5-4fb4-b18b-20b0ffe3ceb4
+		baseSearchInput.setValue("flowId", "c299ad8c-012e-471c-8c0c-ac721fe242cf");
+		// baseSearchInput.setValue("flowId","bd0ca8b0-ce4a-45a0-ad62-37765e53d179");
+		Pair<List<FormFlowDTO>, SearchInfo> formFlowPair = formFlowService.retrieveAllFiltered(baseSearchInput);
+		FormFlowDTO formFlowDTO = formFlowPair.getFirst().get(0);
+		extractionFilterDTO.setFormFlow(formFlowDTO);
+		flowExtractionService.extraction(extractionFilterDTO);
+	}
+
+	@Test
+	public void insertRecordDatasource() {
+		DriverDTO driverDTO = new DriverDTO();
+		driverDTO.setId("0");
+		driverDTO.setName("oracle");
+		driverDTO.setDescription("Driver Oracle");
+		DataSourceDTO dataSourceDTO = new DataSourceDTO();
+		dataSourceDTO.setId("123456");
+		dataSourceDTO.setName("mysql");
+		dataSourceDTO.setDriver(driverDTO);
+		dataSourceDTO.setEnabled(true);
+		dataSourceDTO.setUsername("BDSAV");
+		dataSourceDTO.setPassword("BDSAV");
+		dataSourceDTO.setPort("3306");
+		dataSourceDTO.setHostname("localhost");
+		dataSourceDTO.setServiceName("flow_manager");
+		try {
+			Connection con = C3P0DataSource.getInstance(dataSourceDTO).getConnection();
+			con.setAutoCommit(false);
+			String sql1 = "INSERT INTO " + "FM_FLOW_EXTEST_0" + "(ID," + "STATUS," + "VERSION," + "STATUS_PROCESS,"
+					+ "DATE_PROCESSING," + "CMP1," + "CMP2 " + " ) " + "VALUES (?,?,?,?,?,?,?)";
+			String sql2 = "INSERT INTO " + "FM_FLOW_EXTEST_1" + "(ID," + "STATUS," + "VERSION," + "STATUS_PROCESS,"
+					+ "DATE_PROCESSING," + "CMP1," + "CMP2" + " ) " + "VALUES (?,?,?,?,?,?,?)";
+			PreparedStatement preparedStatement1 = con.prepareStatement(sql1);
+			PreparedStatement preparedStatement2 = con.prepareStatement(sql2);
+			java.sql.Date Date = new java.sql.Date(Calendar.getInstance().getTime().getTime());
+			long start = System.currentTimeMillis();
+			for (int i = 0; i <= 1000000; i++) {
+				preparedStatement1.setObject(1, i);
+				preparedStatement1.setObject(2, "01010101");
+				preparedStatement1.setObject(3, "0101010101010");
+				preparedStatement1.setObject(4, "01010");
+				preparedStatement1.setObject(5, Date);
+				preparedStatement1.setObject(6, i
+						+ "aqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedw");
+				preparedStatement1.setObject(7, i
+						+ "aqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedw");
+
+				preparedStatement2.setObject(1, i);
+				preparedStatement2.setObject(2, "01");
+				preparedStatement2.setObject(3, "01");
+				preparedStatement2.setObject(4, "01");
+				preparedStatement2.setObject(5, Date);
+				preparedStatement2.setObject(6, i
+						+ "aqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedw");
+				preparedStatement2.setObject(7, i
+						+ "aqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedw");
+				preparedStatement1.addBatch();
+				preparedStatement2.addBatch();
+				if (i % 5000 == 0) {
+					preparedStatement1.executeBatch();
+					long end1 = System.currentTimeMillis();
+					float sec1 = (end1 - start) / 1000F;
+					System.out.println("ExecuteBatch1:" + sec1 + " seconds");
+					preparedStatement2.executeBatch();
+					long end2 = System.currentTimeMillis();
+					float sec2 = (end2 - start) / 1000F;
+					System.out.println("ExecuteBatch2:" + sec2 + " seconds");
+					con.commit();
+					long end3 = System.currentTimeMillis();
+					float sec3 = (end1 - start) / 1000F;
+					System.out.println("ExecuteCommitt:" + sec3 + " seconds");
+
+				}
+			}
+
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+
+	}
+
+	@Test
+	public void insertFormFlow() {
+
+		DriverDTO driverDTO = new DriverDTO();
+		driverDTO.setId("0");
+		driverDTO.setName("oracle");
+		driverDTO.setDescription("Driver Oracle");
+
+		DataSourceDTO dataSourceDTO = new DataSourceDTO();
+		dataSourceDTO.setId("123456");
+		dataSourceDTO.setName("orcale");
+		dataSourceDTO.setDriver(driverDTO);
+		dataSourceDTO.setEnabled(true);
+		dataSourceDTO.setUsername("WEB118_CLU_BO");
+		dataSourceDTO.setPassword("web118_clu");
+		dataSourceDTO.setPort("1561");
+		dataSourceDTO.setHostname("161.27.202.59");
+		dataSourceDTO.setServiceName("DB118");
+
+		try (Connection con = C3P0DataSource.getInstance(dataSourceDTO).getConnection()) {
+			Statement stmt = con.createStatement();
+			ResultSet rs = stmt.executeQuery("SELECT * FROM PMLINK_CONFIG");
+			ResultSetMetaData metadata = rs.getMetaData();
+			int cols = metadata.getColumnCount();
+			System.out.println("\n-----------------------------" + "--------------------------------");
+			for (int i = 0; i < cols; i++) {
+				System.out.printf("%-20s\t", metadata.getColumnName(i + 1).toUpperCase());
+			}
+			System.out.println("\n-----------------------------" + "--------------------------------");
+			while (rs.next()) {
+				for (int i = 0; i < cols; i++)
+					System.out.printf("%-20s\t", rs.getObject(i + 1));
+				System.out.println();
+			}
+			System.out.println("-------------------------------" + "--------------------------------");
+
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+
+//		String idVersion = "0ebc5623-7044-4e5c-91b1-647a4141256d";
+//		VersionDO versionDO = versionService.retrieveOne(idVersion);
+//	    FlowDO flowDO = new FlowDO();
+//		flowDO.setCode("012345672");
+//		flowDO.setDescription("PROVA TEST4");
+//		flowDO.setName("PROVA TEST4");
+//		flowDO.setStatus(true);
+//		flowDO.setScheduling(false);
+//		flowDO.setUniqueness(true);
+//		flowDO.setRemoteSend(false);
+//		flowDO.setMonthlyDeadline(new Date());
+//		flowDO.setPeriodicy("PROVA TEST4");
+//		Set<VersionDO> versions = new HashSet<>();
+//		versions.add(versionDO);
+//		flowDO.setVersions(versions);
+//		flowService.createEntity(flowDO);
+
+		/*
+		 * FlowVersionDO flowVersionDO = new FlowVersionDO();
+		 * flowVersionDO.setFlow(flowDO); flowVersionDO.setVersion(versionDO);
+		 * List<FlowVersionDO> flowVersionDOList = new ArrayList<>();
+		 * flowVersionDOList.add(flowVersionDO);
+		 * flowDO.setFlowVersionList(flowVersionDOList);
+		 * flowService.createEntity(flowDO); FlowTableDO flowTableDO = new
+		 * FlowTableDO(); flowTableDO.setName("PROVA");
+		 * flowTableDO.setDescription("PROVA"); flowTableDO.setSection(1);
+		 * flowTableDO.setFlowVersionDO(flowVersionDO); String idDataSource =
+		 * "eb8c66ec-1839-441e-9537-0c08ec080009"; DataSourceDO dataSourceDO =
+		 * dataSourceService.retrieveOne(idDataSource); FlowTableDataSourceDO
+		 * flowTableDataSourceDO = new FlowTableDataSourceDO();
+		 * flowTableDataSourceDO.setDatasource(dataSourceDO);
+		 * flowTableDataSourceDO.setFlowTable(flowTableDO); List<FlowTableDataSourceDO>
+		 * flowTableDataSourceDOList = new ArrayList<>();
+		 * flowTableDataSourceDOList.add(flowTableDataSourceDO);
+		 * flowTableDO.setFlowTableDataSourceList(flowTableDataSourceDOList);
+		 * flowTableService.createEntity(flowTableDO); FlowTableFieldDO flowTableFieldDO
+		 * = new FlowTableFieldDO(); flowTableFieldDO.setName("PROVA");
+		 * flowTableFieldDO.setDescription("PROVA"); flowTableFieldDO.setPosition(1);
+		 * flowTableFieldDO.setPk(true);
+		 * flowTableFieldDO.setFlowTableFieldId("COSA SERVE");
+		 * flowTableFieldDO.setLength(12); flowTableFieldDO.setMandatory(false);
+		 * flowTableFieldDO.setRegExp("PROVAAAAA");
+		 * flowTableFieldDO.setReferenceDate(true);
+		 * flowTableFieldDO.setFlowTable(flowTableDO);
+		 * flowTableFieldDO.setFieldType("STRING");
+		 * flowTableFieldService.createEntity(flowTableFieldDO);
+		 */
+
+	}
+
+}

@@ -1,0 +1,46 @@
+<?xml version="1.1" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.6.xsd"
+        logicalFilePath="db/changelogs">
+
+	<changeSet author="flowmanager" id="fm_job_talend-04004">
+		<createTable tableName="fm_job_talend">
+			<column name="id" type="VARCHAR(64)">
+				<constraints primaryKey="true"
+					primaryKeyName="fm_job_talend_pk" />
+			</column>
+			<column name="name" type="VARCHAR(64)" />
+			<column name="description" type="VARCHAR(64)" />
+			<column name="class_name" type="VARCHAR(64)" />
+			<column name="flow" type="VARCHAR(64)" />
+			<column name="version" type="VARCHAR(64)" />
+			<column name="type" type="VARCHAR(64)" />
+			<column name="package_job" type="VARCHAR(256)" />
+			<column name="deleted" type="BOOLEAN" />
+			<column name="last_update_date" type="DATE" />
+			<column name="last_update_user" type="VARCHAR(64)" />
+		</createTable>
+	</changeSet>
+	
+	<changeSet author="flowmanager" id="fm_job_talend_file-04004">
+		<createTable tableName="fm_job_talend_file">
+			<column name="id" type="VARCHAR(64)">
+				<constraints primaryKey="true"
+					primaryKeyName="fm_job_talend_file_pk" />
+			</column>
+			<column name="job_talend_id" type="VARCHAR(64)" />
+			<column name="job" type="oid" />
+		</createTable>
+	</changeSet>
+	
+	<changeSet author="flowmanager" id="fm_job_talend_fk-00505">
+		<addForeignKeyConstraint
+			baseColumnNames="job_talend_id" baseTableName="fm_job_talend_file"
+			constraintName="fm_job_talend_fk" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="id" referencedTableName="fm_job_talend" />
+	</changeSet>
+	
+</databaseChangeLog>

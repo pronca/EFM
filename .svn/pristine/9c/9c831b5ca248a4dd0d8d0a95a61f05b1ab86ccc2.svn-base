@@ -1,0 +1,507 @@
+package it.eng.care.domain.flow.core.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.statemachine.data.StateMachineRepository;
+
+import it.eng.care.domain.flow.core.dao.AnagraficaAssistitoDAO;
+import it.eng.care.domain.flow.core.dao.AppIdentityDAO;
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.ContextConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.DashboardConfigDAO;
+import it.eng.care.domain.flow.core.dao.DashboardDAO;
+import it.eng.care.domain.flow.core.dao.DashboardErrorsDAO;
+import it.eng.care.domain.flow.core.dao.DashboardErrorsFilterDAO;
+import it.eng.care.domain.flow.core.dao.DashboardFilterDAO;
+import it.eng.care.domain.flow.core.dao.DashboardPraticheDAO;
+import it.eng.care.domain.flow.core.dao.DashboardPraticheFilterDAO;
+import it.eng.care.domain.flow.core.dao.DataSourceDAO;
+import it.eng.care.domain.flow.core.dao.DriverDAO;
+import it.eng.care.domain.flow.core.dao.EmailConfigDAO;
+import it.eng.care.domain.flow.core.dao.EmailMessageConfigDAO;
+import it.eng.care.domain.flow.core.dao.ErrorMessageDAO;
+import it.eng.care.domain.flow.core.dao.ErrorViewDAO;
+import it.eng.care.domain.flow.core.dao.FieldTypeDAO;
+import it.eng.care.domain.flow.core.dao.FlowConfigurationFilterDAO;
+import it.eng.care.domain.flow.core.dao.FlowConfigurationFilterFieldDAO;
+import it.eng.care.domain.flow.core.dao.FlowConfigurationFilterFieldValueDAO;
+import it.eng.care.domain.flow.core.dao.FlowDAO;
+import it.eng.care.domain.flow.core.dao.FlowDrgDAO;
+import it.eng.care.domain.flow.core.dao.FlowExportMessageDetailsDAO;
+import it.eng.care.domain.flow.core.dao.FlowExportReqFileTalendDAO;
+import it.eng.care.domain.flow.core.dao.FlowExportRequestDAO;
+import it.eng.care.domain.flow.core.dao.FlowExtstdConfigDAO;
+import it.eng.care.domain.flow.core.dao.FlowForeignKeyDAO;
+import it.eng.care.domain.flow.core.dao.FlowImportRequestDAO;
+import it.eng.care.domain.flow.core.dao.FlowReceiverLogDAO;
+import it.eng.care.domain.flow.core.dao.FlowRegionUnionDAO;
+import it.eng.care.domain.flow.core.dao.FlowTableDAO;
+import it.eng.care.domain.flow.core.dao.FlowTableDAOCustom;
+import it.eng.care.domain.flow.core.dao.FlowTableFieldDAO;
+import it.eng.care.domain.flow.core.dao.FlowVersionDAO;
+import it.eng.care.domain.flow.core.dao.FlowViewDAO;
+import it.eng.care.domain.flow.core.dao.FmSequenceDAO;
+import it.eng.care.domain.flow.core.dao.IntegrationServiceDAO;
+import it.eng.care.domain.flow.core.dao.JobTalendDAO;
+import it.eng.care.domain.flow.core.dao.JobTalendDipendencyDAO;
+import it.eng.care.domain.flow.core.dao.JobTalendFileDAO;
+import it.eng.care.domain.flow.core.dao.MonitorSdoXlDAO;
+import it.eng.care.domain.flow.core.dao.MonitorSdoXlFileDAO;
+import it.eng.care.domain.flow.core.dao.PraticaViewDAO;
+import it.eng.care.domain.flow.core.dao.ProfiloFlussiDAO;
+import it.eng.care.domain.flow.core.dao.ResetValidationRequestDAO;
+import it.eng.care.domain.flow.core.dao.SearchPatientFieldDAO;
+import it.eng.care.domain.flow.core.dao.SecondLevelValidationRequestDAO;
+import it.eng.care.domain.flow.core.dao.SendDrgDAO;
+import it.eng.care.domain.flow.core.dao.StateDAO;
+import it.eng.care.domain.flow.core.dao.StateMachinePersistHistoryDAO;
+import it.eng.care.domain.flow.core.dao.TalendDbDAO;
+import it.eng.care.domain.flow.core.dao.UploadReturnsRequestDAO;
+import it.eng.care.domain.flow.core.dao.ValidationErrorsDAO;
+import it.eng.care.domain.flow.core.dao.VersionDAO;
+import it.eng.care.domain.flow.core.dao.querySearch.AnagraficaAssistDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.AnagraficaAssistitoDAOQueryByCriteria;
+import it.eng.care.domain.flow.core.dao.querySearch.AnagraficaAssistitoQueryPaginated;
+import it.eng.care.domain.flow.core.dao.querySearch.DataSourceDAOueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowConfFilterFieldValueDAOQuery;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowConfigurationFilterDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowExportRequestDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowForeignKeyDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowImportRequestDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowRegionUnionDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowTableDAOCustomImpl;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowTableDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowTableFieldDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowViewDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.JobTalendDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.MonitorFlowErrorByQuerySearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.MonitorSdoByQuerySearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.MonitorXlFlowFileByQuerySearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.PraticaViewDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.StateDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dao.querySearch.VersionDAOueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.entity.StateMachinePersistDO;
+import it.eng.care.domain.flow.core.entity.StateMachinePersistRepository;
+import it.eng.care.domain.flow.flowupload.dao.FlowFileUploadRequestDAO;
+import it.eng.care.domain.flow.flowupload.dao.FlowFileUploadRequestDAObyBaseSearchInput;
+import it.eng.care.domain.flow.flowupload.dao.FlowFileUploadRequestErrorDAO;
+import it.eng.care.domain.flow.flowupload.dao.FlowSectionFileDAO;
+import it.eng.care.domain.flow.flowupload.dao.QuerySearch.FlowSectionFileDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.webservice.dao.CodiciRegioneDAO;
+import it.eng.care.domain.flow.webservice.dao.SdoDrgPosDAO;
+import it.eng.care.platform.persistence.api.factory.CareRepositoryFactory;
+
+@Configuration
+public class FlowRepositoryConfig {
+
+
+    @Bean
+    public FlowDAO flowDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowDAO.class);
+    }
+
+    @Bean
+    public FlowVersionDAO flowVersionDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowVersionDAO.class);
+    }
+
+    @Bean
+    public FlowViewDAO flowViewDAO() {
+        return new FlowViewDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public FlowImportRequestDAO flowImportDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowImportRequestDAO.class);
+    }
+
+    @Bean
+    public FlowExportRequestDAO flowExportDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowExportRequestDAO.class);
+    }
+
+    @Bean
+    public DriverDAO driverDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(DriverDAO.class);
+    }
+
+    @Bean
+    public DataSourceDAO dataSourceDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(DataSourceDAO.class);
+    }
+
+    @Bean
+    public VersionDAO versionDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(VersionDAO.class);
+    }
+
+    @Bean
+    public FlowTableDAO FlowTableDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowTableDAO.class);
+    }
+
+    @Bean
+    public FlowTableFieldDAO FlowTableFieldDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowTableFieldDAO.class);
+    }
+
+    @Bean
+    public FieldTypeDAO FieldTypeDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FieldTypeDAO.class);
+    }
+
+    @Bean
+    public FlowDAOQueryByBaseSearchInput flowDAOueryByBaseSearchInput() {
+        return new FlowDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public DataSourceDAOueryByBaseSearchInput dataSourceDAOueryByBaseSearchInput() {
+        return new DataSourceDAOueryByBaseSearchInput();
+    }
+
+    @Bean
+    public VersionDAOueryByBaseSearchInput versionDAOueryByBaseSearchInput() {
+        return new VersionDAOueryByBaseSearchInput();
+    }
+
+    @Bean
+    public FlowTableDAOQueryByBaseSearchInput flowTableDAOQueryByBaseSearchInput() {
+        return new FlowTableDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public FlowTableFieldDAOQueryByBaseSearchInput flowTableFieldDAOQueryByBaseSearchInput() {
+        return new FlowTableFieldDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public FlowImportRequestDAOQueryByBaseSearchInput flowExtractDAOQueryByBaseSearchInput() {
+        return new FlowImportRequestDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public FlowExportRequestDAOQueryByBaseSearchInput flowExportDAOQueryByBaseSearchInput() {
+        return new FlowExportRequestDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public StateMachineRepository<StateMachinePersistDO> stateMachineRepository(
+            CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(StateMachinePersistRepository.class);
+    }
+
+    @Bean
+    public StateMachinePersistHistoryDAO stateMachinePersistHistoryDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(StateMachinePersistHistoryDAO.class);
+    }
+
+    @Bean
+    public JobTalendDAOQueryByBaseSearchInput JobTalendDAOQueryByBaseSearchInput() {
+        return new JobTalendDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public JobTalendDAO JobTalendDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(JobTalendDAO.class);
+    }
+
+    @Bean
+    public JobTalendFileDAO JobTalendFileDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(JobTalendFileDAO.class);
+    }
+
+    @Bean
+    public StateDAO StateDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(StateDAO.class);
+    }
+
+    @Bean
+    public StateDAOQueryByBaseSearchInput StateDAOQueryByBaseSearchInput() {
+        return new StateDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public FlowConfigurationFilterDAO flowConfigurationFilterDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowConfigurationFilterDAO.class);
+    }
+
+    @Bean
+    public FlowConfigurationFilterFieldDAO flowConfigurationFilterFieldDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowConfigurationFilterFieldDAO.class);
+    }
+
+    @Bean
+    public FlowConfigurationFilterFieldValueDAO flowConfigurationFilterFieldValueDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowConfigurationFilterFieldValueDAO.class);
+    }
+
+    @Bean
+    public FlowForeignKeyDAO flowForeignKeyDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowForeignKeyDAO.class);
+    }
+
+    @Bean
+    public FlowForeignKeyDAOQueryByBaseSearchInput flowForeignKeyDAOQueryByBaseSearchInput() {
+        return new FlowForeignKeyDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public FlowConfigurationFilterDAOQueryByBaseSearchInput flowConfigurationFilterDAOQueryByBaseSearchInput() {
+        return new FlowConfigurationFilterDAOQueryByBaseSearchInput();
+    }
+
+
+    @Bean
+    public PraticaViewDAO praticaViewDAO() {
+        return new PraticaViewDAOQueryByBaseSearchInput();
+    }
+
+    @Bean
+    public ErrorMessageDAO errorMessageDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(ErrorMessageDAO.class);
+    }
+
+    @Bean
+    public AppIdentityDAO appIdentityDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(AppIdentityDAO.class);
+    }
+
+    @Bean
+    public DashboardDAO dashboardDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(DashboardDAO.class);
+    }
+
+    @Bean
+    public DashboardPraticheDAO dashboardPraticheDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(DashboardPraticheDAO.class);
+    }
+    
+    @Bean
+    public DashboardPraticheFilterDAO dashboardPraticheFilterDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(DashboardPraticheFilterDAO.class);
+    }
+    
+    @Bean
+    public DashboardErrorsFilterDAO dashboardErrorsFilterDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(DashboardErrorsFilterDAO.class);
+    }
+    
+    @Bean
+    public DashboardFilterDAO dashboardFilterDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(DashboardFilterDAO.class);
+    }
+
+    @Bean
+    public DashboardErrorsDAO dashboardErrorsDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(DashboardErrorsDAO.class);
+    }
+
+    @Bean
+    public DashboardConfigDAO dashboardConfigDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(DashboardConfigDAO.class);
+    }
+
+    @Bean
+    public FlowExportReqFileTalendDAO flowExportReqFileTalendDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowExportReqFileTalendDAO.class);
+    }
+
+    @Bean
+    public FlowRegionUnionDAO flowRegionUnionDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowRegionUnionDAO.class);
+    }
+    
+    @Bean
+    public FmSequenceDAO FmSequenceDAO(CareRepositoryFactory careRepositoryService) {
+    	return careRepositoryService.createRepository(FmSequenceDAO.class);
+    }
+
+    @Bean
+    public FlowRegionUnionDAOQueryByBaseSearchInput flowRegionUnionDAOQueryByBaseSearchInput() {
+        return new FlowRegionUnionDAOQueryByBaseSearchInput();
+    }
+    
+    @Bean
+    public TalendDbDAO talendDbDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(TalendDbDAO.class);
+    }
+    
+    @Bean
+    public ConfigurationDAO configurationDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(ConfigurationDAO.class);
+
+    }
+
+    @Bean
+    public FlowConfFilterFieldValueDAOQuery flowConfFilterFieldValueDAOQuery() {
+        return new FlowConfFilterFieldValueDAOQuery();
+    }
+
+    @Bean
+    public EmailConfigDAO emailConfigDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(EmailConfigDAO.class);
+
+    }
+
+    @Bean
+    public ContextConfigurationDAO contextConfigurationDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(ContextConfigurationDAO.class);
+
+    }
+    @Bean
+    public EmailMessageConfigDAO emailMessageConfigDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(EmailMessageConfigDAO.class);
+
+    }
+    @Bean
+    public JobTalendDipendencyDAO JobTalendDipendencyDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(JobTalendDipendencyDAO.class);
+    }
+    
+    @Bean
+    public ResetValidationRequestDAO resetValidationRequestDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(ResetValidationRequestDAO.class);
+    }
+    
+
+    @Bean
+    public SecondLevelValidationRequestDAO SecondLevelValidationRequestDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(SecondLevelValidationRequestDAO.class);
+    }
+
+    @Bean
+    public FlowExtstdConfigDAO flowExtstdConfigDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowExtstdConfigDAO.class);
+    }
+
+    @Bean
+    public CodiciRegioneDAO codiciRegioneDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(CodiciRegioneDAO.class);
+
+    }
+    @Bean
+    public SearchPatientFieldDAO searchPatientFieldDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(SearchPatientFieldDAO.class);
+    }
+    @Bean
+    public SdoDrgPosDAO sdoDrgPosDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(SdoDrgPosDAO.class);
+
+    }
+    
+    @Bean
+    public FlowExportMessageDetailsDAO flowExportMessageDetailsDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowExportMessageDetailsDAO.class);
+
+    }
+ 
+    @Bean
+    public ValidationErrorsDAO validationErrorsDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(ValidationErrorsDAO.class);
+    }
+    
+    @Bean
+    public UploadReturnsRequestDAO uploadReturnsRequestDAO(CareRepositoryFactory careRepositoryService) {
+    	return careRepositoryService.createRepository(UploadReturnsRequestDAO.class);
+    }
+
+    @Bean
+    public FlowFileUploadRequestDAO flowFileUploadRequestDAO(CareRepositoryFactory careRepositoryService) {
+    	return careRepositoryService.createRepository(FlowFileUploadRequestDAO.class);
+    }
+    
+    @Bean
+    public FlowSectionFileDAO flowSectionFileDAO(CareRepositoryFactory careRepositoryService) {
+    	return careRepositoryService.createRepository(FlowSectionFileDAO.class);
+    }
+    
+    @Bean
+	public FlowFileUploadRequestDAObyBaseSearchInput flowFileUploadRequestDAObyBaseSearchInput() {
+		return new FlowFileUploadRequestDAObyBaseSearchInput();
+	}
+    
+    @Bean
+	public FlowSectionFileDAOQueryByBaseSearchInput flowSectionFileDAOQueryByBaseSearchInput() {
+		return new FlowSectionFileDAOQueryByBaseSearchInput();
+	}
+    
+    @Bean
+    public FlowFileUploadRequestErrorDAO flowFileUploadRequestErrorDAO(CareRepositoryFactory careRepositoryService) {
+    	return careRepositoryService.createRepository(FlowFileUploadRequestErrorDAO.class);
+    }
+    
+    @Bean
+    public FlowDrgDAO flowDrgDAO(CareRepositoryFactory careRepositoryService) {
+    	return careRepositoryService.createRepository(FlowDrgDAO.class);
+    }
+    
+    @Bean
+    public IntegrationServiceDAO integrationServiceDAO(CareRepositoryFactory careRepositoryService) {
+    	return careRepositoryService.createRepository(IntegrationServiceDAO.class);
+    }
+    
+    @Bean
+    public SendDrgDAO SendDrgDAO(CareRepositoryFactory careRepositoryService) {
+    	return careRepositoryService.createRepository(SendDrgDAO.class);
+    }
+    
+    @Bean
+    public FlowTableDAOCustom flowTableDAOCustom() {
+    	return new FlowTableDAOCustomImpl();
+    }
+    
+    @Bean
+    public AnagraficaAssistitoDAO anagraficaAssistitoDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(AnagraficaAssistitoDAO.class);
+    }
+    
+    @Bean
+    public AnagraficaAssistDAOQueryByBaseSearchInput anagraficaAssistDAOQueryByBaseSearchInput() {
+        return new AnagraficaAssistDAOQueryByBaseSearchInput();
+    }
+    
+    @Bean
+    public AnagraficaAssistitoDAOQueryByCriteria anagraficaAssistDAOQueryByCriteria() {
+        return new AnagraficaAssistitoDAOQueryByCriteria();
+    }
+    
+    @Bean
+    public AnagraficaAssistitoQueryPaginated anagraficaAssistitoQueryPaginated() {
+        return new AnagraficaAssistitoQueryPaginated();
+    }
+    
+    @Bean
+    public MonitorSdoXlDAO monitorSdoXlDAO(CareRepositoryFactory careRepositoryService) {
+    	 return careRepositoryService.createRepository(MonitorSdoXlDAO.class);
+    
+    }
+    
+    @Bean
+    public MonitorSdoByQuerySearchInput monitorSdoByQuerySearchInput() {
+    	 return new MonitorSdoByQuerySearchInput();
+    
+    }
+    
+    @Bean
+    public ErrorViewDAO errorViewDAO() {
+        return new MonitorFlowErrorByQuerySearchInput();
+    }
+    
+    @Bean
+    public MonitorSdoXlFileDAO monitorSdoXlFileDAO() {
+        return new MonitorXlFlowFileByQuerySearchInput();
+    }
+    
+    @Bean
+    public FlowReceiverLogDAO flowReceiverLogDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(FlowReceiverLogDAO.class);
+    }
+    
+    @Bean
+    public ProfiloFlussiDAO profiloFlussiDAO(CareRepositoryFactory careRepositoryService) {
+        return careRepositoryService.createRepository(ProfiloFlussiDAO.class);
+
+    }
+}

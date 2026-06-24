@@ -1,0 +1,131 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.List;
+
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+
+import org.hibernate.internal.SessionImpl;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import it.eng.care.domain.flow.core.controller.MonitorSdoXlController;
+import it.eng.care.domain.flow.core.dao.FlowExportMessageDetailsDAO;
+import it.eng.care.domain.flow.core.dao.FlowExportReqFileTalendDAO;
+import it.eng.care.domain.flow.core.dao.FlowExportRequestDAO;
+import it.eng.care.domain.flow.core.dto.MonitorSdoPaginDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.entity.FlowExportMessageDetailsDO;
+import it.eng.care.domain.flow.core.entity.FlowExportReqFileTalendDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.domain.flow.core.service.TalendThreadService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+
+import javax.sql.DataSource;
+
+@Service
+@Transactional
+public class TalendThreadServiceImpl implements TalendThreadService{
+
+    @Autowired
+    private DataSource dataSource;
+
+	@Autowired
+	private FlowExportRequestDAO flowExtractDAO;
+	
+	@Autowired
+    private FormFlowService formFlowService;
+	
+	@Autowired
+    EntityManager entityManager;
+	
+	@Autowired
+	FlowExportReqFileTalendDAO flowExportReqFileTalendDAO;
+	
+	@Autowired
+	private FlowExportMessageDetailsDAO flowExportMessageDetailsDAO;
+	
+	@Autowired
+	private MonitorSdoXlController monitorSdoXlController;
+
+	@Override
+	public void save(FlowExportRequestDO flowExportRequestDO) {
+		flowExtractDAO.save(flowExportRequestDO);		
+	}
+	
+	@Override
+    public Integer countExtractionRecord(FlowExportRequestDO flowExportRequestDO) {
+		
+		if(null!=flowExportRequestDO.getFlow() && null!=flowExportRequestDO.getFlow().getName() && flowExportRequestDO.getFlow().getName().equals("SDO_XL")) {
+			BaseSearchInput searchInput = new BaseSearchInput();
+			searchInput.setValue("idEstrazione", flowExportRequestDO.getId());
+			searchInput.setValue("pageSize", 1);
+			searchInput.setValue("pageNo", 0);
+			searchInput.setValue("sortDir", "asc");
+			searchInput.setValue("sortField", "idEstrazione");
+			OperationResult<MonitorSdoPaginDTO> c = monitorSdoXlController.filterData(searchInput);
+			return c.getResult().getCount().intValue();
+		}
+		
+        String version = flowExportRequestDO.getVersion().getId();
+        String flow = flowExportRequestDO.getFlow().getId();
+        //Recupero FLUSSO_REGIONALE
+        FormFlowDTO formFlowDTOazi = formFlowService.retrieveOne(flow, version);
+        String table = "FM_FLOW_" + formFlowDTOazi.getName() + "_REG_" + formFlowDTOazi.getFlowTableList().get(0).getSection() + " ";
+        String selectCountSQL = "SELECT COUNT(EXTRACTION_ID) FROM " + table +
+                "WHERE EXTRACTION_ID=?";
+        int records = 0;
+        try {
+            SessionImpl session = (SessionImpl) entityManager.getDelegate();
+            Connection conn = dataSource.getConnection();
+            conn.setAutoCommit(false);
+            PreparedStatement preparedStatementSelect = conn.prepareStatement(selectCountSQL);
+            preparedStatementSelect.setFetchSize(5000);
+            preparedStatementSelect.setString(1,flowExportRequestDO.getId());
+            ResultSet rs = preparedStatementSelect.executeQuery();
+            while (rs.next()) {
+                records = rs.getInt(1);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+
+        return records;
+    }
+
+	@Override
+	public int checkValidation(FlowExportRequestDO flowExportRequestDO) {
+		
+		List<FlowExportReqFileTalendDO> extractions = flowExportReqFileTalendDAO.findAllByflowExportRequest(flowExportRequestDO);
+		
+		for(FlowExportReqFileTalendDO extraction: extractions) {
+			if(extraction.getLog()!=null) {
+				return 1;
+			}
+		}
+		return 0;
+	}
+
+	@Override
+	public void deleteErrors(String exportId) {
+		
+		FlowExportRequestDO export = new FlowExportRequestDO();
+		export.setId(exportId);
+		List<FlowExportMessageDetailsDO> errorsList = flowExportMessageDetailsDAO.findAllByFlowExportRequest(export);
+		if(errorsList!=null && !errorsList.isEmpty()) {
+			for(FlowExportMessageDetailsDO error: errorsList) {
+				if(!"Estrazione terminata dall'utente".equals(error.getErrorValue())) {
+					flowExportMessageDetailsDAO.deleteById(error.getId());
+				}
+			}
+		}
+		
+	}
+	
+}

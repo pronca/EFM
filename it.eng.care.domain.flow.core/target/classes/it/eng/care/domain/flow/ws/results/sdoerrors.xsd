@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:tns="http://www.eng.it/fm/ws/results"
+           targetNamespace="http://www.eng.it/fm/ws/results" elementFormDefault="qualified">
+
+    <xs:element name="resultRequest">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="Set" type="tns:set"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+    
+     <xs:complexType name="set">
+        <xs:sequence>
+            <xs:element name="FIAdt.Adt.LErroreSDO" type="tns:error" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:element name="resultResponse">
+        <xs:complexType>
+            <xs:sequence>
+                <xs:element name="response" type="tns:result"/>
+            </xs:sequence>
+        </xs:complexType>
+    </xs:element>
+
+    <xs:complexType name="error">
+        <xs:sequence>
+            <xs:element name="protocolloSIO" type="xs:string"/>
+            <xs:element name="azienda" type="xs:string"/>
+            <xs:element name="presidio" type="xs:string"/>
+            <xs:element name="nosologico" type="xs:string"/>
+            <xs:element name="idFlusso" type="xs:string"/>
+            <xs:element name="codiceErrore" type="xs:string"/>
+            <xs:element name="descrizione" type="xs:string"/>
+            <xs:element name="dataElaborazione" type="xs:date"/>
+            <xs:element name="esito" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+    
+    <xs:complexType name="result">
+        <xs:sequence>
+            <xs:element name="code" type="xs:string"/>
+            <xs:element name="message" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+</xs:schema>

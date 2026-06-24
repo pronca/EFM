@@ -1,0 +1,794 @@
+package it.eng.care.domain.flow.core.utility;
+
+import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.BufferedWriter;
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.net.MalformedURLException;
+import java.net.URLConnection;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.text.DateFormat;
+import java.text.SimpleDateFormat;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Date;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.Locale;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipException;
+import java.util.zip.ZipFile;
+import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
+
+import jakarta.activation.MimetypesFileTypeMap;
+
+import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
+import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.common.io.Files;
+
+import it.eng.care.domain.flow.core.dto.FlowOperationResult;
+import it.eng.care.domain.flow.flowupload.service.impl.FlowFileUploadServiceImpl;
+import jxl.Cell;
+import jxl.DateCell;
+
+public class FileUtility {
+	private static final Logger LOGGER = LoggerFactory.getLogger(FileUtility.class);
+	public static final String MEDIATYPE_ZIP = "application/zip";
+	public static final String MEDIATYPE_TEXT = "text/plain";
+	public static final String MEDIATYPE_XLS = "application/vnd.ms-excel";
+	public static final String MEDIATYPE_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+	public static final String MEDIATYPE_CSV = "text/csv";
+	public static final String ZIP = "zip";
+	public static final String GZIP = "gz";
+	public static final String TXT_GZIP = "txt.gz";
+	public static final String CSV_GZIP = "csv.gz";
+	public static final String XLS_GZIP = "xls.gz";
+	public static final String XLSX_GZIP = "xlsx.gz";
+	public static final String TAR_GZIP = "tar.gz";
+	public static final String TGZ = "tgz";
+	public static final String TEXT = "txt";
+	public static final String XLS = "xls";
+	public static final String XLSX = "xlsx";
+	public static final String CSV = "csv";
+	public static final String SEPARATOR_CSV = ";";
+	
+	// Formati accettati (thread-safe, immutabili)
+	private static final List<DateTimeFormatter> ACCEPTED_FORMATS = Arrays.asList(
+
+		    // === Formati italiani classici (24 ore) ===
+		    DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"),
+		    DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+		    DateTimeFormatter.ofPattern("d/M/yyyy HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("d/M/yyyy HH:mm"),
+		    DateTimeFormatter.ofPattern("d/M/yyyy"),
+		    DateTimeFormatter.ofPattern("d/M/yy HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("d/M/yy HH:mm"),
+		    DateTimeFormatter.ofPattern("d/M/yy"),
+
+		    // === Formati italiani classici (12 ore con AM/PM) ===
+		    DateTimeFormatter.ofPattern("dd/MM/yyyy hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("dd/MM/yyyy hh:mm a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d/M/yyyy hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d/M/yyyy hh:mm a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d/M/yy hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d/M/yy hh:mm a", Locale.ENGLISH),
+
+		    // === Formati con separatore "-" (24 ore) ===
+		    DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"),
+		    DateTimeFormatter.ofPattern("dd-MM-yyyy"),
+		    DateTimeFormatter.ofPattern("d-M-yyyy HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("d-M-yyyy HH:mm"),
+		    DateTimeFormatter.ofPattern("d-M-yyyy"),
+		    DateTimeFormatter.ofPattern("d-M-yy HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("d-M-yy HH:mm"),
+		    DateTimeFormatter.ofPattern("d-M-yy"),
+
+		    // === Formati con separatore "-" (12 ore con AM/PM) ===
+		    DateTimeFormatter.ofPattern("dd-MM-yyyy hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("dd-MM-yyyy hh:mm a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d-M-yyyy hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d-M-yyyy hh:mm a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d-M-yy hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d-M-yy hh:mm a", Locale.ENGLISH),
+
+		    // === Formati con separatore "." (24 ore) ===
+		    DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"),
+		    DateTimeFormatter.ofPattern("dd.MM.yyyy"),
+		    DateTimeFormatter.ofPattern("d.M.yyyy HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("d.M.yyyy HH:mm"),
+		    DateTimeFormatter.ofPattern("d.M.yyyy"),
+		    DateTimeFormatter.ofPattern("d.M.yy HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("d.M.yy HH:mm"),
+		    DateTimeFormatter.ofPattern("d.M.yy"),
+
+		    // === Formati con separatore "." (12 ore con AM/PM) ===
+		    DateTimeFormatter.ofPattern("dd.MM.yyyy hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("dd.MM.yyyy hh:mm a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d.M.yyyy hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d.M.yyyy hh:mm a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d.M.yy hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("d.M.yy hh:mm a", Locale.ENGLISH),
+
+		    // === Formati ISO classici (24 ore) ===
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd"),
+
+		    // === Formati ISO classici (12 ore con AM/PM) ===
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd hh:mm a", Locale.ENGLISH),
+
+		    // === Formati ISO con T ===
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm"),
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS"),
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSX"),   // con Z o offset
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssX"),       // con Z o offset
+		    DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mmX"),          // con Z o offset
+
+		    // === Solo ora (caso raro ma utile in file CSV/Excel) ===
+		    DateTimeFormatter.ofPattern("HH:mm:ss"),
+		    DateTimeFormatter.ofPattern("HH:mm"),
+		    DateTimeFormatter.ofPattern("hh:mm:ss a", Locale.ENGLISH),
+		    DateTimeFormatter.ofPattern("hh:mm a", Locale.ENGLISH)
+		);
+    
+
+    public static byte[] compressingFiles(String dirFilesZIP, String pathFilesOutput, String... fileNameZip) {
+        try {
+            String[] filesZIP;
+
+            // Leggo dalla cartella, tutti i file da zippare
+            File dir = new File(dirFilesZIP);
+
+            // Controllo che sia una directory
+            if (!dir.isDirectory())
+                return null;
+            else {
+                if (fileNameZip.length == 0)
+                    filesZIP = dir.list();
+                else
+                    filesZIP = fileNameZip;
+            }
+
+            if (filesZIP.length > 0) {
+                // definiamo l'output previsto che sarÃ  un file in formato zip
+
+                // CompatibilitÃ  con linux
+                ZipOutputStream out = new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(pathFilesOutput)));
+
+                // definiamo il buffer per lo stream di bytes
+                byte[] data = new byte[2048];
+
+                for (int i = 0; i < filesZIP.length; i++) {
+                    // indichiamo il nome del file che subirÃ  la compressione
+                    BufferedInputStream in = new BufferedInputStream(new FileInputStream(dirFilesZIP + "/" + filesZIP[i])); // Da
+                    // controllare
+                    int count;
+
+                    // processo di compressione
+                    out.putNextEntry(new ZipEntry(filesZIP[i]));
+
+                    while ((count = in.read(data, 0, 2048)) != -1) {
+                        out.write(data, 0, count);
+                    }
+                    in.close();
+                }
+                out.flush();
+                out.close();
+
+                // conferma della compressione (INSERIRE IL LOG)
+                System.out.println("File zippato con successo");
+
+                File fileOutput = new File(pathFilesOutput);
+                FileInputStream in = new FileInputStream(fileOutput);
+
+                byte[] arrayOutput = new byte[(int) fileOutput.length()];
+                in.read(arrayOutput);
+                in.close();
+
+                return arrayOutput;
+            }
+
+        } catch (Exception e) {
+        	LOGGER.error("ERRORE SU FileUtility - compressingFiles : "+e.getMessage(), e);
+            e.printStackTrace();
+
+        }
+
+        return null;
+    }
+    
+    
+    public static List<File> uncompressingFile(String dirFileZIP) throws IOException {
+    	List<File> files = new ArrayList<File>();;
+        File destDir = Files.createTempDir();
+        byte[] buffer = new byte[1024];
+        ZipInputStream zis = new ZipInputStream(new FileInputStream(dirFileZIP));
+        ZipEntry zipEntry = zis.getNextEntry();
+        while (zipEntry != null) {
+            File newFile = newFile(destDir, zipEntry);
+            FileOutputStream fos = new FileOutputStream(newFile);
+            int len;
+            while ((len = zis.read(buffer)) > 0) {
+                fos.write(buffer, 0, len);
+            }
+            fos.close();
+            files.add(newFile);
+            zipEntry = zis.getNextEntry();
+        }
+        zis.closeEntry();
+        zis.close();
+        
+        return files;
+    }
+    
+    private static File newFile(File destinationDir, ZipEntry zipEntry) throws IOException {
+        File destFile = new File(destinationDir, zipEntry.getName());
+         
+        String destDirPath = destinationDir.getCanonicalPath();
+        String destFilePath = destFile.getCanonicalPath();
+         
+        if (!destFilePath.startsWith(destDirPath + File.separator)) {
+            throw new IOException("Entry is outside of the target dir: " + zipEntry.getName());
+        }
+         
+        return destFile;
+    }
+    
+    /**
+     * Controlla il nome del file rispetto ad un elenco di nomi ammessi
+     * 
+     * @param tableNames
+     * @param filename
+     * @param ext
+     * @return
+     */
+    public static FlowOperationResult<Boolean> checkFilename(List<String> tableNames, String filename, String...exts) {
+		Boolean founded = false;
+		if(exts != null && exts.length > 0) {
+			for(String ext : exts) {
+				ext = ext == null ? "" : ext;
+				for(String tablename : tableNames) {
+					if(filename.equalsIgnoreCase(tablename + "." + ext)) {
+						founded = true;
+						break;
+					}
+				}
+			}
+			
+			if(!founded) {
+				// nel file zip è presente un file non ammesso
+				return FlowOperationResult.failure("File non ammesso: " + filename + ". " + "File ammessi: " + tableNames);
+			}
+		};
+		
+		return FlowOperationResult.success(true);
+		
+	}
+    
+    public static FlowOperationResult<String> checkMimeType(List<File> files, String...types) throws MalformedURLException, IOException {
+    	if(files != null && files.isEmpty()) {
+    		for(File file : files) {
+    			FlowOperationResult<String> res = checkMimeType(file, types);
+    			if(!res.getSuccess()) {
+    				return res;
+    			}
+    		}
+    	}
+    	return FlowOperationResult.success("");
+    }
+
+    /**
+     * Controlla il tipo di un file
+     * 
+     * @param file
+     * @param types
+     * @return success con mimetype nel result oppure failure con messaggio di errore
+     * @throws MalformedURLException
+     * @throws IOException
+     */
+    public static FlowOperationResult<String> checkMimeType(File file, String...types) throws MalformedURLException, IOException {
+    	String typeString = "";
+    	if(types != null && types.length > 0) {
+    		if(file != null && file.exists()) {
+    			MimetypesFileTypeMap fileTypeMap = new MimetypesFileTypeMap();
+        	    String mimeType = fileTypeMap.getContentType(file.getName());
+	    		for(String type : types) {
+	    			typeString += type + ";";
+	    			if(mimeType.equals(type)) {
+	    				return FlowOperationResult.success(mimeType);
+	    			}
+	    		}
+    		}
+    	}
+    	
+    	return FlowOperationResult.failure("Tipo di file non valido. File ammessi: " + typeString);
+    }
+    
+    /**
+     * Controlla i nomi dei file contenuti nel file zip rispetto all'elenco di nomi ammessi
+     * 
+     * @param file
+     * @throws IOException 
+     * @throws ZipException 
+     */
+    public static FlowOperationResult<Boolean> checkFilenameInZipFile(List<String> tableNames, File file, String...types) throws ZipException, IOException {
+    	FlowOperationResult<Boolean> result = FlowOperationResult.success(true);
+    	
+    	if(file != null && file.exists()) {
+    		
+    		MimetypesFileTypeMap fileTypeMap = new MimetypesFileTypeMap();
+    	    String mimeType = fileTypeMap.getContentType(file.getName());
+		    if(!mimeType.equals(FileUtility.MEDIATYPE_ZIP)) {
+		    	return FlowOperationResult.failure("Tipo di file non valido.");
+		    }
+    		
+	    	ZipFile zf = new ZipFile(file);
+			Enumeration<? extends ZipEntry> entryTypes = zf.entries();
+			
+			while (entryTypes.hasMoreElements()) {
+				ZipEntry entry = entryTypes.nextElement();
+				String entryName = entry.getName().toUpperCase();
+				for(String type : types) {
+					result = FileUtility.checkFilename(tableNames, entryName, type);
+					if (result.getSuccess()) {
+						break;
+					}
+				}
+			}
+			
+			zf.close();
+    	}
+    	
+    	return result;
+    }
+
+    public static List<File> listZipFile(File zipFile) throws IOException {
+        List<File> extractedFiles = new ArrayList<>();
+
+        try (ZipInputStream zis = new ZipInputStream(new FileInputStream(zipFile))) {
+            ZipEntry entry;
+
+            while ((entry = zis.getNextEntry()) != null) {
+                // Salta le directory
+                if (entry.isDirectory()) {
+                    continue;
+                }
+
+                // Nome del file (può includere cartelle nello zip)
+                String fileName = new File(entry.getName()).getName();
+
+                // Estrai estensione
+                int index = fileName.lastIndexOf('.');
+                if (index > 0) {
+                    String extension = fileName.substring(index + 1).toLowerCase();
+
+                    // Accetta CSV o Excel
+                    if (extension.equals(FileUtility.TEXT) || extension.equals(FileUtility.CSV) || extension.equals(FileUtility.XLS) || extension.equals(FileUtility.XLSX)) {
+                        // Normalizza nome sicuro per file temporaneo
+                        String safeName = fileName.replaceAll("[^a-zA-Z0-9._-]", "_");
+                        if (safeName.length() > 50) {
+                            safeName = safeName.substring(0, 50);
+                        }
+
+                        // Mantieni l'estensione corretta
+                        File newFile = File.createTempFile(safeName + "_", "." + extension);
+
+                        try (FileOutputStream fos = new FileOutputStream(newFile)) {
+                            byte[] buffer = new byte[4096];
+                            int len;
+                            while ((len = zis.read(buffer)) > 0) {
+                                fos.write(buffer, 0, len);
+                            }
+                        }
+
+                        extractedFiles.add(newFile);
+                    }
+                }
+
+                zis.closeEntry();
+            }
+        }
+
+        return extractedFiles;
+    }
+    
+    public static List<File> listGzipFile(File gzFile, String fileName) throws IOException {
+        List<File> extractedFiles = new ArrayList<>();
+
+        boolean isTarGz = fileName.toLowerCase().endsWith(FileUtility.TAR_GZIP) || fileName.toLowerCase().endsWith(FileUtility.TGZ);
+
+        if (isTarGz) {
+            // Estrazione da tar.gz
+            try (
+                FileInputStream fis = new FileInputStream(gzFile);
+                GZIPInputStream gis = new GZIPInputStream(fis);
+                TarArchiveInputStream tis = new TarArchiveInputStream(gis)
+            ) {
+                TarArchiveEntry entry;
+                while ((entry = tis.getNextTarEntry()) != null) {
+                    if (!entry.isDirectory()) {
+                        String entryName = entry.getName();
+                        int index = entryName.lastIndexOf('.');
+                        if (index > 0) {
+                            String extension = entryName.substring(index + 1).toLowerCase();
+                            if (extension.equals(FileUtility.TEXT) || extension.equals(FileUtility.CSV) || extension.equals(FileUtility.XLS) || extension.equals(FileUtility.XLSX)) {
+                                // Nome sicuro
+                                String safeName = entryName.replaceAll("[^a-zA-Z0-9._-]", "_");
+                                if (safeName.length() > 50) {
+                                    safeName = safeName.substring(0, 50);
+                                }
+
+                                File newFile = File.createTempFile(safeName + "_", "." + extension);
+
+                                try (FileOutputStream fos = new FileOutputStream(newFile)) {
+                                    byte[] buffer = new byte[4096];
+                                    int len;
+                                    while ((len = tis.read(buffer)) > 0) {
+                                        fos.write(buffer, 0, len);
+                                    }
+                                }
+
+                                extractedFiles.add(newFile);
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // Estrazione da semplice .gz
+            if (fileName.toLowerCase().endsWith(FileUtility.TXT_GZIP) || fileName.toLowerCase().endsWith(FileUtility.CSV_GZIP) || fileName.toLowerCase().endsWith(FileUtility.XLS_GZIP) || fileName.toLowerCase().endsWith(FileUtility.XLSX_GZIP)) {
+                fileName = fileName.substring(0, fileName.length() - 3);
+            }
+
+            int index = fileName.lastIndexOf('.');
+            if (index > 0) {
+                String extension = fileName.substring(index + 1).toLowerCase();
+
+                if (extension.equals(FileUtility.TEXT) || extension.equals(FileUtility.CSV) || extension.equals(FileUtility.XLS) || extension.equals(FileUtility.XLSX)) {
+                    String safeName = fileName.replaceAll("[^a-zA-Z0-9._-]", "_");
+                    if (safeName.length() > 50) {
+                        safeName = safeName.substring(0, 50);
+                    }
+
+                    File newFile = File.createTempFile(safeName + "_", "." + extension);
+
+                    try (
+                        FileInputStream fis = new FileInputStream(gzFile);
+                        GZIPInputStream gis = new GZIPInputStream(fis);
+                        FileOutputStream fos = new FileOutputStream(newFile)
+                    ) {
+                        byte[] buffer = new byte[4096];
+                        int len;
+                        while ((len = gis.read(buffer)) > 0) {
+                            fos.write(buffer, 0, len);
+                        }
+                    }
+
+                    extractedFiles.add(newFile);
+                }
+            }
+        }
+
+        return extractedFiles;
+    }
+	
+    public static int getMaxLengthRegex(String regex) {
+        int min = 0;
+        int max = 0;
+
+        // rimuovo i delimitatori \b se ci sono (non influiscono sulla lunghezza)
+        regex = regex.replace("\\b", "");
+
+        for (int i = 0; i < regex.length(); i++) {
+            char c = regex.charAt(i);
+
+            if (c == '\\') {
+                // salta carattere di escape
+                i++;
+                min++;
+                max++;
+            } else if (c == '[') {
+                // gruppo tipo [0-9] o [a-zA-Z]
+                while (i < regex.length() && regex.charAt(i) != ']') {
+                    i++;
+                }
+                min++;
+                max++;
+            } else if (c == '{') {
+                // quantificatore {n} o {n,m}
+                int j = i + 1;
+                StringBuilder num = new StringBuilder();
+                while (j < regex.length() && regex.charAt(j) != '}') {
+                    num.append(regex.charAt(j));
+                    j++;
+                }
+                i = j; // salto fino a chiusura
+
+                String[] parts = num.toString().split(",");
+                if (parts.length == 1) {
+                    int n = Integer.parseInt(parts[0]);
+                    min += (n - 1);
+                    max += (n - 1);
+                } else {
+                    int n = Integer.parseInt(parts[0]);
+                    min += (n - 1);
+                    if (parts.length == 2 && !parts[1].isEmpty()) {
+                        int m = Integer.parseInt(parts[1]);
+                        max += (m - 1);
+                    } else {
+                        max = Integer.MAX_VALUE; // caso {n,}
+                    }
+                }
+            } else if (c == '?') {
+                // opzionale
+                min += 0;
+                max += 1;
+            } else if (c == '+') {
+                // uno o più ⇒ minimo +1, massimo infinito
+                min += 1;
+                max = Integer.MAX_VALUE;
+            } else if (c == '*') {
+                // zero o più ⇒ massimo infinito
+                max = Integer.MAX_VALUE;
+            } else if (c == '.') {
+                // qualsiasi carattere singolo
+                min++;
+                max++;
+            } else {
+                // carattere letterale
+                min++;
+                max++;
+            }
+        }
+
+        return max;
+    }
+    
+    public static String normalizeRegexFromDb(String rawRegex) {
+        if (rawRegex == null) {
+            return null;
+        }
+
+        // Rimuove eventuali spazi invisibili all'inizio/fine
+        String regex = rawRegex.trim();
+
+        // Sostituisce i backslash quadrupli (\\\\) o doppi (\\) con singolo \
+        // 1. Se arrivano 4 backslash (\\\\) -> diventano 2 (\\)
+        regex = regex.replaceAll("\\\\\\\\", "\\\\");
+
+        // 2. Assicura che rimanga solo un singolo backslash per le sequenze \d, \w, ecc.
+        //    Utile se la regex era salvata con doppio escape
+//        regex = regex.replaceAll("\\\\{2}", "\\\\");
+        
+        
+        return regex;
+    }
+    
+    public static boolean isValidDate(String input) {
+        if (input == null || input.trim().isEmpty()) return false;
+
+        // 1️⃣ Normalizza spazi e maiuscole
+        String cleaned = input.replace('\u00A0', ' ').trim().replaceAll("\\s+", " ");
+        cleaned = cleaned.replaceAll("(?i)A\\.M\\.", "AM").replaceAll("(?i)P\\.M\\.", "PM");
+        cleaned = cleaned.toUpperCase(Locale.ENGLISH);
+
+        // 2️⃣ Aggiungi formati fallback principali (copertura garantita)
+        List<DateTimeFormatter> localFormats = new ArrayList<>(ACCEPTED_FORMATS);
+        localFormats.add(DateTimeFormatter.ofPattern("dd/MM/yyyy hh:mm:ss a", Locale.ENGLISH));
+        localFormats.add(DateTimeFormatter.ofPattern("dd/MM/yyyy hh:mm a", Locale.ENGLISH));
+
+        // 3️⃣ Prova parsing con tutti i formati
+        for (DateTimeFormatter formatter : localFormats) {
+            if (tryParseDateTime(cleaned, formatter)) return true;
+            if (tryParseDate(cleaned, formatter)) return true;
+        }
+
+        LOGGER.warn("⚠️ Data non valida '{}'", input);
+        return false;
+    }
+
+    private static boolean tryParseDate(String input, DateTimeFormatter formatter) {
+        try {
+            LocalDate.parse(input, formatter);
+            return true;
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+
+    private static boolean tryParseDateTime(String input, DateTimeFormatter formatter) {
+        try {
+            LocalDateTime.parse(input, formatter);
+            return true;
+        } catch (DateTimeParseException e) {
+            return false;
+        }
+    }
+    
+    public static boolean isValidInteger(String input) {
+        if (input == null || input.trim().isEmpty()) {
+            return false;
+        }
+        try {
+            Integer.parseInt(input.trim());
+            return true;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+    
+    public static String tryParseDateToString(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return null;
+        }
+
+        String cleaned = text.trim().replaceAll("\\s+", " "); // normalizza spazi
+
+        for (DateTimeFormatter formatter : ACCEPTED_FORMATS) {
+            try {
+                // Prova come LocalDateTime
+                LocalDateTime ldt = LocalDateTime.parse(cleaned, formatter);
+                LOGGER.debug("✅ Riconosciuta come LocalDateTime '{}' con formato '{}'", cleaned, formatter);
+                return ldt.format(formatter);
+            } catch (Exception e1) {
+                try {
+                    // Prova come LocalDate
+                    LocalDate ld = LocalDate.parse(cleaned, formatter);
+                    LOGGER.debug("✅ Riconosciuta come LocalDate '{}' con formato '{}'", cleaned, formatter);
+                    return ld.format(formatter);
+                } catch (Exception ignored) {}
+            }
+        }
+
+        LOGGER.warn("⚠️ Impossibile interpretare la data '{}': nessun formato valido trovato.", cleaned);
+        return null;
+    }
+    
+    public static Date tryParseDateToDate(String value) {
+        if (value == null || value.trim().isEmpty()) return null;
+
+        // 🧼 Normalizzazione robusta (come in isValidDate)
+        String cleaned = value
+                .replace('\u00A0', ' ')                 // NBSP -> space
+                .trim()
+                .replaceAll("\\s+", " ");               // spazi multipli -> singolo
+        cleaned = cleaned
+                .replaceAll("(?i)A\\.M\\.", "AM")       // A.M. -> AM
+                .replaceAll("(?i)P\\.M\\.", "PM");      // P.M. -> PM
+        // NON forziamo qui l'uppercase: usiamo formatter case-insensitive
+
+        // 🎯 Formatter AM/PM con parseCaseInsensitive e Locale.ENGLISH
+        DateTimeFormatter ci_ddMMyyyy_hms_a = new java.time.format.DateTimeFormatterBuilder()
+                .parseCaseInsensitive()
+                .appendPattern("dd/MM/yyyy hh:mm:ss a")
+                .toFormatter(Locale.ENGLISH);
+        DateTimeFormatter ci_ddMMyyyy_hm_a = new java.time.format.DateTimeFormatterBuilder()
+                .parseCaseInsensitive()
+                .appendPattern("dd/MM/yyyy hh:mm a")
+                .toFormatter(Locale.ENGLISH);
+
+        // Mettiamo i formati AM/PM più probabili davanti alla lista globale
+        java.util.List<DateTimeFormatter> formats = new java.util.ArrayList<>();
+        formats.add(ci_ddMMyyyy_hms_a);
+        formats.add(ci_ddMMyyyy_hm_a);
+        formats.addAll(ACCEPTED_FORMATS); // i tuoi pattern già definiti
+
+        // 1) Prova come LocalDateTime
+        for (DateTimeFormatter fmt : formats) {
+            try {
+                LocalDateTime ldt = LocalDateTime.parse(cleaned, fmt);
+                LOGGER.debug("Data '{}' riconosciuta come LocalDateTime con formato '{}'", cleaned, fmt);
+                return Date.from(ldt.atZone(ZoneId.systemDefault()).toInstant());
+            } catch (Exception ignored) {}
+        }
+
+        // 2) Prova come LocalDate
+        for (DateTimeFormatter fmt : formats) {
+            try {
+                LocalDate ld = LocalDate.parse(cleaned, fmt);
+                LOGGER.debug("Data '{}' riconosciuta come LocalDate con formato '{}'", cleaned, fmt);
+                return Date.from(ld.atStartOfDay(ZoneId.systemDefault()).toInstant());
+            } catch (Exception ignored) {}
+        }
+
+        // 3) Prova come LocalTime
+        for (DateTimeFormatter fmt : formats) {
+            try {
+                LocalTime lt = LocalTime.parse(cleaned, fmt);
+                LOGGER.debug("Ora '{}' riconosciuta come LocalTime con formato '{}'", cleaned, fmt);
+                return Date.from(lt.atDate(LocalDate.now()).atZone(ZoneId.systemDefault()).toInstant());
+            } catch (Exception ignored) {}
+        }
+
+        // 4) Nessun formato riconosciuto
+        LOGGER.error("Impossibile interpretare la data '{}': nessun formato valido trovato.", cleaned);
+        return null;
+    }
+    
+    public static String tryParseDateToString(Date date) {
+        if (date == null) return null;
+
+        LocalDateTime ldt = date.toInstant().atZone(ZoneId.systemDefault()).toLocalDateTime();
+
+        for (DateTimeFormatter formatter : ACCEPTED_FORMATS) {
+            try {
+                // restituisci la prima formattazione valida
+                return ldt.format(formatter);
+            } catch (Exception ignored) {}
+        }
+
+        LOGGER.warn("⚠️ Nessun formato valido trovato per la conversione di '{}'", date);
+        return null;
+    }
+    
+    public static String tryParseDateToString(Cell cell) {
+        if (cell == null) return null;
+
+        try {
+            DateCell dateCell = (DateCell) cell;
+            Date date = dateCell.getDate();
+            return tryParseDateToString(date);
+        } catch (Exception e) {
+            LOGGER.error("ERRORE SU FileUtility - tryParseDateToString(Cell): " + e.getMessage(), e);
+            return null;
+        }
+    }
+    
+    public static byte[] generateFileTxtZip(List<String> lines, String fileName) throws IOException {
+        //Genera il .txt in memoria
+        ByteArrayOutputStream txtOut = new ByteArrayOutputStream();
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(txtOut))) {
+            for (String line : lines) {
+                writer.write(line != null ? line : "");
+                writer.newLine();
+            }
+        }
+
+        //Comprimi in ZIP
+        ByteArrayOutputStream zipOut = new ByteArrayOutputStream();
+        try (ZipOutputStream zos = new ZipOutputStream(zipOut)) {
+            ZipEntry entry = new ZipEntry(fileName + ".txt");
+            zos.putNextEntry(entry);
+            zos.write(txtOut.toByteArray());
+            zos.closeEntry();
+        }
+
+        return zipOut.toByteArray();
+    }
+    
+    public static byte[] generateFileLog(List<String> lines, String fileName) throws IOException {
+        // Crea il contenuto del file log in memoria
+        ByteArrayOutputStream logOut = new ByteArrayOutputStream();
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(logOut))) {
+            for (String line : lines) {
+                writer.write(line != null ? line : "");
+                writer.newLine();
+            }
+        }
+
+        // Restituisce il contenuto come array di byte (.log)
+        return logOut.toByteArray();
+    }
+}

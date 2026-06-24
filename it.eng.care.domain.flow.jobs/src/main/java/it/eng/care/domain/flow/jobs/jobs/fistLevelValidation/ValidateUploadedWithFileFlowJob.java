@@ -1,0 +1,143 @@
+package it.eng.care.domain.flow.jobs.jobs.fistLevelValidation;
+
+import java.util.List;
+
+import org.quartz.DisallowConcurrentExecution;
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.statemachine.state.State;
+import org.springframework.stereotype.Component;
+
+import it.eng.care.domain.flow.core.dto.FlowOperationResult;
+import it.eng.care.domain.flow.core.dto.ValidationFilter;
+import it.eng.care.domain.flow.core.enumeration.ImportTypeEnum;
+import it.eng.care.domain.flow.core.enumeration.MachineEvent;
+import it.eng.care.domain.flow.core.service.FlowService;
+import it.eng.care.domain.flow.core.spring.statemachine.StateMachineFlow;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.drools.model.rule.RuleType;
+import it.eng.care.domain.flow.drools.model.status.ValidationResultWrapper;
+import it.eng.care.domain.flow.drools.service.api.FlowValidator;
+import it.eng.care.domain.flow.flowupload.model.FlowFileUploadRequestDO;
+import it.eng.care.domain.flow.flowupload.service.FlowFileUploadService;
+
+/**
+ * Job di validazione di 1 livello delle pratiche caricate manualmente dall'utente tramite file 
+ * I record da validare saranno quelli con IMPORT_TYPE = 'FROM_FILE_UPLOAD' a EXTRACTION_ID collegato ad un FM_FLOW_FILE_UPLOAD_REQUEST con STATUS = 'WELL_FORMED'.
+ * 
+ * Filtro di validazione
+ * FLOW.TYPE='AZIENDA' AND  IMPORT_TYPE = 'FROM_FILE_UPLOAD' AND EXTRACTION_ID -> FM_FLOW_FILE_UPLOAD_REQUEST.STATUS = 'WELL_FORMED'
+ *
+ */
+@Component
+@DisallowConcurrentExecution
+public class ValidateUploadedWithFileFlowJob implements Job {
+
+	@Autowired
+	private FlowValidator flowValidator;
+
+	@Autowired
+	private FlowService flowService;
+	
+	@Autowired
+	private FlowFileUploadService flowFileUploadService;
+	
+	@Autowired(required = false)
+    private StateMachineFlow stateMachineFlow;
+	
+	private MachineEvent machineEvent;
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(ValidateUploadedWithFileFlowJob.class);
+
+	@Override
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE FLOWS UPLOADED WITH FILE JOB - START >>>>>>>>>>>>>>>>>>>>>>>");
+		/*
+		List<FlowDO> flowList = flowService.getAllWithVersions("AZIENDA");
+
+		if (flowList != null && !flowList.isEmpty()) {
+			for (FlowDO flow : flowList) {
+				try {
+					Set<FlowVersionDO> fvList = flow.getVersions();
+					if (fvList != null && !fvList.isEmpty()) {
+						for (FlowVersionDO fv : fvList) {
+							String flowId = fv.getFlow().getId();
+							String versionId = fv.getVersion().getId();
+							executeValidation(flowId, versionId);
+						}
+					}
+				} catch (Exception ex) {
+					LOGGER.error("<<<<<<<<<<<<<<<<<<<<<<<   VALIDATE FLOWS UPLOADED WITH FILE JOB - EXECUTE VALIDATION ERROR >>>>>>>>>>>>>>>>>>>>>>>");
+					LOGGER.error(ex.getMessage());
+					ex.printStackTrace();
+				}
+			}
+		}
+		 */
+		executeValidation();
+	}
+
+	private void executeValidation() {
+//		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<   VALIDATE FLOWS UPLOADED WITH FILE JOB - EXECUTE VALIDATION ON FLOW = " + flowId + " AND VERSION = " + versionId + " >>>>>>>>>>>>>>>>>>>>>>>");
+
+		ValidationFilter filter = new ValidationFilter();
+		filter.setImportType(ImportTypeEnum.FROM_FILE_UPLOAD);
+		
+		
+		List<FlowFileUploadRequestDO> list = flowFileUploadService.getRequestsToValidate();
+		
+		if(list != null && !list.isEmpty()) {
+			
+			for (FlowFileUploadRequestDO req : list) {
+				try {
+					LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<   VALIDATE FLOWS UPLOADED WITH FILE JOB - INSERT RECORDS FROM REQUEST = " + req.getId() + " >>>>>>>>>>>>>>>>>>>>>>>");
+					
+					FlowOperationResult<Boolean> res = flowFileUploadService.insertRecords(req.getId());
+					if(!res.getSuccess()) {
+						LOGGER.error("<<<<<<<<<<<<<<<<<<<<<<<   VALIDATE FLOWS UPLOADED WITH FILE JOB - INSERT RECORDS FROM REQUEST = " + req.getId() + " : ERROR >>>>>>>>>>>>>>>>>>>>>>>");
+						State<String, String> stateUpload = stateMachineFlow.execute(req.getId() + "_UPLOAD", "UPLOAD", MachineEvent.UPLOAD_NOT_VALIDATED.getEvent());
+						flowFileUploadService.markAsValidated(stateUpload.getId(), req.getId());
+						return;
+					}
+					LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<   VALIDATE FLOWS UPLOADED WITH FILE JOB - INSERT RECORDS FROM REQUEST = " + req.getId() + " : FINE >>>>>>>>>>>>>>>>>>>>>>>");
+					
+					LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<   VALIDATE FLOWS UPLOADED WITH FILE JOB - EXECUTE VALIDATION ON REQUETS = " + req.getId() + " >>>>>>>>>>>>>>>>>>>>>>>");
+					filter.setImportId(req.getId());
+					filter.setFlowId(req.getFlow().getId());
+					filter.setVersionId(req.getVersion().getId());
+					ValidationResultWrapper wrapper = flowValidator.executeValidation(filter, true, RuleType.FLOW.name()); // invia l'esito al verticale
+					if(wrapper == null || wrapper.getUnvalidable() || !wrapper.getNoErrors()) {
+						State<String, String> stateUpload = stateMachineFlow.execute(req.getId() + "_UPLOAD", "UPLOAD", MachineEvent.UPLOAD_NOT_VALIDATED.getEvent());
+						flowFileUploadService.markAsValidated(stateUpload.getId(), req.getId());						
+						LOGGER.error("<<<<<<<<<<<<<<<<<<<<<<<   VALIDATE FLOWS UPLOADED WITH FILE JOB - EXECUTE VALIDATION ON REQUETS = " + req.getId() + " : UNVALIDABLE >>>>>>>>>>>>>>>>>>>>>>>");
+					} else {
+						State<String, String> stateUpload = stateMachineFlow.execute(req.getId() + "_UPLOAD", "UPLOAD", MachineEvent.UPLOAD_VALIDATED.getEvent());
+						flowFileUploadService.markAsValidated(stateUpload.getId(), req.getId());
+						LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<   VALIDATE FLOWS UPLOADED WITH FILE JOB - EXECUTE VALIDATION ON REQUETS = " + req.getId() + " : FINE >>>>>>>>>>>>>>>>>>>>>>>");
+					}
+					
+				} catch (Exception ex) {
+					LogUtil.logException(LOGGER, "", ex);
+//					ex.printStackTrace();
+					State<String, String> stateUpload;
+					try {
+						stateUpload = stateMachineFlow.execute(req.getId() + "_UPLOAD", "UPLOAD", MachineEvent.UPLOAD_NOT_VALIDATED.getEvent());
+						flowFileUploadService.markAsValidated(stateUpload.getId(), req.getId());
+						LOGGER.error("<<<<<<<<<<<<<<<<<<<<<<<   VALIDATE FLOWS UPLOADED WITH FILE JOB - EXECUTE VALIDATION ON REQUETS = " + req.getId() + " : UNVALIDABLE(2) >>>>>>>>>>>>>>>>>>>>>>>");
+					} catch (Exception e) {
+						LogUtil.logException(LOGGER, "", e);
+//						e.printStackTrace();
+					}
+				}
+			}
+			
+		}
+		
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE SINGLE ROW JOB - EXECUTE VALIDATION END >>>>>>>>>>>>>>>>>>>>>>>");
+	}
+
+}

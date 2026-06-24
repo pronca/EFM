@@ -1,0 +1,168 @@
+package it.eng.care.domain.flow.core.converter.FlowConfigurationFilter;
+
+import it.eng.care.domain.flow.core.dto.FlowConfigurationFilter.FlowConfigurationFilterFieldDTO;
+import it.eng.care.domain.flow.core.entity.FlowConfigurationFilterFieldDO;
+import it.eng.care.platform.tool.transport.conversion.ConversionContext;
+import it.eng.care.platform.tool.transport.conversion.Converter;
+
+
+public class FlowConfigurationFilterFieldDOtoFlowConfigurationFilterFieldDTO implements Converter<FlowConfigurationFilterFieldDO, FlowConfigurationFilterFieldDTO> {
+
+    @Override
+    public void convert(FlowConfigurationFilterFieldDO fromObject, FlowConfigurationFilterFieldDTO intoObject, ConversionContext ctx) {
+        intoObject.setId(fromObject.getId());
+        intoObject.setName(fromObject.getName());
+        intoObject.setMandatory(fromObject.isMandatory());
+        intoObject.setPosition(fromObject.getPosition());
+        intoObject.setRange(fromObject.isRange());
+        intoObject.setFilterField(fromObject.getFilterField());
+        intoObject.setFilterTable(fromObject.getFilterTable());
+        intoObject.setFilterType(fromObject.getFilterType());
+        intoObject.setConfigurationId(fromObject.getConfigurationFilter().getId());
+//
+//        if (fromObject.getFilterType().equals("Text")) {
+//            for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.) {
+//                intoObject.setSingleValue(filterValue.getValue());
+//            }
+
+
+        //List<FlowConfigurationFilterFieldValueDTO> list = new ArrayList<>();
+        //recuperare extraction
+
+////            if (fromObject.getFilterType().equals("Text")) {
+////                    for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                        intoObject.setSingleValue(filterValue.getValue());
+////                    }
+////                }
+////            if (fromObject.getFilterType().equals("Combo")) {
+////                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                    intoObject.setSingleValue(filterValue.getValue());
+////                }
+////            }
+////            if (fromObject.getFilterType().equals("Multi")) {
+////                List<String> values = new ArrayList<>();
+////                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                    values.add(filterValue.getValue());
+////                }
+////                intoObject.setMultiValues(values);
+////            }
+////            if (fromObject.getFilterType().equals("Campi")) {
+////                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                    intoObject.setSingleValue(filterValue.getValue());
+////                }
+////            }
+////            if (fromObject.getFilterType().equals("ComboBox")) {
+////                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                    intoObject.setSingleValue(filterValue.getValue());
+////                }
+////            }
+////            if (fromObject.getFilterType().equals("Radio")) {
+////                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                    intoObject.setSingleValue(filterValue.getValue());
+////                }
+////            }
+////            if (fromObject.getFilterType().equals("Lookup")) {
+////                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                    intoObject.setSingleValue(filterValue.getValue());
+////                }
+////            }
+//////            Date dateFromValue;
+//////            Date dateToValue;
+//////            String numFromValue;
+//////            String numToValue;
+////            if (fromObject.getFilterType().equals("Numeric")) {
+////                if (!fromObject.isRange()) {
+////                    for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                        intoObject.setSingleValue(filterValue.getValue());
+////                    }
+////                } else {
+////                    int i = 0;
+////                    for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                        if (i == 0) {
+////                            intoObject.setNumFromValue(filterValue.getValue());
+////                        }
+////                        if (i == 1) {
+////                            intoObject.setNumFromValue(filterValue.getValue());
+////                        }
+////                        i++;
+////                    }
+////                }
+////            }
+////        }
+////        if (fromObject.getFilterType().equals("Date")) {
+////            if (!fromObject.isRange()) {
+////                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                    Date date = null;
+////                    try {
+////                        date = new SimpleDateFormat("EE MMM dd HH:mm:ss zzzz yyyy", Locale.US
+////                        ).parse(filterValue.getValue());
+////                    } catch (ParseException e) {
+////                        e.printStackTrace();
+////                    }
+////                    intoObject.setDateFromValue(date);
+////                }
+////            } else {
+////                int i = 0;
+////                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+////                    if (i == 0) {
+////                        Date date = null;
+////                        try {
+////                            date = new SimpleDateFormat("EE MMM dd HH:mm:ss zzzz yyyy", Locale.US
+////                            ).parse(filterValue.getValue());
+////                        } catch (ParseException e) {
+////                            e.printStackTrace();
+////                        }
+////                        intoObject.setDateFromValue(date);
+////                    }
+////                    if (i == 1) {
+////                        Date date = null;
+////                        try {
+////                            date = new SimpleDateFormat("EE MMM dd HH:mm:ss zzzz yyyy", Locale.US
+////                            ).parse(filterValue.getValue());
+////                        } catch (ParseException e) {
+////                            e.printStackTrace();
+////                        }
+////                        intoObject.setDateToValue(date);
+////                    }
+////                    i++;
+////                }
+////            }
+////        }
+////    }
+    }
+
+//            if (fromObject.getFilterType().equals("Numeric")){
+//                if(fromObject.getFilterValues().size()<1) {
+//                    for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+//                        intoObject.setSingleValue(filterValue.getValue());
+//                    }
+//                }
+//                else
+//                    {
+//                        List<String> numers = new ArrayList<>();
+//                        for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+//                            intoObject.setNumFromValue(filterValue.getValue());
+//                        }
+//                        //ORDINARE PER PRECEDENZA
+//                        (numers);
+//                    }
+//                }
+
+}
+//        if (fromObject.getFilterType().equals("Date")){
+//            if(fromObject.getFilterValues().size()<1) {
+//                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+//                    intoObject.setDateFromValue(filterValue.getValue());
+//                }
+//            }
+//            else
+//            {
+//                List<String> numers = new ArrayList<>();
+//                for (FlowConfigurationFilterFieldValueDO filterValue : fromObject.getFilterValues()) {
+//                    numers.add(filterValue.getValue());
+//                }
+//                //ORDINARE PER PRECEDENZA
+//                intoObject.setMultiValues(numers);
+//            }
+//        }
+//intoObject.setValues();

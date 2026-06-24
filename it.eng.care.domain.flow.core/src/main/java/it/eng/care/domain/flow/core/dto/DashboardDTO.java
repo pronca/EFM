@@ -1,0 +1,101 @@
+package it.eng.care.domain.flow.core.dto;
+
+import java.util.Date;
+
+public class DashboardDTO {
+
+    private String id;
+    private String flow;
+    private Integer month;
+    private Integer year;
+    private String label;
+    private String value;
+    private String widgetName;
+    private Date lastUpdate;
+    private String tooltip;
+    private Date day;
+    
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    public String getFlow() {
+        return flow;
+    }
+
+    public void setFlow(String flow) {
+        this.flow = flow;
+    }
+
+
+    public Integer getMonth() {
+        return month;
+    }
+
+    public void setMonth(Integer month) {
+        this.month = month;
+    }
+
+    public Integer getYear() {
+        return year;
+    }
+
+    public void setYear(Integer year) {
+        this.year = year;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+    public String getValue() {
+        return value;
+    }
+
+    public void setValue(String value) {
+        this.value = value;
+    }
+
+    public String getWidgetName() {
+        return widgetName;
+    }
+
+    public void setWidgetName(String widgetName) {
+        this.widgetName = widgetName;
+    }
+
+    public Date getLastUpdate() {
+        return lastUpdate;
+    }
+
+    public void setLastUpdate(Date lastUpdate) {
+        this.lastUpdate = lastUpdate;
+    }
+
+	public String getTooltip() {
+		return tooltip;
+	}
+
+	public void setTooltip(String tooltip) {
+		this.tooltip = tooltip;
+	}
+
+	public Date getDay() {
+		return day;
+	}
+
+	public void setDay(Date day) {
+		this.day = day;
+	}
+	
+	
+
+}

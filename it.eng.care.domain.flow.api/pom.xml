@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+	<modelVersion>4.0.0</modelVersion>
+	<parent>
+		<groupId>it.eng.care.domain</groupId>
+		<artifactId>it.eng.care.domain.flow.parent</artifactId>
+		<version>5.0.0-RC1</version>
+	</parent>
+	<groupId>it.eng.care.domain.flow</groupId>
+	<artifactId>it.eng.care.domain.flow.api</artifactId>
+	<name>Domain Flow Api</name>
+	<url>http://maven.apache.org</url>
+	<properties>
+		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<java.version>17</java.version>
+		<maven.compiler.source>17</maven.compiler.source>
+	    <maven.compiler.target>17</maven.compiler.target>
+	    <maven.compiler.release>17</maven.compiler.release>
+	    <m2e.compiler.release>17</m2e.compiler.release>
+	    <maven.javadoc.skip>true</maven.javadoc.skip>
+	    <maven.source.skip>true</maven.source.skip>
+        <timestamp>${maven.build.timestamp}</timestamp>
+        <maven.build.timestamp.format>yyyy-MM-dd HH:mm</maven.build.timestamp.format>
+	</properties>
+	<dependencies>
+
+	</dependencies>
+
+</project>

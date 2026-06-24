@@ -1,0 +1,21 @@
+package it.eng.care.domain.flow.core.dao;
+
+import java.util.List;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import it.eng.care.domain.flow.core.entity.DashboardErrorsDO;
+
+public interface DashboardErrorsDAO extends JpaRepository<DashboardErrorsDO, String> {
+
+    List<DashboardErrorsDO> findAllByFlowNameAndMonthAndYear(String flowName, String month, String year);
+
+    List<DashboardErrorsDO> findAllByMonthBetweenAndFlowNameAndYear(String monthFrom, String monthTo, String flow, String year);
+    
+    List<DashboardErrorsDO> findAllByFlowNameAndCodiceAziendaIsNull(String flowName);
+    
+    List<DashboardErrorsDO> findAllByFlowNameAndMonthAndYearAndCodiceAziendaIn(String flowName, String month, String year, List<String> aziende);
+
+    List<DashboardErrorsDO> findAllByMonthBetweenAndFlowNameAndYearAndCodiceAziendaIn(String monthFrom, String monthTo, String flow, String year, List<String> aziende);
+    
+}

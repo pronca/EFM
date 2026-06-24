@@ -1,0 +1,53 @@
+package it.eng.care.domain.flow.b2b.model;
+
+import java.util.List;
+
+public class ErrorWellFormedDTO {
+
+	boolean success;
+	String opTargetObject;
+	List<ErrorsWFDTO> errors;
+	String errorCode;
+	String descrError;
+
+	public boolean isSuccess() {
+		return success;
+	}
+
+	public void setSuccess(boolean success) {
+		this.success = success;
+	}
+
+	public String getOpTargetObject() {
+		return opTargetObject;
+	}
+
+	public void setOpTargetObject(String opTargetObject) {
+		this.opTargetObject = opTargetObject;
+	}
+
+	public List<ErrorsWFDTO> getErrors() {
+		return errors;
+	}
+
+	public void setErrors(List<ErrorsWFDTO> errors) {
+		this.errors = errors;
+	}
+
+	public String getErrorCode() {
+		return errorCode;
+	}
+
+	public void setErrorCode(String errorCode) {
+		this.errorCode = errorCode;
+	}
+
+	public String getDescrError() {
+		return descrError;
+	}
+
+	public void setDescrError(String descrError) {
+		this.descrError = descrError;
+	}
+	
+}

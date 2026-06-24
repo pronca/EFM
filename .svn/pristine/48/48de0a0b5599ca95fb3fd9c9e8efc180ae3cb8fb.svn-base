@@ -1,0 +1,10 @@
+sonar.projectKey=it.eng.care.domain.flow.api
+sonar.projectName=it.eng.care.domain.flow.api
+sonar.sourceEncoding=UTF-8
+
+sonar.projectBaseDir=it.eng.care.domain.flow.api
+sonar.sources=src/main/java
+sonar.tests=src/test/java
+sonar.java.binaries=target/classes
+
+sonar.exclusions=**/.svn/**,**/target/**,**/script_liquibase/**

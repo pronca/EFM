@@ -1,0 +1,173 @@
+package it.eng.care.domain.flow.b2b.model;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import java.sql.SQLException;
+import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class FlowQueryBuilder {
+
+    private String tableName;
+    private QueryType type;
+    private List<FlowParameter> parameters;
+    private EntityManager em;
+
+    public FlowQueryBuilder(QueryType type) {
+        super();
+        this.type = type;
+
+    }
+
+    public static FlowQueryBuilder get(QueryType type) {
+        return new FlowQueryBuilder(type);
+    }
+
+    public FlowQueryBuilder parameters(List<FlowParameter> parameters) {
+        this.parameters = parameters;
+        return this;
+    }
+
+    public FlowQueryBuilder entityManager(EntityManager em) {
+        this.em = em;
+        return this;
+    }
+
+    public FlowQueryBuilder tableName(String tableName) {
+        this.tableName = tableName;
+        return this;
+    }
+
+    public Query generateQuery() throws SQLException {
+        assert tableName != null;
+        assert em != null;
+        assert parameters != null;
+        assert type != null;
+        // ordino la lista
+        orderList();
+
+        Query toRet = em.createNativeQuery(getQueryString());
+
+        for (FlowParameter flowParameter : parameters) {
+            if ((type != QueryType.DELETE && type != QueryType.DELETE_MSG) || flowParameter.isPrimaryKey()) {
+                toRet.setParameter(flowParameter.getColumnName(), flowParameter.getValue());
+            }
+        }
+
+        return toRet;
+    }
+
+    private void orderList() {
+        parameters.sort(new Comparator<FlowParameter>() {
+
+            @Override
+            public int compare(FlowParameter o1, FlowParameter o2) {
+                return o1.getOrder() - o2.getOrder();
+            }
+        });
+    }
+
+    public String getQueryString() {
+        switch (type) {
+            case INSERT:
+                return "INSERT INTO " + tableName + " (" + getColumnNames() + ") values (" + getInsertStatements() + ") ";
+            case UPDATE:
+                return "UPDATE " + tableName + " " + getUpdateStatements() + " where " + getWhere() + " ";
+            case DELETE:
+                return "DELETE FROM " + tableName + " where " + getWhere() + "";
+            case DELETE_MSG:
+                return "DELETE FROM " + tableName + "_MESSAGE where " + getWhere() + "";
+            case SELECT:
+                return "SELECT " + getColumnNames() + " from " + tableName + " where " + getWhere() + "";
+            default:
+                return null;
+        }
+
+    }
+
+    public String getQueryStringNoParams() {
+    	switch (type) {
+	        case INSERT:
+	        	return "INSERT INTO " + tableName + " (" + getColumnNames() + ") values (" + getInsertStatementsQM() + ") ";
+	        case UPDATE:
+	            return "UPDATE " + tableName + " " + getUpdateStatementsQM() + " where " + getWhereQM() + " ";
+	        case DELETE:
+	            return "DELETE FROM " + tableName + " where " + getWhereQM() + "";
+	        case DELETE_MSG:
+	            return "DELETE FROM " + tableName + "_MESSAGE where " + getWhereQM() + "";
+	        case SELECT:
+	            return "SELECT " + getColumnNames() + " from " + tableName + " where " + getWhereQM() + "";
+	        default:
+	            return null;
+	    }
+    	
+    }
+    
+    private String getWhere() {
+        return parameters.stream() //
+                .filter(p -> p.isPrimaryKey())//
+                .map(p -> p.getColumnName() + " = " + p.getParameterName())//
+                .collect(Collectors.joining(" and "));
+    }
+
+    private String getWhereQM() {
+    	return parameters.stream() //
+    			.filter(p -> p.isPrimaryKey())//
+    			.map(p -> p.getColumnName() + " = ?")//
+    			.collect(Collectors.joining(" and "));
+    }
+
+    private String getUpdateStatements() {
+        return parameters.stream()//
+                .map(p -> p.getColumnName() + " = " + p.getParameterName())//
+                .collect(Collectors.joining(",", "set", ""));
+    }
+
+    private String getUpdateStatementsQM() {
+        return parameters.stream()//
+                .map(p -> p.getColumnName() + " = ?")//
+                .collect(Collectors.joining(",", "set", ""));
+    }
+
+    private String getColumnNames() {
+        return parameters.stream()//
+                .map(p -> p.getColumnName())//
+                .collect(Collectors.joining(","));
+    }
+
+    private String getInsertStatements() {
+        return parameters.stream()//
+                .map(p -> p.getParameterName())//
+                .collect(Collectors.joining(","));
+    }
+
+    private String getInsertStatementsQM() {
+        return parameters.stream()//
+                .map(p -> "?")//
+                .collect(Collectors.joining(","));
+    }
+    
+
+    public List<FlowParameter> getParameters() {
+		return parameters;
+	}
+
+	public void setParameters(List<FlowParameter> parameters) {
+		this.parameters = parameters;
+	}
+
+    public String getTableName() {
+        return tableName;
+    }
+
+    public QueryType getType() {
+        return type;
+    }
+
+    public enum QueryType {
+        DELETE, DELETE_MSG, INSERT, UPDATE, SELECT
+    }
+
+
+}

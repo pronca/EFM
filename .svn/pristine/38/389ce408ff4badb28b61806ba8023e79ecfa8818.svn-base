@@ -1,0 +1,52 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import it.eng.care.domain.flow.core.dao.FieldTypeDAO;
+import it.eng.care.domain.flow.core.entity.FieldTypeDO;
+import it.eng.care.domain.flow.core.service.FieldTypeService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.stereotype.Service;
+
+import jakarta.transaction.Transactional;
+import java.util.List;
+
+@Service
+@Transactional
+public class FieldTypeServiceImpl implements FieldTypeService {
+
+    @Autowired
+    private FieldTypeDAO fieldTypeDAO;
+
+    public FieldTypeDO createEntity(FieldTypeDO poValue) {
+        return fieldTypeDAO.save(poValue);
+    }
+
+    public FieldTypeDO updateEntity(FieldTypeDO poValue) {
+        return fieldTypeDAO.save(poValue);
+    }
+
+    public Pair<List<FieldTypeDO>, SearchInfo> retrieveAllFiltered(BaseSearchInput searchInput) {
+        List<FieldTypeDO> loList = fieldTypeDAO.cerca(searchInput);
+        return Pair.of(loList, SearchInfos.create());
+    }
+
+    public List<FieldTypeDO> findAll() {
+        try {
+            return fieldTypeDAO.findAll();
+        } catch (Exception e) {
+        }
+        return null;
+    }
+
+    public FieldTypeDO retrieveOne(String id) {
+        return fieldTypeDAO.findById(id).get();
+    }
+
+    public void deleteEntity(String id) {
+        fieldTypeDAO.deleteById(id);
+    }
+
+}

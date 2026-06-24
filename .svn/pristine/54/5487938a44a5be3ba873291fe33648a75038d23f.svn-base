@@ -1,0 +1,70 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import java.util.List;
+
+import jakarta.transaction.Transactional;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.stereotype.Service;
+
+import it.eng.care.domain.flow.core.dao.FlowVersionDAO;
+import it.eng.care.domain.flow.core.dao.VersionDAO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowVersionDO;
+import it.eng.care.domain.flow.core.entity.VersionDO;
+import it.eng.care.domain.flow.core.service.VersionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+
+@Service
+@Transactional
+public class VersionServiceImpl implements VersionService {
+
+    @Autowired
+    private VersionDAO versionDAO;
+    
+    @Autowired
+    private FlowVersionDAO flowVersionDAO;
+
+    @Override
+    public VersionDO createEntity(VersionDO dto) {
+        return versionDAO.save(dto);
+    }
+
+    @Override
+    public VersionDO updateEntity(VersionDO dto) {
+        return versionDAO.save(dto);
+    }
+
+    @Override
+    public Pair<List<VersionDO>, SearchInfo> retrieveAllFiltered(BaseSearchInput searchInput) {
+        List<VersionDO> loList = versionDAO.cerca(searchInput);
+        return Pair.of(loList, SearchInfos.create());
+    }
+
+    public List<VersionDO> findAll() {
+        try {
+            return versionDAO.findAll();
+        } catch (Exception e) {
+        }
+        return null;
+    }
+
+    @Override
+    public VersionDO retrieveOne(String id) {
+        return versionDAO.findById(id).get();
+    }
+
+    @Override
+    public void deleteEntity(String id) {
+        versionDAO.deleteById(id);
+    }
+    
+    @Override
+    public FlowVersionDO findByFlow(FlowDO flow) {
+    	return flowVersionDAO.findByFlow(flow);
+    }
+
+}

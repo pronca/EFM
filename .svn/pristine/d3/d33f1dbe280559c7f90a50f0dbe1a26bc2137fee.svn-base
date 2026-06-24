@@ -1,0 +1,91 @@
+package it.eng.care.domain.flow.jobs.jobs.fistLevelValidation;
+
+import java.util.List;
+import java.util.Set;
+
+import org.quartz.DisallowConcurrentExecution;
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import it.eng.care.domain.flow.core.dto.ValidationFilter;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowVersionDO;
+import it.eng.care.domain.flow.core.enumeration.ImportTypeEnum;
+import it.eng.care.domain.flow.core.service.FlowService;
+import it.eng.care.domain.flow.drools.model.rule.RuleType;
+import it.eng.care.domain.flow.drools.model.status.BeanValidationStatusEnum;
+import it.eng.care.domain.flow.drools.model.status.ValidationResultWrapper;
+import it.eng.care.domain.flow.drools.service.api.FlowValidator;
+
+/**
+ * Job di validazione di 1 livello delle pratiche caricate dai verticali mediante servizio rest
+ * Il job filtra i flussi da validare per flow.type='AZIENDA'
+ * I record da validare saranno quelli in status=TO_VALIDATE e import_type=FROM_REST_SERVICE
+ * 
+ * Filtro di validazione
+ * FLOW.TYPE=AZIENDA AND RECORD.STATUS=TO_VALIDATE AND import_type=FROM_REST_SERVICE
+ *
+ */
+@Component
+@DisallowConcurrentExecution
+public class ValidateRestServiceFlowJob implements Job {
+
+	@Autowired
+	private FlowValidator flowValidator;
+
+	@Autowired
+	private FlowService flowService;
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(ValidateRestServiceFlowJob.class);
+
+	@Override
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE SINGLE ROW JOB - START >>>>>>>>>>>>>>>>>>>>>>>");
+		
+		List<FlowDO> flowList = flowService.getAllWithVersions("AZIENDA");
+
+		if (flowList != null && !flowList.isEmpty()) {
+			for (FlowDO flow : flowList) {
+				try {
+					Set<FlowVersionDO> fvList = flow.getVersions();
+					if (fvList != null && !fvList.isEmpty()) {
+						for (FlowVersionDO fv : fvList) {
+							String flowId = fv.getFlow().getId();
+							String versionId = fv.getVersion().getId();
+							executeValidation(flowId, versionId);
+						}
+					}
+				} catch (Exception ex) {
+					LOGGER.error("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE SINGLE ROW JOB - EXECUTE VALIDATION ERROR >>>>>>>>>>>>>>>>>>>>>>>");
+					LOGGER.error(ex.getMessage());
+					ex.printStackTrace();
+				}
+			}
+		}
+
+	}
+
+	private void executeValidation(String flowId, String versionId) {
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE SINGLE ROW JOB - EXECUTE VALIDATION ON FLOW = " + flowId + " AND VERSION = " + versionId + " >>>>>>>>>>>>>>>>>>>>>>>");
+		
+		ValidationFilter filter = new ValidationFilter();
+		filter.setRowStatus(BeanValidationStatusEnum.TO_VALIDATE.name());
+		filter.setImportType(ImportTypeEnum.FROM_REST_SERVICE);
+		filter.setFlowId(flowId);
+		filter.setVersionId(versionId);
+		ValidationResultWrapper wrapper = flowValidator.executeValidation(filter, true, RuleType.FLOW.name()); // invia l'esito al verticale
+		
+		
+		if(wrapper == null || wrapper.getUnvalidable()) {
+			LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE SINGLE ROW JOB - UNVALIDABLE END >>>>>>>>>>>>>>>>>>>>>>>");
+		}
+		
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  VALIDATE SINGLE ROW JOB - EXECUTE VALIDATION END >>>>>>>>>>>>>>>>>>>>>>>");
+	}
+
+}

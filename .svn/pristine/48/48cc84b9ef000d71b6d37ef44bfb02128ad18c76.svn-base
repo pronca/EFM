@@ -1,0 +1,29 @@
+<?xml version="1.1" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.6.xsd">
+
+    <changeSet author=" (generated)" id="issuer">
+        <addColumn tableName="CP_PERMISSION">
+            <column name="PE_ISSUER" type="varchar(255)"/>
+        </addColumn>
+    </changeSet>
+    <changeSet author=" (generated)" id="issuer_aud">
+        <addColumn tableName="CP_PERMISSION_AUD">
+            <column name="PE_ISSUER" type="varchar(255)"/>
+        </addColumn>
+    </changeSet>
+    <changeSet author=" (generated)" id="username">
+        <addColumn tableName="CP_PERMISSION">
+            <column name="PE_USERNAME" type="varchar(255)"/>
+        </addColumn>
+    </changeSet>
+    <changeSet author=" (generated)" id="username_aud">
+        <addColumn tableName="CP_PERMISSION_AUD">
+            <column name="PE_USERNAME" type="varchar(255)"/>
+        </addColumn>
+    </changeSet>
+
+
+</databaseChangeLog>

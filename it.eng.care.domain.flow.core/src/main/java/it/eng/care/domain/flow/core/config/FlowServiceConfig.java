@@ -1,0 +1,382 @@
+package it.eng.care.domain.flow.core.config;
+
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import it.eng.care.domain.flow.b2b.service.BatchFlowService;
+import it.eng.care.domain.flow.b2b.service.JsonFlowService;
+import it.eng.care.domain.flow.b2b.service.RegionMessageService;
+import it.eng.care.domain.flow.b2b.service.SendDrgService;
+import it.eng.care.domain.flow.b2b.service.ValidationFlowService;
+import it.eng.care.domain.flow.b2b.service.ValidationMessageService;
+import it.eng.care.domain.flow.b2b.service.ZipService;
+import it.eng.care.domain.flow.b2b.service.impl.BatchFlowServiceImpl;
+import it.eng.care.domain.flow.b2b.service.impl.JsonFlowServiceImpl;
+import it.eng.care.domain.flow.b2b.service.impl.RegionMessageServiceImpl;
+import it.eng.care.domain.flow.b2b.service.impl.SendDrgServiceImpl;
+import it.eng.care.domain.flow.b2b.service.impl.ValidationFlowServiceImpl;
+import it.eng.care.domain.flow.b2b.service.impl.ValidationMessageServiceImpl;
+import it.eng.care.domain.flow.b2b.service.impl.ZipServiceImpl;
+import it.eng.care.domain.flow.b2b.utils.ErrorService;
+import it.eng.care.domain.flow.b2b.utils.EurekaClientService;
+import it.eng.care.domain.flow.b2b.utils.FlowOperationResult;
+import it.eng.care.domain.flow.b2b.utils.JWTAuth;
+import it.eng.care.domain.flow.b2b.utils.JsonSchemaUtils;
+import it.eng.care.domain.flow.core.service.AnagraficaAssistitoService;
+import it.eng.care.domain.flow.core.service.AppIdentityService;
+import it.eng.care.domain.flow.core.service.BrickLayerInvokeService;
+import it.eng.care.domain.flow.core.service.ConfigurationService;
+import it.eng.care.domain.flow.core.service.DashboardService;
+import it.eng.care.domain.flow.core.service.DataSourceService;
+import it.eng.care.domain.flow.core.service.DriverService;
+import it.eng.care.domain.flow.core.service.FieldTypeService;
+import it.eng.care.domain.flow.core.service.FlowCacheService;
+import it.eng.care.domain.flow.core.service.FlowConfigurationFilterFieldService;
+import it.eng.care.domain.flow.core.service.FlowConfigurationFilterFieldValueService;
+import it.eng.care.domain.flow.core.service.FlowConfigurationFilterService;
+import it.eng.care.domain.flow.core.service.FlowDrgService;
+import it.eng.care.domain.flow.core.service.FlowExportRequestService;
+import it.eng.care.domain.flow.core.service.FlowExtractionService;
+import it.eng.care.domain.flow.core.service.FlowForeignKeyService;
+import it.eng.care.domain.flow.core.service.FlowImportRequestService;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileServiceImpl;
+import it.eng.care.domain.flow.core.service.FlowPatientService;
+import it.eng.care.domain.flow.core.service.FlowRegionUnionService;
+import it.eng.care.domain.flow.core.service.FlowService;
+import it.eng.care.domain.flow.core.service.FlowTableFieldService;
+import it.eng.care.domain.flow.core.service.FlowTableService;
+import it.eng.care.domain.flow.core.service.FlowViewService;
+import it.eng.care.domain.flow.core.service.FmSequenceService;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.domain.flow.core.service.JobTalendService;
+import it.eng.care.domain.flow.core.service.MonitorSdoXlService;
+import it.eng.care.domain.flow.core.service.PraticaViewService;
+import it.eng.care.domain.flow.core.service.StateMachinePersistHistoryService;
+import it.eng.care.domain.flow.core.service.StateService;
+import it.eng.care.domain.flow.core.service.TalendThreadService;
+import it.eng.care.domain.flow.core.service.TransactionalTwoLevelResultsService;
+import it.eng.care.domain.flow.core.service.TwoLevelResultsService;
+import it.eng.care.domain.flow.core.service.VersionService;
+import it.eng.care.domain.flow.core.service.impl.AnagraficaAssistitoSeviceImpl;
+import it.eng.care.domain.flow.core.service.impl.AppIdentityServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.BrickLayerInvokeServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.ConfigurationServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.DashboardServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.DataSourceServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.DriverServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FieldTypeServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowCacheServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowConfigurationFilterFieldServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowConfigurationFilterFieldValueServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowConfigurationFilterServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowDrgServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowExportRequestServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowExtractionServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowForeignKeyServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowImportRequestServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowPatientServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowRegionUnionServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowTableFieldServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowTableServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FlowViewServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FmSequenceServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.FormFlowServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.JobTalendServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.MonitorSdoXlServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.PraticaViewServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.RegionErrorTableService;
+import it.eng.care.domain.flow.core.service.impl.StateMachinePersistHistoryServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.StateServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.TalendThreadServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.TransactionalTwoLevelResultsServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.TwoLevelResultsServiceImpl;
+import it.eng.care.domain.flow.core.service.impl.VersionServiceImpl;
+import it.eng.care.domain.flow.flowupload.service.FlowFileUploadService;
+import it.eng.care.domain.flow.flowupload.service.WellFormedService;
+import it.eng.care.domain.flow.flowupload.service.impl.FlowFileUploadServiceImpl;
+import it.eng.care.domain.flow.flowupload.service.impl.WellFormedServiceImpl;
+import it.eng.care.domain.flow.webservice.service.WebService;
+import it.eng.care.domain.flow.webservice.service.WebServiceSender;
+import it.eng.care.domain.flow.webservice.service.impl.WebServiceImpl;
+import it.eng.care.domain.flow.webservice.service.impl.WebServiceSenderImpl;
+import it.eng.care.domain.flow.websocket.WebsocketServer;
+
+@Configuration
+public class FlowServiceConfig {
+
+    @Bean
+    public FlowService createFlowService() {
+        return new FlowServiceImpl();
+    }
+
+    @Bean
+    public DriverService createDriverService() {
+        return new DriverServiceImpl();
+    }
+
+    @Bean
+    public DataSourceService createDataSourceService() {
+        return new DataSourceServiceImpl();
+    }
+
+    @Bean
+    public VersionService createVersionService() {
+        return new VersionServiceImpl();
+    }
+
+    @Bean
+    public FlowTableService createFlowTableService() {
+        return new FlowTableServiceImpl();
+    }
+
+    @Bean
+    public FlowTableFieldService createFlowTableFieldService() {
+        return new FlowTableFieldServiceImpl();
+    }
+
+    @Bean
+    public FieldTypeService createFieldTypeService() {
+        return new FieldTypeServiceImpl();
+    }
+
+    @Bean(initMethod = "registerConverters")
+    public FormFlowService createFormFlowService() {
+        return new FormFlowServiceImpl();
+    }
+
+    @Bean
+    public FlowViewService createFlowViewService() {
+        return new FlowViewServiceImpl();
+    }
+
+    @Bean
+    public FlowImportRequestService createFlowImportService() {
+        return new FlowImportRequestServiceImpl();
+    }
+
+    @Bean
+    public FlowExportRequestService createFlowExportService() {
+        return new FlowExportRequestServiceImpl();
+    }
+
+    @Bean
+    public StateMachinePersistHistoryService stateMachinePersistHistoryService() {
+        return new StateMachinePersistHistoryServiceImpl();
+    }
+
+    @Bean
+    public FlowExtractionService createFlowExtractionService() {
+        return new FlowExtractionServiceImpl();
+    }
+
+    @Bean
+    public JobTalendService createJobTalendService() {
+        return new JobTalendServiceImpl();
+    }
+
+    @Bean
+    public StateService createStateService() {
+        return new StateServiceImpl();
+    }
+
+    @Bean
+    public FlowConfigurationFilterService flowConfigurationFilterService() {
+        return new FlowConfigurationFilterServiceImpl();
+    }
+
+    @Bean
+    public FlowConfigurationFilterFieldService flowConfigurationFilterFieldService() {
+        return new FlowConfigurationFilterFieldServiceImpl();
+    }
+
+    @Bean
+    public FlowConfigurationFilterFieldValueService flowConfigurationFilterFieldValueService() {
+        return new FlowConfigurationFilterFieldValueServiceImpl();
+    }
+
+
+    @Bean
+    public FlowForeignKeyService flowForeignKeyServiceService() {
+        return new FlowForeignKeyServiceImpl();
+    }
+
+    @Bean
+    public PraticaViewService praticaViewService() {
+        return new PraticaViewServiceImpl();
+    }
+
+    //FlowTableFieldService
+
+
+    @Bean
+    public JsonFlowService getJsonFlowService() {
+        return new JsonFlowServiceImpl();
+    }
+
+    @Bean
+    public ValidationFlowService getValidationFlowService() {
+        return new ValidationFlowServiceImpl();
+    }
+
+    @Bean
+    public BatchFlowService getBatchFlowService() {
+        return new BatchFlowServiceImpl();
+    }
+
+    @Bean
+    public ZipService getZipService() {
+        return new ZipServiceImpl();
+    }
+
+    @Bean
+    public JsonSchemaUtils jsonSchemaUtils() {
+        return new JsonSchemaUtils();
+    }
+
+    @Bean
+    public ErrorService errorService() {
+        return new ErrorService();
+    }
+
+
+    @Bean
+    public DashboardService dashboardService() {
+        return new DashboardServiceImpl();
+    }
+
+    @Bean
+    public FlowOperationResult flowOperationResult() {
+        return new FlowOperationResult();
+    }
+
+    @Bean
+    public AppIdentityService appIdentityService() {
+        return new AppIdentityServiceImpl();
+    }
+
+    @Bean
+    public FlowRegionUnionService flowRegionUnionService() {
+        return new FlowRegionUnionServiceImpl();
+    }
+    
+    @Bean
+    public FmSequenceService FmSequenceService() {
+    	return new FmSequenceServiceImpl();
+    }
+    
+    @Bean
+    public TalendThreadService TalendThreadService() {
+    	return new TalendThreadServiceImpl();
+    }
+    
+    @Bean
+    public TwoLevelResultsService TwoLevelResultsService() {
+    	return new TwoLevelResultsServiceImpl();
+    }
+    
+    @Bean
+    public TransactionalTwoLevelResultsService TransactionalTwoLevelResultsService() {
+    	return new TransactionalTwoLevelResultsServiceImpl();
+    }
+    
+    @Bean
+    public FlowManagerProfileService FlowManagerProfileService() {
+    	return new FlowManagerProfileServiceImpl();
+    }
+    
+    @Bean
+    public FlowPatientService flowPatientService() {
+    	return new FlowPatientServiceImpl();
+    }
+    
+    @Bean
+    public ConfigurationService configurationService() {
+    	return new ConfigurationServiceImpl();
+    }
+
+    
+    @Bean
+    public WebService webService() {
+    	return new WebServiceImpl();
+    }
+
+    @Bean
+    public WebServiceSender webServiceSender() {
+    	return new WebServiceSenderImpl();
+    }
+    
+    @Bean
+    public JWTAuth jwtAuth() {
+    	return new JWTAuth();
+    }
+    
+    @Bean
+    public BrickLayerInvokeService brickLayerInvokeService() {
+    	return new BrickLayerInvokeServiceImpl();
+    }
+    
+    @Bean
+    public WebsocketServer wss() {
+    	return new WebsocketServer();
+    }
+
+    @Bean
+    public WellFormedService wellFormedServiceImpl() {
+    	return new WellFormedServiceImpl();
+    }
+    
+    @Bean
+    public FlowFileUploadService FlowFileUploadService() {
+    	return new FlowFileUploadServiceImpl();
+    }
+    
+    @Bean
+    public ValidationMessageService validationMessageService() {
+    	return new ValidationMessageServiceImpl();
+    }
+       
+    @Bean
+    public FlowDrgService flowDrgService() {
+    	return new FlowDrgServiceImpl();
+    }
+    
+    @Bean
+    public EurekaClientService eurekaClientService() {
+    	return new EurekaClientService();
+
+    }
+    
+    @Bean
+    public SendDrgService sendDrgService() {
+    	return new SendDrgServiceImpl();
+    }
+    
+    @Bean
+    public FlowCacheService flowCacheService() {
+    	return new FlowCacheServiceImpl();
+    }
+    
+    @Bean
+    public AnagraficaAssistitoService anagraficaAssistitoService() {
+	   return new AnagraficaAssistitoSeviceImpl();
+    }
+    
+    @Bean
+    public MonitorSdoXlService monitorSdoXlService() {
+	   return new MonitorSdoXlServiceImpl();
+    }
+    
+    @Bean
+    public RegionMessageService getRegionMessageService() {
+        return new RegionMessageServiceImpl();
+    }
+    
+    @Bean
+    public RegionErrorTableService regionErrorTableService() {
+    	return new RegionErrorTableService();
+
+    }
+    
+}

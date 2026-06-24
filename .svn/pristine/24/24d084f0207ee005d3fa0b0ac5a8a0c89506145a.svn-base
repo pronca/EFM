@@ -1,0 +1,566 @@
+package it.eng.care.domain.flow.core.controller.impl;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import it.eng.care.domain.flow.b2b.exception.ValidationFlowException;
+import it.eng.care.domain.flow.core.config.LogAccessiPMConfig;
+import it.eng.care.domain.flow.core.controller.PraticaViewController;
+import it.eng.care.domain.flow.core.converter.LinkedHashMapToFormFlowDTO;
+import it.eng.care.domain.flow.core.converter.FormFlow.FormFlowDTOtoFlowDO;
+import it.eng.care.domain.flow.core.dao.ContextConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.DashboardConfigDAO;
+import it.eng.care.domain.flow.core.dao.SearchPatientFieldDAO;
+import it.eng.care.domain.flow.core.dto.ContextParamDTO;
+import it.eng.care.domain.flow.core.dto.PaginatedPraticaDTO;
+import it.eng.care.domain.flow.core.dto.FlowView.FlowViewFilterError;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.dto.PrivacyManagerDTO.PMPraticaView;
+import it.eng.care.domain.flow.core.entity.ContextConfigurationDO;
+import it.eng.care.domain.flow.core.entity.DashboardConfigDO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.SearchPatientFieldDO;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.service.PraticaViewService;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+import it.eng.care.domain.flow.tabgen.utility.TabgenUtility;
+import it.eng.care.platform.tool.transport.conversion.ConversionContext;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+
+@RestController
+@RequestMapping("/fm/FlowPraticaDTO")
+public class PraticaViewControllerImpl implements PraticaViewController {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(PraticaViewControllerImpl.class);
+
+    @Autowired
+    private PraticaViewService praticaViewService;
+    @Autowired
+    private LinkedHashMapToFormFlowDTO linkedHashMapToFormFlowDTO;
+    @Autowired
+    private ConversionService conversionService;
+    @Autowired
+    private ContextConfigurationDAO contextConfiguraionDAO;
+
+    @Autowired
+    private FlowManagerProfileService flowManagerProfileService;
+    
+    @Autowired
+    private SearchPatientFieldDAO searchPatientFieldDAO;
+    
+    @Autowired
+	private TabgenDelegate tabgenDelegate;
+	
+	@Autowired
+	private DashboardConfigDAO dashboardConfigDAO;
+	
+	@Autowired
+	private LogAccessiPMConfig logAccessiPMConfig;
+	
+	@Autowired
+    private FormFlowDTOtoFlowDO formFlowDTOtoFlowDO;
+	
+    @Override
+    @PostMapping("/searchPraticaTableError")
+    @ResponseBody
+    public OperationResult<PaginatedPraticaDTO> searchTablesError(@RequestBody FlowViewFilterError flowViewFilterError) {
+    	
+    	try {
+    		PMPraticaView resultsErr = new PMPraticaView();
+        	List<String> campiPraticaSubject = new ArrayList<String>();
+        	HashMap<String,String> campiPraticaSubjectGen = new HashMap<String,String>();
+        	FormFlowDTO flow = flowViewFilterError.getFlow();
+            FlowDO flowDO = new FlowDO();
+        	formFlowDTOtoFlowDO.convert(flow, flowDO, new ConversionContext(conversionService));
+    		String queryDetail = null;
+    		String fieldAcceptedQueryDetail = null;
+    		
+    		//caricamento lista aziende visibili dall'utente
+    		List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+    		List<DashboardConfigDO> dashboardConfigListFor = new ArrayList<>();
+    		if (!aziende.isEmpty()) {
+    			dashboardConfigListFor = dashboardConfigDAO.findAllByFlowAndCodiceAziendaIn(flowDO, aziende);
+    			dashboardConfigListFor.addAll(dashboardConfigDAO.findAllByFlowAndCodiceAziendaIsNull(flowDO));
+    			//Raggruppamento per "name" tenendo priorità a quelli con codiceAzienda valorizzato
+    			Map<String, DashboardConfigDO> groupedMap = new LinkedHashMap<>();
+    			for (DashboardConfigDO cfg : dashboardConfigListFor) {
+    			    String key = cfg.getName();
+    			    if (!groupedMap.containsKey(key)) {
+    			        groupedMap.put(key, cfg);
+    			    } else {
+    			        DashboardConfigDO existing = groupedMap.get(key);
+    			        // Se il nuovo ha codiceAzienda valorizzato e l’esistente no → sovrascrivi
+    			        if (existing.getCodiceAzienda() == null && cfg.getCodiceAzienda() != null) {
+    			            groupedMap.put(key, cfg);
+    			        }
+    			    }
+    			}
+    			//Ricrea la lista finale filtrata
+    			dashboardConfigListFor = new ArrayList<>(groupedMap.values());
+    		} else {
+    			dashboardConfigListFor = dashboardConfigDAO.findAllByFlow(flowDO);
+    		}
+    		
+    		for (DashboardConfigDO dashboardConfig : dashboardConfigListFor) {
+   				if (dashboardConfig.getFlow() != null && flow.getCode().equalsIgnoreCase(dashboardConfig.getFlow().getCode()) && (dashboardConfig.getName().equalsIgnoreCase(flowViewFilterError.getRegion()) || dashboardConfig.getName().equalsIgnoreCase(flowViewFilterError.getDashboardName()))) {  
+    				if (null != dashboardConfig.getQueryDetail()) {
+    					queryDetail=dashboardConfig.getQueryDetail();
+    					flowViewFilterError.setQueryDetail(queryDetail);
+    				}
+    				if (dashboardConfig.getFieldAcceptedQueryDetail() != null) {
+    	                fieldAcceptedQueryDetail = dashboardConfig.getFieldAcceptedQueryDetail();
+    	                flowViewFilterError.setFieldAcceptedQueryDetail(fieldAcceptedQueryDetail);
+    	            }
+    				break;
+    			}
+    		}
+    		
+        	if(!flowViewFilterError.getDetailErr()) {
+        		List<SearchPatientFieldDO>  fmSearchPatientFieldsTabgen = new ArrayList<>();
+        		if (!aziende.isEmpty()) {
+        			fmSearchPatientFieldsTabgen = searchPatientFieldDAO.findAllByFlussoAndFiltroRicercaAndCodiceAziendaIn(flowViewFilterError.getFlow().getName(), "1", aziende);
+            		//se non è stata fatta una configurazione specifica per azienda allora prendo la configurazione generica del flusso con azienda a null e che quindi vale per tutte le aziende
+            		if (fmSearchPatientFieldsTabgen.isEmpty()) {
+            			fmSearchPatientFieldsTabgen = searchPatientFieldDAO.findAllByFlussoAndFiltroRicercaAndCodiceAziendaIsNull(flowViewFilterError.getFlow().getName(), "1");
+            		}
+        		} else {
+        			fmSearchPatientFieldsTabgen = searchPatientFieldDAO.findAllByFlussoAndFiltroRicerca(flowViewFilterError.getFlow().getName(), "1");
+        		}
+        		
+        		for (SearchPatientFieldDO patientFields : fmSearchPatientFieldsTabgen) {
+    				campiPraticaSubjectGen.put(patientFields.getCampoFunzione(), patientFields.getCampoTracciato());
+        		}
+    	    	
+        		if (campiPraticaSubjectGen != null && !campiPraticaSubjectGen.isEmpty()) {
+    		    	for(FormFlowTableDTO table: flow.getFlowTableList()) {
+    		    		for(FormFlowTableFieldDTO field: table.getFlowTableFieldList()) {
+    		    			if(field.getGroups()) {
+    		    				String fieldNameUpper = field.getName().toUpperCase();
+    		    				if(campiPraticaSubjectGen.get("NOME").toUpperCase().equalsIgnoreCase(fieldNameUpper) || 
+    							   campiPraticaSubjectGen.get("COGNOME").toUpperCase().equalsIgnoreCase(fieldNameUpper) || 
+    							   campiPraticaSubjectGen.get("DATANASCITA").toUpperCase().equalsIgnoreCase(fieldNameUpper) || 
+    							   campiPraticaSubjectGen.get("CODICEFISCALE").toUpperCase().equalsIgnoreCase(fieldNameUpper)) {
+    		    					campiPraticaSubject.add(fieldNameUpper);
+    		    				}
+    		    			}
+    		    		}
+    		    	}
+    		    	
+    		    	if(campiPraticaSubject.contains(campiPraticaSubjectGen.get("CODICEFISCALE")) || (campiPraticaSubject.contains(campiPraticaSubjectGen.get("NOME")) && campiPraticaSubject.contains(campiPraticaSubjectGen.get("COGNOME")))
+    		    			|| (campiPraticaSubject.contains(campiPraticaSubjectGen.get("NOME")) && campiPraticaSubject.contains(campiPraticaSubjectGen.get("COGNOME")) && campiPraticaSubject.contains(campiPraticaSubjectGen.get("DATANASCITA")))
+    		    			|| (campiPraticaSubject.contains(campiPraticaSubjectGen.get("NOME")) && campiPraticaSubject.contains(campiPraticaSubjectGen.get("COGNOME")) && campiPraticaSubject.contains(campiPraticaSubjectGen.get("DATANASCITA")) && campiPraticaSubject.contains(campiPraticaSubjectGen.get("CODICEFISCALE")))){
+    		    		
+    		    		resultsErr = praticaViewService.executeQueryPM(flowViewFilterError,campiPraticaSubjectGen);
+    		    		if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogVisuaPra())) {
+    		        		PMPraticaView resultsLogAccessi = praticaViewService.sendAuditVisuaPraDashToPM(flowViewFilterError, campiPraticaSubjectGen, resultsErr);
+    		            }
+    		    	}else {
+    		    		resultsErr = praticaViewService.executeQuery(flowViewFilterError);
+    		    	}
+        		} else {
+        			resultsErr = praticaViewService.executeQuery(flowViewFilterError);
+        		}
+        	}else {
+        		resultsErr = praticaViewService.executeQuery(flowViewFilterError);
+        	}
+    	    	
+        	PaginatedPraticaDTO result = resultsErr.getPraticaViewReturns();
+        	
+        	if (result.getErrors().isEmpty()) {
+        		return OperationResult.success(result);
+        	} else {
+        		return OperationResult.failure(result.getErrors());
+        	}
+            
+    	} catch (ValidationFlowException ex) {
+    		LogUtil.logException(LOGGER, "", ex);
+			return OperationResult.failure(ex.getErrors());
+    	}
+    	
+    }
+
+    @Override
+    @PostMapping("/searchErrors")
+    @ResponseBody
+    public OperationResult<PaginatedPraticaDTO> searchErrors(@RequestBody FlowViewFilterError flowViewFilterError) {
+
+    	PaginatedPraticaDTO results = praticaViewService.searchErrors(flowViewFilterError);
+
+    	if (results.getErrors().isEmpty()) {
+    		return OperationResult.success(results);
+    	} else {
+    		return OperationResult.failure(results.getErrors());
+    	}
+
+    }
+
+    public static byte[] zipBytes(String filename, byte[] input) throws IOException {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        ZipOutputStream zos = new ZipOutputStream(baos);
+        ZipEntry entry = new ZipEntry(filename);
+        entry.setSize(input.length);
+        zos.putNextEntry(entry);
+        zos.write(input);
+        zos.closeEntry();
+        zos.close();
+        return baos.toByteArray();
+    }
+
+    @Override
+    @PostMapping(value = "/_downloadXlsx", produces = "application/zip", consumes = "application/json")
+    //@NoAuthenticationRequired
+    @ResponseBody
+    public HttpEntity<byte[]> downloadFlowViewXlsx(@RequestBody BaseSearchInput searchInput) throws IOException {
+
+        conversionService.registerConverter(LinkedHashMap.class, FormFlowDTO.class,
+                linkedHashMapToFormFlowDTO);
+        LinkedHashMap flow = searchInput.getValue("flow");
+        FormFlowDTO formFlowDTO = conversionService.convertTo(flow, FormFlowDTO.class);
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+        
+        Boolean check = flowManagerProfileService.checkFlowByName(formFlowDTO.getName());
+    	if(!check) {
+    		return null;
+    	}
+        
+//        ObjectMapper mapper = new ObjectMapper();
+//        FormFlowDTO formFlowDTO =
+//                mapper.convertValue(flow, FormFlowDTO.class);
+    	
+    	String type = (String)searchInput.getValue("type");
+    	String name = (String)searchInput.getValue("name");
+    	String errorCode = (String)searchInput.getValue("errorCode");
+    	String message = (String)searchInput.getValue("message");
+		String tipoImportazione = (String)searchInput.getValue("tipoImportazione");
+		String codicePresidio = (String)searchInput.getValue("codicePresidio");
+		String codiceAzienda = (String)searchInput.getValue("codiceAzienda");
+		
+    	Boolean canViewMonthFromToFilters = searchInput.getValue("canViewMonthFromToFilters");
+    	Boolean canViewDateFromToFilters = searchInput.getValue("canViewDateFromToFilters");
+    	String extraMonthFrom=null;
+    	String extraMonthTo=null;
+    	if (canViewMonthFromToFilters) {
+    		extraMonthFrom = searchInput.getValue("extraMonthFrom").toString();
+        	extraMonthTo = searchInput.getValue("extraMonthTo").toString();
+    	} else {
+    		extraMonthFrom = searchInput.getValue("month").toString();
+        	extraMonthTo = searchInput.getValue("month").toString();
+    	}
+    	String extraDateFrom=null;
+    	String extraDateTo=null;
+    	if (canViewDateFromToFilters) {
+    		//se 1 flusso è parametrizzato per entrambi le configurazioni prevale quella per range di data
+			canViewMonthFromToFilters = false;
+    		Object rawFrom = searchInput.getValue("extraDateFrom");
+			Object rawTo   = searchInput.getValue("extraDateTo");
+			extraDateFrom = TabgenUtility.toDdMMyyyy(rawFrom);
+			extraDateTo   = TabgenUtility.toDdMMyyyy(rawTo);
+    	}
+    	
+        FlowViewFilterError flowViewFilter = new FlowViewFilterError();
+        flowViewFilter.setFlow(formFlowDTO);
+        flowViewFilter.setMonth(searchInput.getValue("month").toString());
+        flowViewFilter.setYear(searchInput.getValue("year").toString());
+        flowViewFilter.setExtraMonthFrom(Integer.valueOf(extraMonthFrom));
+        flowViewFilter.setExtraMonthTo(Integer.valueOf(extraMonthTo));
+        if (extraDateFrom!=null && extraDateTo!=null) {
+        	LocalDate ldtExtraDateFrom = LocalDate.parse(extraDateFrom, fmt);
+		    LocalDate ldtExtraDateTo   = LocalDate.parse(extraDateTo, fmt);
+        	flowViewFilter.setExtraDateFrom(Date.from(ldtExtraDateFrom.atStartOfDay(ZoneId.systemDefault()).toInstant()));
+        	LocalDateTime endOfDay = ldtExtraDateTo.atTime(23, 59, 59);
+        	flowViewFilter.setExtraDateTo(Date.from(endOfDay.atZone(ZoneId.systemDefault()).toInstant()));
+        }
+        flowViewFilter.setCanViewDateFromToFilters(canViewDateFromToFilters);
+        flowViewFilter.setCanViewMonthFromToFilters(canViewMonthFromToFilters);
+        flowViewFilter.setRegion(type);
+        if("AZIENDALE".equals(type)) {
+        	flowViewFilter.setRegion(null);
+        }
+
+        if(searchInput.getValue("filters") !=null) {
+            if (!searchInput.getValue("filters").equals("")) {
+                flowViewFilter.setFilters(searchInput.getValue("filters"));
+            }
+        }
+        
+        flowViewFilter.setName(name);
+        flowViewFilter.setDashboardName(name);
+        if (errorCode == null || "".equals(errorCode)) {
+        	flowViewFilter.setErrorCode("Tutte");
+		} else {
+			flowViewFilter.setErrorCode(errorCode);
+		}
+        if (message == null || "".equals(message)) {
+        	flowViewFilter.setMessage("Tutte");
+		} else {
+			flowViewFilter.setMessage(errorCode);
+		}
+		if (tipoImportazione == null || "".equals(tipoImportazione)) {
+			flowViewFilter.setTipoImportazione("Tutte");
+		} else {
+			flowViewFilter.setTipoImportazione(tipoImportazione);
+		}
+		if (codicePresidio == null || "".equals(codicePresidio)) {
+			flowViewFilter.setCodicePresidio("Tutte");
+		} else {
+			flowViewFilter.setCodicePresidio(codicePresidio);
+		}
+		if (codiceAzienda == null || "".equals(codiceAzienda)) {
+			flowViewFilter.setCodiceAzienda("Tutte");
+		} else {
+			flowViewFilter.setCodiceAzienda(codiceAzienda);
+		}
+        
+        HttpHeaders header = new HttpHeaders();
+        String filename = flowViewFilter.getFlow().getName() + ".zip";
+        ContentDisposition contentDisposition = ContentDisposition.builder("inline")
+                .filename(filename)
+                .build();
+        header.setContentDisposition(contentDisposition);
+
+        byte[] bytes = praticaViewService.downloadFlowViewXlsx(flowViewFilter);
+        if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogDownPraErr())) {
+    		byte[] resultsLogAccessi = praticaViewService.sendAuditDownPraErrToPM(flowViewFilter, bytes);
+        }
+    	
+        byte[] zipbytes = null;
+        if (flowViewFilter.getErrors() == null || flowViewFilter.getErrors().isEmpty()) {
+        	if("PRATICHE_NOT_SEND_REG".equals(name)) {
+            	zipbytes = zipBytes("Pratiche_Non_Inviate_In_Regione_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+        	} else if("PRATICHE_RIC_REG".equals(name)) {
+        		zipbytes = zipBytes("Pratiche_Riconosciute_Da_Regione_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+        	} else if("PRATICHE_REG".equals(name)) {
+                zipbytes = zipBytes("Pratiche_Inviate_A_Regione_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+            } else if ("ERRORI".equals(name)){
+            	zipbytes = zipBytes("Errori_Pratiche_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+            } else if ("ERRORI_REG".equals(name)){
+            	zipbytes = zipBytes("Errori_Regionali_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+            } else if ("PRATICHE".equals(name)){
+            	zipbytes = zipBytes("Pratiche_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+            } else if ("PRATICHE_ERRATE".equals(name)){
+            	zipbytes = zipBytes("Pratiche_Errate_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+            } else if ("PRATICHE_ERRATE_REG".equals(name)){
+            	zipbytes = zipBytes("Pratiche_Errate_Regionali_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+            } else if ("PRATICHE_SEGNALAZIONI_REG".equals(name)){
+            	zipbytes = zipBytes("Pratiche_Segnalazioni_Regionali_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+            } else {
+            	zipbytes = zipBytes(name+"_"+flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+            }
+        //se si sono verificati errori creo un log anch'esso scaricabile
+        } else {
+        	zipbytes = zipBytes("Errori_Download_Flusso_" + flowViewFilter.getFlow().getName() + ".log", bytes);
+        }
+        
+        return new HttpEntity<byte[]>(zipbytes, header);
+        //return null;
+    }
+
+    @Override
+    @PostMapping(value = "/_downloadXlsx2", produces = "application/zip", consumes = "application/json")
+    //@NoAuthenticationRequired
+    @ResponseBody
+    public HttpEntity<byte[]> downloadFlowViewXlsx2(@RequestBody BaseSearchInput searchInput) throws IOException {
+    	
+        conversionService.registerConverter(LinkedHashMap.class, FormFlowDTO.class,
+                linkedHashMapToFormFlowDTO);
+        LinkedHashMap flow = searchInput.getValue("flow");
+        FormFlowDTO formFlowDTO = conversionService.convertTo(flow, FormFlowDTO.class);
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+        
+        Boolean check = flowManagerProfileService.checkFlowByName(formFlowDTO.getName());
+        if(!check) {
+            return null;
+        }
+
+//        ObjectMapper mapper = new ObjectMapper();
+//        FormFlowDTO formFlowDTO =
+//                mapper.convertValue(flow, FormFlowDTO.class);
+
+    	String type = (String)searchInput.getValue("region");
+    	String name = (String)searchInput.getValue("name");
+    	String errorCode = (String)searchInput.getValue("errorCode");
+    	String message = (String)searchInput.getValue("message");
+		String tipoImportazione = (String)searchInput.getValue("tipoImportazione");
+		String codicePresidio = (String)searchInput.getValue("codicePresidio");
+		String codiceAzienda = (String)searchInput.getValue("codiceAzienda");
+		
+        FlowViewFilterError flowViewFilter = new FlowViewFilterError();
+        Boolean canViewMonthFromToFilters = searchInput.getValue("canViewMonthFromToFilters");
+        Boolean canViewDateFromToFilters = searchInput.getValue("canViewDateFromToFilters");
+    	String extraMonthFrom=null;
+    	String extraMonthTo=null;
+    	if (canViewMonthFromToFilters) {
+    		extraMonthFrom = searchInput.getValue("extraMonthFrom").toString();
+        	extraMonthTo = searchInput.getValue("extraMonthTo").toString();
+    	} else {
+    		extraMonthFrom = searchInput.getValue("month").toString();
+        	extraMonthTo = searchInput.getValue("month").toString();
+    	}
+    	String extraDateFrom=null;
+    	String extraDateTo=null;
+    	if (canViewDateFromToFilters) {
+    		//se 1 flusso è parametrizzato per entrambi le configurazioni prevale quella per range di data
+			canViewMonthFromToFilters = false;
+    		Object rawFrom = searchInput.getValue("extraDateFrom");
+			Object rawTo   = searchInput.getValue("extraDateTo");
+			extraDateFrom = TabgenUtility.toDdMMyyyy(rawFrom);
+			extraDateTo   = TabgenUtility.toDdMMyyyy(rawTo);
+    	}
+        flowViewFilter.setFlow(formFlowDTO);
+        flowViewFilter.setMonth(searchInput.getValue("month").toString());
+        flowViewFilter.setYear(searchInput.getValue("year").toString());
+        flowViewFilter.setExtraMonthFrom(Integer.valueOf(extraMonthFrom));
+        flowViewFilter.setExtraMonthTo(Integer.valueOf(extraMonthTo));
+        flowViewFilter.setCanViewMonthFromToFilters(canViewMonthFromToFilters);
+        flowViewFilter.setCanViewDateFromToFilters(canViewDateFromToFilters);
+        if (extraDateFrom!=null && extraDateTo!=null) {
+        	LocalDate ldtExtraDateFrom = LocalDate.parse(extraDateFrom, fmt);
+		    LocalDate ldtExtraDateTo   = LocalDate.parse(extraDateTo, fmt);
+        	flowViewFilter.setExtraDateFrom(Date.from(ldtExtraDateFrom.atStartOfDay(ZoneId.systemDefault()).toInstant()));
+        	LocalDateTime endOfDay = ldtExtraDateTo.atTime(23, 59, 59);
+        	flowViewFilter.setExtraDateTo(Date.from(endOfDay.atZone(ZoneId.systemDefault()).toInstant()));
+        }
+        flowViewFilter.setRegion(type);
+        flowViewFilter.setName(name);
+        flowViewFilter.setDashboardName(name);
+        
+        if (errorCode == null || "".equals(errorCode)) {
+        	flowViewFilter.setErrorCode("Tutte");
+		} else {
+			flowViewFilter.setErrorCode(errorCode);
+		}
+        if (message == null || "".equals(message)) {
+        	flowViewFilter.setMessage("Tutte");
+		} else {
+			flowViewFilter.setMessage(errorCode);
+		}
+		if (tipoImportazione == null || "".equals(tipoImportazione)) {
+			flowViewFilter.setTipoImportazione("Tutte");
+		} else {
+			flowViewFilter.setTipoImportazione(tipoImportazione);
+		}
+		if (codicePresidio == null || "".equals(codicePresidio)) {
+			flowViewFilter.setCodicePresidio("Tutte");
+		} else {
+			flowViewFilter.setCodicePresidio(codicePresidio);
+		}
+		if (codiceAzienda == null || "".equals(codiceAzienda)) {
+			flowViewFilter.setCodiceAzienda("Tutte");
+		} else {
+			flowViewFilter.setCodiceAzienda(codiceAzienda);
+		}
+		
+        if(searchInput.getValue("filters") !=null) {
+            if (!searchInput.getValue("filters").equals("")) {
+                flowViewFilter.setFilters(searchInput.getValue("filters"));
+            }
+        }
+        HttpHeaders header = new HttpHeaders();
+        String filename = flowViewFilter.getFlow().getName() + ".zip";
+        ContentDisposition contentDisposition = ContentDisposition.builder("inline")
+                .filename(filename)
+                .build();
+        header.setContentDisposition(contentDisposition);
+        byte[] bytes = praticaViewService.downloadFlowViewXlsx(flowViewFilter);
+        if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogDownPraErr())) {
+    		byte[] resultsLogAccessi = praticaViewService.sendAuditDownPraErrToPM(flowViewFilter, bytes);
+        }
+        
+        byte[] zipbytes = null;
+        if (flowViewFilter.getErrors() == null || flowViewFilter.getErrors().isEmpty()) {
+        	if (flowViewFilter.getName().equals("ERRORI")) {
+        		zipbytes = zipBytes("Errori_Pratiche_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+        	} else if (flowViewFilter.getName().equals("ERRORI_REG")) {
+        		zipbytes = zipBytes("Errori_Regionali_Flusso_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+        	} else {
+        		zipbytes = zipBytes(flowViewFilter.getName() + "_" + flowViewFilter.getFlow().getName() + ".xlsx", bytes);
+        	}
+        	
+        //se si sono verificati errori creo un log anch'esso scaricabile
+        } else {
+        	zipbytes = zipBytes("Errori_Download_Pratiche_Errate_Flusso_" + flowViewFilter.getFlow().getName() + ".log", bytes);
+        }
+        
+        return new HttpEntity<byte[]>(zipbytes, header);
+        //return null;
+    }
+
+    @Override
+    @PostMapping("/searchContextParam")
+    @ResponseBody
+    public OperationResult<ContextParamDTO> searchContextParam(@RequestBody BaseSearchInput input) {
+
+    	String flow = input.getValue("flow");
+    	
+    	List<ContextConfigurationDO> config  = contextConfiguraionDAO.findAllByFlow(flow);
+    	
+    	List<List<String>> keys = (List<List<String>>)input.getValue("keys");
+    	
+    	HashMap<String,String> params = praticaViewService.getContextValue(keys, config);
+    	
+    	ContextParamDTO result = new ContextParamDTO();
+    	
+    	if (!params.isEmpty()) {
+	    	result.setParams(params);
+	    	result.setActivity(config.get(0).getActivity());
+	    	
+	    	boolean enabled = false;
+	    	
+	    	TabgenValueFilter filter = new TabgenValueFilter();
+			filter.setTabgenId("FM_CONTEXT_CONFIGURATION_NEW");
+	
+			BasePagingLoadResult<Tabgen> list = tabgenDelegate.searchValue(filter);
+	
+			if (list != null && list.getTotalLength() > 0 && list.getList() != null
+					&& !list.getList().isEmpty()) {
+				Tabgen contextConfigurationNew = list.getList().get(0);
+				if (contextConfigurationNew != null && "FM_CONTEXT_CONFIGURATION_NEW".equals(contextConfigurationNew.getId())) {
+					List<TabgenValue> tabgenValues = contextConfigurationNew.getTabgenValues();
+					if (tabgenValues != null && !tabgenValues.isEmpty()) {
+						enabled = tabgenValues.get(0).getField1().equals(config.get(0).getId());
+					}
+				}
+			}
+	    	
+	    	result.setDisableDefaultLanding(enabled);
+	        return OperationResult.success(result);
+    	} else {
+    		LOGGER.warn("CONFIGURAZIONE FM_CONTEXT_CONFIGURATION MANCANTE !");
+    		return OperationResult.failure();
+    	}
+    }
+
+}    

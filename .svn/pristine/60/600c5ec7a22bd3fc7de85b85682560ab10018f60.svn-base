@@ -1,0 +1,361 @@
+package it.eng.care.domain.flow.webservice.service.impl;
+
+import java.math.BigDecimal;
+import java.rmi.RemoteException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+
+import javax.annotation.PostConstruct;
+import javax.xml.rpc.ServiceException;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.entity.FlowDrgDO;
+import it.eng.care.domain.flow.core.enumeration.MachineEvent;
+import it.eng.care.domain.flow.core.service.FlowDrgService;
+import it.eng.care.domain.flow.core.spring.statemachine.StateMachineFlow;
+import it.eng.care.domain.flow.webservice.service.WebServiceSender;
+import it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito;
+import it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile;
+import it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWs;
+import it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+import it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsServiceLocator;
+import it.eng.care.domain.flow.webservice.sis.ws.login.LoginWsServiceLocator;
+import it.eng.care.domain.flow.webservice.sis.ws.login.UtenteNonAbilitatoException;
+
+/**
+ * 
+ * @author mpirozzi
+ *
+ * Classe necessaria all'inivio presso regione emilia romagna
+ * 
+ */
+public class WebServiceSenderImpl implements WebServiceSender {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(WebServiceSenderImpl.class);
+
+	@Autowired
+	protected ConfigurationDAO configuration;
+		
+	@Value("${flow.region.address}")
+	private String regionAddress;
+	
+	private FlussiWsServiceLocator service;
+	
+	private LoginWsServiceLocator serviceLogin;
+	
+	@Autowired
+	private FlowDrgService flowDrgService;
+	
+	@Autowired(required = false)
+    private StateMachineFlow stateMachineFlow;
+	
+	@Override
+	public String[] login(String requestId, boolean drg) {
+		String exception = null;
+		String[] response = new String[2];
+		boolean error = false;
+		try {
+			//MP: LOGIN PRESSO LA REGIONE
+			
+			LOGGER.info("Tentativo di LogIn presso la regione");
+			String token = this.serviceLogin.getLoginWsPort().login(configuration.findByKeyId("usrWebService").getValue(),configuration.findByKeyId("pswWebService").getValue());
+			response[0] = token;
+			return response;
+		} catch (UtenteNonAbilitatoException e) {
+			LOGGER.info(e.toString());
+			exception = e.toString();
+			error = true;
+		} catch (RemoteException e) {
+			LOGGER.info(e.toString());
+			exception = e.toString();
+			error = true;
+		} catch (ServiceException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		}
+		
+		if(error) {
+			if(!drg) {
+				response[1] = exception;
+				return (response);
+			}
+			FlowDrgDO resDrg = flowDrgService.searchByExtractionId(requestId).get(0);
+			resDrg.setReturnDate(new Date());
+			org.springframework.statemachine.state.State<String, String> stateDrg;
+			if(exception!=null) {
+				resDrg.setError(exception);
+			}else {
+				resDrg.setError("Login fallita");
+			}
+			try {
+				stateDrg = stateMachineFlow.execute(requestId + "_DRG", "DRG", MachineEvent.DRG_TERMINATO_KO.getEvent());
+				resDrg.setState(stateDrg.getId());
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			response[1] = exception;
+			return (response);
+		}
+		
+		return null;
+	}
+
+	
+	//la regione emilia romagna richiede che venga caricato il flusso e solo successivamente è possibile fare su quell'invio azioni del tipo: simulazione, consolidamento
+	@Override
+	public Object[] sendFlow(String codTipoFlusso, int anno, int numInvio, String token, FlussiFile[] files, String requestId, boolean drg) {
+
+		FlussiWs flussiService;
+		String exception = null;
+		boolean error = false;
+		Object[] response = new Object[2];
+		try {
+			LOGGER.info("Tentativo di invio flusso presso la regione");
+			flussiService = this.service.getFlussiWsPort();
+			
+			BigDecimal prgInvio = flussiService.invioFile(token, codTipoFlusso, anno, numInvio, files);
+			response[0] = prgInvio;
+			return response;
+		} catch (ServiceException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		} catch (it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		} catch (FlussiWsException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		} catch (RemoteException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		}
+		
+		if(error) {
+			if(!drg) {
+				response[1] = exception;
+				return (response);
+			}
+			FlowDrgDO resDrg = flowDrgService.searchByExtractionId(requestId).get(0);
+			resDrg.setReturnDate(new Date());
+			org.springframework.statemachine.state.State<String, String> stateDrg;
+			if(exception!=null) {
+				resDrg.setError(exception);
+			}else {
+				resDrg.setError("Invio flusso fallito");
+			}
+			try {
+				stateDrg = stateMachineFlow.execute(requestId + "_DRG", "DRG", MachineEvent.DRG_TERMINATO_KO.getEvent());
+				resDrg.setState(stateDrg.getId());
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			response[1] = exception;
+			return (response);
+		}
+
+		return null;
+
+		// TODO Auto-generated method stub
+
+	}
+
+	@Override
+	public Object[] simulate(String token, BigDecimal prgInvio, String requestId, boolean drg) throws InterruptedException {
+
+		FlussiWs flussiService;
+		LOGGER.info("Tentativo di simulazione flusso presso la regione");
+		Object[] response = new Object[2];
+		String exception = null;
+		boolean error = false;
+			
+		try {
+			flussiService = this.service.getFlussiWsPort();
+			Esito esito = flussiService.simula(token, prgInvio);
+			
+			while(flussiService.stato(token, prgInvio).getCodStato().equals("CSSIM")){
+				Thread.sleep(2000);
+			}
+			
+			Object[] respSimulateReturn = simulateResponse(token,prgInvio,requestId,drg);
+			FlussiFile[] simulateReturn = (FlussiFile[]) respSimulateReturn[0];
+			response[0] = simulateReturn;
+		
+			return response;
+			
+		} catch (it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		} catch (FlussiWsException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		} catch (RemoteException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		} catch (ServiceException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		}
+		
+		if(error) {
+			if(!drg) {
+				response[1] = exception;
+				return (response);
+			}
+			FlowDrgDO resDrg = flowDrgService.searchByExtractionId(requestId).get(0);
+			resDrg.setReturnDate(new Date());
+			org.springframework.statemachine.state.State<String, String> stateDrg;
+			if(exception!=null) {
+				resDrg.setError(exception);
+			}else {
+				resDrg.setError("Simulazione flusso fallita");
+			}
+			try {
+				stateDrg = stateMachineFlow.execute(requestId + "_DRG", "DRG", MachineEvent.DRG_TERMINATO_KO.getEvent());
+				resDrg.setState(stateDrg.getId());
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+			response[1] = exception;
+			return (response);
+		}
+				
+		return null;
+		
+	}
+
+	@Override
+	public void consolida() {
+		// TODO Auto-generated method stub
+
+	}
+
+	//Attualmente non usato
+	@Override
+	public void checkState(String token, BigDecimal prgInvio) {
+		
+		FlussiWs flussiService;
+		LOGGER.info("Tentativo di controllo dello stato di un flusso presso la regione");
+			
+		try {
+			flussiService = this.service.getFlussiWsPort();
+			flussiService.stato(token, prgInvio);
+		} catch (it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (FlussiWsException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (RemoteException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		} catch (ServiceException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+	}
+
+	
+	protected Object[] simulateResponse(String token, BigDecimal prgInvio, String requestId, boolean drg) {
+		FlussiWs flussiService;
+		LOGGER.info("Tentativo di acquisizione dei ritorni del flusso presso la regione");
+		String exception = null;
+		boolean error = false;
+		Object[] response = new Object[2];
+		try {
+			flussiService = this.service.getFlussiWsPort();
+			FlussiFile[] respReturn = flussiService.ritornoInformativoSimulazione(token, prgInvio, null);
+			response[0] = (FlussiFile[]) respReturn;
+			return response;
+		} catch (it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		} catch (FlussiWsException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		} catch (RemoteException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		} catch (ServiceException e) {
+			e.printStackTrace();
+			exception = e.toString();
+			error = true;
+		}
+				
+		if(error) {
+			if(drg) {
+				response[1] = exception;
+				return (response);
+			}
+			FlowDrgDO resDrg = flowDrgService.searchByExtractionId(requestId).get(0);
+			resDrg.setReturnDate(new Date());
+			org.springframework.statemachine.state.State<String, String> stateDrg;
+			if(exception!=null) {
+				resDrg.setError(exception);
+			}else {
+				resDrg.setError("Acquisizione ritorni fallita");
+			}
+			try {
+				stateDrg = stateMachineFlow.execute(requestId + "_DRG", "DRG", MachineEvent.DRG_TERMINATO_KO.getEvent());
+				resDrg.setState(stateDrg.getId());
+			} catch (Exception e) {
+				e.printStackTrace();
+			}
+		}
+
+		return null;
+
+	}
+	
+	
+	//attualmente non utilizzato
+	@Override
+	public void delete(String token, BigDecimal prgInvio) {
+		FlussiWs flussiService;
+			LOGGER.info("Tentativo di cancellazione flusso presso la regione");
+			
+				try {
+					flussiService = this.service.getFlussiWsPort();
+					flussiService.elimina(token, prgInvio);
+				} catch (it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (FlussiWsException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (RemoteException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} catch (ServiceException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+			
+	}
+
+	@PostConstruct
+	public void postConstruct() {
+		this.service = new FlussiWsServiceLocator();
+		this.serviceLogin = new LoginWsServiceLocator();
+		this.service.setFlussiWsPortEndpointAddress(regionAddress);
+		this.serviceLogin.setLoginWsPortEndpointAddress(regionAddress);
+	}
+
+}

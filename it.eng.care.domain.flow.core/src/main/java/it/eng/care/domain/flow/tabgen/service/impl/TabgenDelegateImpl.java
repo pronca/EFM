@@ -1,0 +1,378 @@
+package it.eng.care.domain.flow.tabgen.service.impl;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataAccessException;
+
+import it.eng.care.domain.flow.core.config.LogAccessiPMConfig;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.tabgen.converter.TabgenDOToDTOWithFieldsConverter;
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenField;
+import it.eng.care.domain.flow.tabgen.dto.TabgenFilter;
+import it.eng.care.domain.flow.tabgen.dto.TabgenResultBean;
+import it.eng.care.domain.flow.tabgen.dto.TabgenType;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.entity.TabgenDO;
+import it.eng.care.domain.flow.tabgen.entity.TabgenFieldDO;
+import it.eng.care.domain.flow.tabgen.entity.TabgenValueDO;
+import it.eng.care.domain.flow.tabgen.exception.InvalidTabgenOperationException;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+import it.eng.care.domain.flow.tabgen.service.TabgenService;
+import it.eng.care.platform.common.dozer.converter.DozerConverter;
+
+public class TabgenDelegateImpl implements TabgenDelegate {
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(TabgenDelegateImpl.class);
+	
+	ExecutorService exceturExportService = Executors.newFixedThreadPool(10);
+	
+	private Map<String, byte[]> exportedFiles = new HashMap<String, byte[]>();
+
+	@Autowired
+	private TabgenService tabgenService;
+
+	@Autowired
+	private DozerConverter mapper;
+	
+	@Autowired
+    private LogAccessiPMConfig logAccessiPMConfig;
+	
+	@Autowired
+	private TabgenDelegate tabgenDelegate;
+	
+	@Value("${tabgen.temp.dir}")
+	private String expDir;
+
+	@Override
+	public TabgenResultBean saveTable(Tabgen table) {
+		TabgenResultBean result = new TabgenResultBean();
+		result.setTable(table);
+		TabgenDO tableDO = null;
+		try {
+			if (table.getType().toUpperCase().equals(TabgenType.TRANSCODIFICHE.name())) {
+				tableDO = tabgenService.saveTabgenForTranscode(table);
+			} else {
+				tableDO = tabgenService.saveTabgen(table);
+				if(tableDO != null) {
+					tabgenService.createReplaceTabgenView(tableDO.getId(), "");
+				}
+			}
+			
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+			if (e instanceof InvalidTabgenOperationException) {
+				result.setError((InvalidTabgenOperationException) e);
+				result.setTable(table);
+			} else {
+				InvalidTabgenOperationException ex = new InvalidTabgenOperationException();
+				ex.setUnexpectedError(true);
+				result.setError(ex);
+				result.setTable(table);
+			}
+		}
+		if(tableDO != null) {
+			table.setId(tableDO.getId());
+		}
+		
+		return result;
+	}
+	
+
+	@Override
+	public TabgenResultBean deleteTable(String tabgenId, boolean deleteAll,
+			boolean deleteFields, boolean deleteValues) {
+		TabgenResultBean result = new TabgenResultBean();
+		Tabgen table = new Tabgen();
+		table.setId(tabgenId);
+		result.setTable(table);
+		try {
+			boolean deleted = tabgenService.deleteTabgen(tabgenId, deleteAll, deleteFields, deleteValues);
+			// se ho cancellato tutto o solo lo schema
+			if (deleteAll || deleteFields) {
+				tabgenService.dropTabgenView("drop view " + tabgenId);
+			}
+			result.setDeletable(deleted);
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+			if (e instanceof InvalidTabgenOperationException) {
+				result.setError((InvalidTabgenOperationException) e);
+			}
+		}
+		return result;
+	}
+
+	@Override
+	public List<Tabgen> searchTable(TabgenFilter filter) {
+		try {
+			filter.setVisible(1);
+			List<Tabgen> list = tabgenService.searchTabgenByFilter(filter);
+			return list;
+		} catch (DataAccessException e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+		}
+		return null;
+	}
+
+	@Override
+	public TabgenResultBean saveValue(TabgenValue value) {
+		TabgenResultBean result = new TabgenResultBean();
+		try {
+			if (value != null) {
+				TabgenValueDO valuedo = mapper.convert(value, TabgenValueDO.class);
+				valuedo = tabgenService.saveTabgenValue(valuedo);
+				value.setId(valuedo.getId());
+				value.setEnabledDate(valuedo.getEnabledDate());
+				value.setDisabledDate(valuedo.getDisabledDate());
+				result.setValue(value);
+			}
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+			if (e instanceof InvalidTabgenOperationException) {
+				result.setError((InvalidTabgenOperationException) e);
+			}
+		}
+
+		return result;
+	}
+
+	@Override
+	public TabgenResultBean deleteValue(String valueId, boolean force) {
+		try {
+			boolean deleted = tabgenService.deleteTabgenValue(valueId, force);
+			TabgenResultBean result = new TabgenResultBean();
+			result.setDeletable(deleted);
+			result.setValueId(valueId);
+			return result;
+			
+		} catch (DataAccessException e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+		} catch (InvalidTabgenOperationException e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+			TabgenResultBean result = new TabgenResultBean();
+			result.setError(e);
+			result.setValueId(valueId);
+			return result;
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+		}
+		return null;
+	}
+	
+	@Override
+	public String exportTable(final TabgenValueFilter filter) {
+		final String id = filter.getTabgenId() + "$" +UUID.randomUUID().toString();
+		try {
+
+			exceturExportService.submit(new Callable<String>() {
+
+				@Override
+				public String call() throws Exception {
+					filter.setLimit(0);
+			    	
+					byte[] byt = tabgenService.exportTabGenValueByFilter(filter);
+					
+					BasePagingLoadResult<Tabgen> results = tabgenDelegate.searchValue(filter);
+					if (results != null && !results.getList().isEmpty() && "PROFILATURA".equals(results.getList().get(0).getType())) {
+						if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogExpProfil())) {
+				    		byte[] resultsLogAccessi = tabgenService.sendAuditExportProfilToPM(filter, byt);
+				        }
+					}
+					
+			    	exportedFiles.put(id, byt);
+					return id;
+				}
+
+			});
+
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+		}
+		return id;
+	}
+	
+	
+	@Override
+	public boolean checkExport(String id) {
+		return exportedFiles.get(id) != null;
+	}
+	
+	@Override
+	public byte[] downloadExportedTable(String exportId) {
+		byte[] appoggio = exportedFiles.get(exportId);
+		exportedFiles.remove(exportId);
+		return appoggio;
+	}
+	
+	@Override
+	public BasePagingLoadResult<Tabgen> searchValue(TabgenValueFilter filter) {
+		List<Tabgen> list = new ArrayList<Tabgen>();
+		try {
+			list.add(searchTabGenValueByFilter(filter));
+			int totalLength = countTabgenValueByFilter(filter).intValue();
+			BasePagingLoadResult<Tabgen> resultpaging = new BasePagingLoadResult<Tabgen>(list, filter.getOffset(), totalLength);
+			return resultpaging;
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+		}
+		return null;
+	}
+	
+	
+	
+	@Override
+	public TabgenResultBean saveFields(List<TabgenField> tabgenFieldList, Boolean aggiornaProgressivo) {
+		TabgenResultBean result = new TabgenResultBean();
+		try {
+			List<TabgenFieldDO> tabgenFieldDOList = (List<TabgenFieldDO>) mapper.convertCollection(tabgenFieldList, TabgenFieldDO.class, null);
+			tabgenFieldList = tabgenService.saveTabgenFields(tabgenFieldDOList, aggiornaProgressivo);
+			tabgenService.dropTabgenView("drop view " + tabgenFieldList.get(0).getTabgen().getId());
+			tabgenService.createReplaceTabgenView(tabgenFieldList.get(0).getTabgen().getId(), "create_ana_view");
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+			if (e instanceof InvalidTabgenOperationException) {
+				result.setError((InvalidTabgenOperationException) e);
+			}
+		}
+		result.setFields(tabgenFieldList);
+		return result;
+	}
+	
+	@Override
+	public TabgenResultBean deleteField(String id, boolean deleteValuesAndConstraint) {
+		TabgenResultBean result = new TabgenResultBean();
+		boolean deleted = false;
+		try {
+			TabgenField field = tabgenService.getTabgenFieldDTO(id);
+			deleted = tabgenService.deleteTabgenField(id, deleteValuesAndConstraint);
+			tabgenService.dropTabgenView("drop view " + field.getTabgen().getId());
+			tabgenService.createReplaceTabgenView(field.getTabgen().getId(), "create_ana_view");
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+			if (e instanceof InvalidTabgenOperationException) {
+				result.setError((InvalidTabgenOperationException) e);
+			} else {
+//				e.printStackTrace();
+			}
+		}
+		result.setDeletable(deleted);
+		return result;
+	}
+	
+	@Override
+	public TabgenResultBean deleteFields(String tabgenid, boolean deleteValuesAndConstraint) {
+		TabgenResultBean result = new TabgenResultBean();
+		boolean deleted = false;
+		try {
+			deleted = tabgenService.deleteTabgen(tabgenid, false, true, deleteValuesAndConstraint);
+			tabgenService.dropTabgenView("drop view " + tabgenid);
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+			if (e instanceof InvalidTabgenOperationException) {
+				result.setError((InvalidTabgenOperationException) e);
+			}
+		}
+		result.setDeletable(deleted);
+		return result;
+	}
+	
+	@Override
+	public TabgenResultBean deleteAllValues(String tabgenid, boolean deleteConstrains) {
+		TabgenResultBean result = new TabgenResultBean();
+		boolean deleted = false;
+		try {
+			deleted = tabgenService.deleteTabgen(tabgenid, false, false, true);
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+			if (e instanceof InvalidTabgenOperationException) {
+				result.setError((InvalidTabgenOperationException) e);
+			}
+		}
+		result.setDeletable(deleted);
+		return result;
+	}
+	
+	
+	
+	
+	private Tabgen searchTabGenValueByFilter(TabgenValueFilter filter) throws DataAccessException {
+		if (filter != null && filter.getFields() != null) {
+			Set<String> keySet = filter.getFields().keySet();
+			for (String fieldName : keySet) {
+				String fieldValue = filter.getFields().get(fieldName);
+				try {
+					filter.getClass().getMethod("set" + fieldName.replace("f", "F"), String.class).invoke(filter, fieldValue);
+				} catch (Exception e) {
+					LogUtil.logException(LOGGER, "", e);
+//					e.printStackTrace();
+				}
+			}
+			filter.setFetchRule(null);
+		}
+		List<TabgenValue> values = tabgenService.searchTabgenValueDTOByFilter(filter);
+		if (values != null && values.size() > 0 && filter != null) {
+			Tabgen table = tabgenService.getTabgenDTOGetById(String.valueOf(filter.getTabgenId()), TabgenDOToDTOWithFieldsConverter.getMapId());
+			if (table == null) {
+				table = values.get(0).getTabgen();
+			}
+			List<TabgenValue> valueSet = new ArrayList<TabgenValue>();
+			valueSet.addAll(values);
+			table.setTabgenValues(valueSet);
+			return table;
+			//return mapper.convert(table, Tabgen.class, TabgenDOToDTOWithFieldsConverter.getMapId());
+		} else {
+			Tabgen table = new Tabgen();
+			return table;
+		}
+	}
+	
+	private Long countTabgenValueByFilter(TabgenValueFilter filter) throws DataAccessException {
+		if (filter != null && filter.getFields() != null) {
+			Set<String> keySet = filter.getFields().keySet();
+			for (String fieldName : keySet) {
+				String fieldValue = filter.getFields().get(fieldName);
+				try {
+					filter.getClass().getMethod("set" + fieldName.replace("f", "F"), String.class).invoke(filter, fieldValue);
+				} catch (Exception e) {
+					LogUtil.logException(LOGGER, "", e);
+//					e.printStackTrace();
+				}
+			}
+		}
+		return tabgenService.countTabgenValueByFilter(filter);
+	}
+
+	@Override
+	public List<TabgenField> searchFieldsByTabgenId(String tabgenId) {
+		return tabgenService.searchFieldsByTabgenId(tabgenId);
+	}
+	
+
+}

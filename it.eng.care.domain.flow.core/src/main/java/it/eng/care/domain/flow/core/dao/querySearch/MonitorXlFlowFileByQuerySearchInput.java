@@ -1,0 +1,119 @@
+package it.eng.care.domain.flow.core.dao.querySearch;
+
+
+import java.io.IOException;
+import java.math.BigDecimal;
+import java.sql.Clob;
+import java.sql.SQLException;
+import java.util.List;
+
+import org.apache.commons.io.IOUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.core.dao.MonitorSdoXlFileDAO;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.FlushModeType;
+import jakarta.persistence.Query;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+public class MonitorXlFlowFileByQuerySearchInput implements MonitorSdoXlFileDAO {
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(MonitorXlFlowFileByQuerySearchInput.class);
+	
+	@Autowired
+	private EntityManager entityManager;
+	
+	@Override
+	public Integer getStatusXml(String flussoId, String nosologico, String presidio) {
+		int tmp = 0;
+		Query query = null;
+		if(flussoId != null && nosologico != null && presidio !=null) {		
+			String queryString = getXmlQuery( flussoId, nosologico, presidio);
+
+			query = entityManager.createNativeQuery(queryString);	
+			if(query != null) {				
+				 tmp = ((BigDecimal) query.getSingleResult()).intValue();
+			}	
+		}
+		return tmp;
+	}
+	
+	private String getXmlQuery(String flussoId, String presidio,String nosologico) {
+		String selectSQL = "SELECT ";
+		String count = "COUNT(*)";
+		String fromSQl = "FROM ";
+		String whereSQL = "WHERE ";
+		String and = "AND";
+		String flussoIdCol = "ID_FLUSSO";
+		String presidioCol = "PRESIDIO";
+		String nosologicoCol = "NOSOLOGICO";
+		String tableScarti = "FM_MONITOR_SDO_XL_FILE";
+		StringBuffer queryBuffer = new StringBuffer();
+		queryBuffer.append(selectSQL)
+				   .append(count)
+				   .append(" ")
+				   .append(fromSQl)
+				   .append(" ")
+				   .append(tableScarti)
+				   .append(" ")
+				   .append(whereSQL)
+				   .append(flussoIdCol).append(" = ").append("'"+flussoId+"'")
+				   .append(" ")
+				   .append(and)
+				   .append(" ")
+				   .append(presidioCol).append(" = ").append("'"+presidio+"'")
+				   .append(" ")
+				   .append(and)
+				   .append(" ")
+				   .append(nosologicoCol).append(" = ").append("'"+nosologico+"'");
+				  
+		return queryBuffer.toString();
+	}
+
+	@Override
+	public byte[] getXmlData(BaseSearchInput searchInput) {
+//		Query query = entityManager.createQuery("FROM MonitorSdoXlFileDO as a where a.idFlusso = ?0 AND a.presidio = ?1 AND a.nosologico = ?2 AND a.idEstrazione = ?3");
+//		query.setParameter(0, searchInput.getValue("flussoId"));
+//		query.setParameter(1, searchInput.getValue("presidio"));
+//		query.setParameter(2, searchInput.getValue("nosologico"));
+//		query.setParameter(3, searchInput.getValue("idEstrazione"));
+//		MonitorSdoXlFileDO tmp = (MonitorSdoXlFileDO) query.getSingleResult();
+//		return tmp.getXml();
+		
+		// Filtri Ricerca
+        String flussoId     = 	searchInput.getValue("flussoId");
+		String presidio     = 	searchInput.getValue("presidio");		
+		String nosologico   =   searchInput.getValue("nosologico");
+		String idEstrazione = 	searchInput.getValue("idEstrazione");
+		
+		String querySelect =  "SELECT DATA_FILE "
+				+ "FROM FM_MONITOR_SDO_XL_FILE mo "
+				+ "WHERE " 
+				+ "ID_FLUSSO=:flussoId AND PRESIDIO=:presidio AND NOSOLOGICO=:nosologico AND ID_ESTRAZIONE=:idEstrazione";
+
+		Query query = entityManager.createNativeQuery(querySelect);
+		query.setParameter("flussoId", flussoId);
+		query.setParameter("presidio", presidio);
+		query.setParameter("nosologico", nosologico);
+		query.setParameter("idEstrazione", idEstrazione);
+		
+		List<Clob> result = (List<Clob>) query.getResultList();
+		if(result != null && result.size() > 0) {
+			for (Clob lob : result) {
+	            try {
+					return IOUtils.toByteArray(lob.getAsciiStream());
+				} catch (IOException | SQLException e) {
+					LogUtil.logException(LOGGER, "", e);
+//					e.printStackTrace();
+				}
+			}
+		}
+		
+		return new byte[0];
+				
+	}
+	
+}

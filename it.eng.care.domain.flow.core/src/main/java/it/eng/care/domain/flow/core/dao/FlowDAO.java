@@ -1,0 +1,31 @@
+package it.eng.care.domain.flow.core.dao;
+
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import it.eng.care.domain.flow.core.dao.querySearch.FlowDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.platform.persistence.api.QueryByCriteria;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+
+@Repository
+public interface FlowDAO extends JpaRepository<FlowDO, String> {
+
+    @QueryByCriteria(FlowDAOQueryByBaseSearchInput.class)
+    List<FlowDO> cerca(BaseSearchInput poInput);
+
+    @QueryByCriteria(FlowDAOQueryByBaseSearchInput.class)
+    List<FlowDO> getAllWithVersions(String flowType);
+    
+    @QueryByCriteria(FlowDAOQueryByBaseSearchInput.class)
+    List<FlowDO> cercaInProfile(BaseSearchInput poInput);
+    
+    @QueryByCriteria(FlowDAOQueryByBaseSearchInput.class)
+    FlowDO getFlowWithVersions(String id);
+    
+    Optional<FlowDO> findByName(String name);
+
+}

@@ -1,0 +1,106 @@
+package it.eng.care.domain.flow.email.service.impl;
+
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.core.dao.EmailConfigDAO;
+import it.eng.care.domain.flow.core.dao.EmailMessageConfigDAO;
+import it.eng.care.domain.flow.core.dto.FlowView.FlowViewFilterError;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.entity.EmailConfigDO;
+import it.eng.care.domain.flow.core.entity.EmailMessageConfigDO;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.domain.flow.core.service.PraticaViewService;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.email.service.MailSender;
+import it.eng.care.domain.flow.email.utilities.EmailUtilitiesSender;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import jakarta.mail.MessagingException;
+
+public class MailSenderImpl implements MailSender {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(MailSenderImpl.class);
+
+	@Autowired
+	private PraticaViewService praticaViewService;
+
+	@Autowired
+	private FormFlowService formFlowService;
+
+	@Autowired
+	EmailUtilitiesSender emailUtilitiesSender;
+
+	@Autowired
+	EmailConfigDAO emailConfigDAO;
+	
+	@Autowired
+	EmailMessageConfigDAO emailMessageConfigDAO;
+
+	@Override
+	public void sendEmailErrors() throws MessagingException {
+
+		FlowViewFilterError flowViewFilter = new FlowViewFilterError();
+
+		BaseSearchInput input = new BaseSearchInput();
+		input.setParam("status", "ABILITATO");
+		input.setParam("type", "AZIENDA");
+
+		List<FormFlowDTO> listFlow = formFlowService.retrieveAllFiltered(input).getFirst();
+
+		listFlow.forEach((FormFlowDTO formFlowDTO) -> {
+			List<EmailConfigDO> listConfig = emailConfigDAO.findAllByFlowAndEnabled(formFlowDTO.getCode(),"TRUE");
+			EmailMessageConfigDO emailMessageConfig = emailMessageConfigDAO.findByFlow(formFlowDTO.getCode());
+					
+			List<String> emails = new ArrayList<>();
+			listConfig.forEach((EmailConfigDO email) -> {
+				emails.add(email.getEmail());
+			});
+		
+			if(emailMessageConfig == null) {
+				LOGGER.info("Email del flusso"+ formFlowDTO.getCode()+ "NON CONFIGURATA");
+
+			}else {
+			
+			
+			Calendar calendar = Calendar.getInstance();
+			Integer month = calendar.get(Calendar.MONTH)+1;
+			Integer year = calendar.get(Calendar.YEAR);
+			flowViewFilter.setFlow(formFlowDTO);
+			flowViewFilter.setMonth(month.toString());
+			flowViewFilter.setYear(year.toString());
+
+			byte[] bytes = praticaViewService.downloadFlowViewXlsx(flowViewFilter);
+
+			String fileName = flowViewFilter.getFlow().getName() + ".xlsx";
+			
+		     String[] to = new String[emails.size()];
+		     to = emails.toArray(to);
+			
+			String subject = emailMessageConfig.getSubject() + " " + flowViewFilter.getFlow().getName() + " "
+					+ flowViewFilter.getMonth() + "/" + flowViewFilter.getYear();
+			String text = emailMessageConfig.getText() + " " + flowViewFilter.getFlow().getName() + " "
+					+ flowViewFilter.getMonth() + "/" + flowViewFilter.getYear();
+
+			try {
+				if(to.length > 0 ) {
+				emailUtilitiesSender.sendMessageWithAttach(bytes, fileName, to, subject, text);
+				}
+				else {
+						LOGGER.info("NESSUNO DESTINATARIO CONFIGURATO");
+
+				}
+				
+			} catch (Exception e) {
+				LogUtil.logException(LOGGER, "", e);
+			}
+			}
+		});
+
+	}
+
+}

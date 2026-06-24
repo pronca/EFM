@@ -1,0 +1,247 @@
+package it.eng.care.domain.flow.core.controller.impl;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+import jakarta.annotation.PostConstruct;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import it.eng.care.domain.flow.core.controller.FlowController;
+import it.eng.care.domain.flow.core.converter.Flow.FlowDOtoFlowDTO;
+import it.eng.care.domain.flow.core.converter.Flow.FlowDTOtoFlowDO;
+import it.eng.care.domain.flow.core.dao.FlowViewDAO;
+import it.eng.care.domain.flow.core.dto.FlowDTO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.service.FlowService;
+import it.eng.care.domain.flow.core.service.QueryGenerator;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+import it.eng.care.platform.tool.transport.operations.SaveOperationResult;
+import it.eng.care.platform.tool.transport.operations.SearchOperationResult;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+
+@RestController
+@RequestMapping("/fm/FlowDTO")
+public class FlowControllerImpl implements FlowController {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(FlowControllerImpl.class);
+
+    @Autowired
+    private FlowService flowService;
+
+    @Autowired
+    private ConversionService conversionService;
+
+    @Autowired
+    private FlowDOtoFlowDTO flowDOToFlowDTO;
+
+    @Autowired
+    private FlowDTOtoFlowDO FlowDTOtoFlowDO;
+    
+    @Autowired
+    private FlowViewDAO flowViewDAO;
+    
+    @Autowired
+	private FlowManagerProfileService flowManagerProfileService;
+    
+    public FlowControllerImpl() {
+        LOGGER.info("FlowControllerImpl");
+    }
+
+    @PostConstruct
+    public void post() {
+        LOGGER.info("FlowControllerImpl.post");
+        conversionService.registerConverter(FlowDO.class, FlowDTO.class, flowDOToFlowDTO);
+        conversionService.registerConverter(FlowDTO.class, FlowDO.class, FlowDTOtoFlowDO);
+
+    }
+
+    @Override
+    @PostMapping("/_search")
+    @ResponseBody
+    public SearchOperationResult<FlowDTO> search(@RequestBody BaseSearchInput searchInput) {
+
+
+        Pair<List<FlowDO>, SearchInfo> searchResults = flowService.retrieveAllFiltered(searchInput, true);
+        List<FlowDTO> dtos = conversionService.convertAllTo(searchResults.getFirst(), FlowDTO.class);
+
+        return SearchOperationResult.success(dtos, searchResults.getSecond());
+    }
+
+    @Override
+    @GetMapping("/{entityKeyName}/{entityKeyValue}")
+    public OperationResult<FlowDTO> getEntityBy(@PathVariable("entityKeyName") String entityKeyName, @PathVariable("entityKeyValue") String entityKeyValue) {
+
+
+        LOGGER.info("{} , {}", entityKeyName, entityKeyValue);
+
+        FlowDO loValue = flowService.retrieveOne(entityKeyValue);
+
+        FlowDTO loDto = conversionService.convertTo(loValue, FlowDTO.class);
+        return OperationResult.success(loDto);
+    }
+
+    @Override
+    @PostMapping
+    public SaveOperationResult<FlowDTO> save(@RequestBody FlowDTO inputDTO) {
+
+        FlowDO loValue = conversionService.convertTo(inputDTO, FlowDO.class);
+
+        if (loValue.getId() == null) {
+            loValue = flowService.createEntity(loValue);
+        } else {
+            loValue = flowService.updateEntity(loValue);
+        }
+
+        FlowDTO outputDTO = conversionService.convertTo(loValue, FlowDTO.class);
+        return SaveOperationResult.success(outputDTO);
+    }
+
+
+    @Override
+    @DeleteMapping("/{entityKeyName}/{entityKeyValue}")
+    public void deleteEntityBy(@PathVariable("entityKeyName") String entityKeyName, @PathVariable("entityKeyValue") String entityKeyValue) {
+
+
+        LOGGER.info("{} , {}", entityKeyName, entityKeyValue);
+
+        flowService.deleteEntity(entityKeyValue);
+
+    }
+    
+    @Override
+    @PostMapping("/_searchCodiciPresidio")
+    @ResponseBody
+    public OperationResult<List<String>> searchCodiciPresidio(@RequestBody BaseSearchInput searchInput) {
+        String flowName = (String) searchInput.getValue("name"); 
+        String codiceAzienda = (String) searchInput.getValue("codiceazienda");
+        List<String> codici = new ArrayList<>();
+        List<String> searchFields = new ArrayList<>();
+        List<String> selectFields = new ArrayList<>();
+        selectFields.add("CODICEPRESIDIO");
+        List<Object> params = new ArrayList<>();
+        List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+        
+        if (codiceAzienda!=null && !codiceAzienda.isEmpty()) {
+        	searchFields.add("CODICEAZIENDA");
+        	params.add(codiceAzienda);
+        }
+        
+        try {
+	        String queryString = QueryGenerator.generateSearchPatientQuery(flowName, searchFields, selectFields, true, aziende);
+	        List<Object[]> list = flowViewDAO.executeSearchQuery(queryString, params);
+	
+	        if (list != null && !list.isEmpty()) {
+	            codici = list.stream()
+	                .filter(row -> row != null && row.length > 0 && row[0] != null)
+	                .map(row -> row[0].toString())
+	                .distinct()
+	                .collect(Collectors.toList());
+	        }
+        } catch(Exception e) {
+        	LOGGER.error("Errore durante FlowControllerImpl.searchCodiciPresidio", e);
+        }
+        
+        return OperationResult.success(codici);
+    }
+    
+    @Override
+    @PostMapping("/_searchCodiciAzienda")
+    @ResponseBody
+    public OperationResult<List<String>> searchCodiciAzienda(@RequestBody BaseSearchInput searchInput) {
+        String flowName = (String) searchInput.getValue("name"); 
+        List<String> codici = new ArrayList<>();
+        List<String> searchFields = new ArrayList<>();
+        List<String> selectFields = new ArrayList<>();
+        selectFields.add("CODICEAZIENDA");
+        List<Object> params = new ArrayList<>();
+        List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+        
+        try {
+        	String queryString = QueryGenerator.generateSearchPatientQuery(flowName, searchFields, selectFields, true, aziende);
+        	List<Object[]> list = flowViewDAO.executeSearchQuery(queryString, params);
+
+        	if (list != null && !list.isEmpty()) {
+                codici = list.stream()
+                    .filter(row -> row != null && row.length > 0 && row[0] != null)
+                    .map(row -> row[0].toString())
+                    .distinct()
+                    .collect(Collectors.toList());
+            }
+        } catch(Exception e) {
+        	LOGGER.error("Errore durante FlowControllerImpl.searchCodiciAzienda", e);
+        }
+        
+        return OperationResult.success(codici);
+    }
+    
+    @Override
+    @PostMapping("/_searchCodAzCaricamentoFile")
+    @ResponseBody
+    public OperationResult<List<String>> searchCodAzCaricamentoFile(@RequestBody BaseSearchInput searchInput) {
+        List<String> codici = new ArrayList<>();
+        String[] searchFields = {};
+        List<Object> params = new ArrayList<>();
+        List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+        
+        try {
+        	String queryString = QueryGenerator.generateLookupQuery("AZIENDELOADEDINFILE,AZIENDEPROFILOFLUSSI", "FM_FLOW_FILE_UPLOAD_REQUEST", searchFields);
+        	List<Object[]> list = flowViewDAO.executeSearchQuery(queryString, params);
+
+        	if (list != null && !list.isEmpty()) {
+        		if (!aziende.isEmpty()) {
+                    // ✅ Filtro sulle aziende profilate nella colonna AZIENDEPROFILOFLUSSI e raccolta dei codici azienda
+                    // 🔹 includo anche le righe con row[1] == null
+        			codici = list.stream()
+                            .filter(row -> row != null && row.length > 0 && row[0] != null)
+                            .filter(row -> {
+                                // Se non c'è colonna azienda → includi
+                                if (row.length <= 1 || row[1] == null) {
+                                    return true;
+                                }
+
+                                // 🔹 Gestione di più aziende separate da virgola
+                                String[] rowAziende = row[1].toString().split(",");
+                                for (String az : rowAziende) {
+                                    if (aziende.contains(az.trim().toLowerCase())) {
+                                        return true; // almeno una corrisponde
+                                    }
+                                }
+                                return false; // nessuna corrisponde
+                            })
+                            .map(row -> row[0].toString())
+                            .distinct()
+                            .collect(Collectors.toList());
+                } else {
+                    // Nessun filtro: prendo tutti i codici azienda della tabella
+                    codici = list.stream()
+                            .filter(row -> row != null && row.length > 0 && row[0] != null)
+                            .map(row -> row[0].toString())
+                            .distinct()
+                            .collect(Collectors.toList());
+                }
+            }
+        } catch(Exception e) {
+        	LOGGER.error("Errore durante FlowControllerImpl.searchCodAzCaricamentoFile", e);
+        }
+        
+        return OperationResult.success(codici);
+    }
+}

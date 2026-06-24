@@ -1,0 +1,114 @@
+package it.eng.care.domain.flow.b2b.utils;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.NoHttpResponseException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.util.EntityUtils;
+import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dto.LoginDTO;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+
+public class JWTAuth {
+	
+	@Autowired
+	protected ConfigurationDAO configuration;
+	
+	private static Logger logger = LoggerFactory.getLogger(JWTAuth.class);
+
+
+	//MP: metodo per fare la login presso HC40MANAGER, qual'ora dovesse servire per altre integrazioni sarebbe bene esternalizzare il metodo
+	public String loginRestCall() throws Exception {
+		LoginDTO login = new LoginDTO();
+		
+		login.setLanguage("en");
+		//MP: parametri configurati sul DB
+		login.setUsername(configuration.findByKeyId("usernameLogin").getValue());
+		login.setPassword(configuration.findByKeyId("passwordLogin").getValue());
+
+		
+		ObjectMapper mapper = new ObjectMapper();
+		String jsonString = null;
+		JSONObject myObject;
+		
+		try {
+		jsonString = mapper.writeValueAsString(login);
+
+		} catch (JsonProcessingException e) {
+			LogUtil.logException(logger, "", e);
+//			e.printStackTrace();
+		}
+		
+
+		
+		HttpEntity reqEntity = null;
+
+		try {
+			reqEntity = new StringEntity(jsonString);
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			throw new Exception("ERROR : " + e.getMessage());
+		}
+
+		logger.info("Tentativo di login...");
+		HttpClient client = new DefaultHttpClient();
+		// fare attenzione all'url che si utilizza! 
+		HttpPost post = new HttpPost(configuration.findByKeyId("urlLogin").getValue());
+
+		RequestConfig.Builder requestConfig = RequestConfig.custom();
+		requestConfig.setConnectTimeout(10 * 1000);
+		requestConfig.setConnectionRequestTimeout(10 * 1000);
+		requestConfig.setSocketTimeout(10 * 1000);
+	
+		post.setHeader("content-type", "application/json");
+		post.setEntity(reqEntity);
+		post.setConfig(requestConfig.build());
+
+		try {
+			HttpResponse response = client.execute(post);
+			HttpEntity respEntity = response.getEntity();
+
+			String responseString = EntityUtils.toString(respEntity);
+			//restituzione oggetto 
+			 myObject = new JSONObject(responseString);
+
+			 if(myObject.get("success").equals(false)) {
+				 //logger.info("La login non è andata a buon fine" + myObject.get("errors").toString());
+				 throw new Exception("La login non è andata a buon fine" + myObject.get("errors").toString() );
+				 
+			 }
+			if (response.getStatusLine().getStatusCode() == 200) {
+				logger.info("Login effettuata con successo");
+			} else {
+				logger.info("Errore nella login: " + response.toString());
+
+			}
+
+		} catch (NoHttpResponseException nhre) {
+//			nhre.printStackTrace();
+			LogUtil.logException(logger, "", nhre);
+			throw new Exception("ERROR : RETRIEVING RESPONSE: " + nhre.getMessage());
+		} catch (Exception e) {
+//			e.printStackTrace();
+			LogUtil.logException(logger, "", e);
+			throw new Exception("ERROR : RETRIEVING RESPONSE: " + e.getMessage());
+		}
+
+		
+		return myObject.get("opTargetObject").toString();
+	}
+
+	
+}

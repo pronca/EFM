@@ -1,0 +1,19 @@
+package it.eng.care.domain.flow.core.converter.FlowRegionUnion;
+
+import it.eng.care.domain.flow.core.dto.FlowRegionUnionDTO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowRegionUnionDO;
+import it.eng.care.platform.tool.transport.conversion.ConversionContext;
+import it.eng.care.platform.tool.transport.conversion.Converter;
+
+public class FlowRegionUnionDTOtoFlowRegionUnionDO implements Converter<FlowRegionUnionDTO, FlowRegionUnionDO> {
+
+    @Override
+    public void convert(FlowRegionUnionDTO fromObject, FlowRegionUnionDO intoObject, ConversionContext ctx) {
+
+        intoObject.setId(fromObject.getId());
+        intoObject.setFlowLocal(ctx.convertTo(fromObject.getFlowLocal(), FlowDO.class));
+        intoObject.setFlowRegion(ctx.convertTo(fromObject.getFlowRegion(), FlowDO.class));
+    }
+
+}

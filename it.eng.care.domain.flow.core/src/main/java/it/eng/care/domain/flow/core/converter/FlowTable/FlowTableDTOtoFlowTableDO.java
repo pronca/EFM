@@ -1,0 +1,40 @@
+package it.eng.care.domain.flow.core.converter.FlowTable;
+
+import it.eng.care.domain.flow.core.dto.FlowTableDTO;
+import it.eng.care.domain.flow.core.entity.DataSourceDO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowTableDO;
+import it.eng.care.domain.flow.core.entity.VersionDO;
+import it.eng.care.platform.tool.transport.conversion.ConversionContext;
+import it.eng.care.platform.tool.transport.conversion.Converter;
+
+
+public class FlowTableDTOtoFlowTableDO implements Converter<FlowTableDTO, FlowTableDO> {
+
+    @Override
+    public void convert(FlowTableDTO fromObject, FlowTableDO intoObject, ConversionContext ctx) {
+
+        intoObject.setId(fromObject.getId());
+        intoObject.setName(fromObject.getName());
+        intoObject.setDescription(fromObject.getDescription());
+        intoObject.setSection(fromObject.getSection());
+        intoObject.setRequired(fromObject.getRequired());
+        intoObject.setDataSource(ctx.convertTo(fromObject.getDataSource(), DataSourceDO.class));
+        if (!(fromObject.getVersion() == null)) {
+        	try {
+        		intoObject.setVersionDO(ctx.convertTo(fromObject.getVersion(), VersionDO.class));
+            } catch (Exception e) {
+            	intoObject.setVersionDO(null);
+            }
+        }
+        if (!(fromObject.getFlow() == null)) {
+        	try {
+        		intoObject.setFlowDO(ctx.convertTo(fromObject.getFlow(), FlowDO.class));
+            } catch (Exception e) {
+            	intoObject.setFlowDO(null);
+            }
+        }
+        intoObject.setXsd(fromObject.getXsd());
+    }
+
+}

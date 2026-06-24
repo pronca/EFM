@@ -1,0 +1,153 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import it.eng.care.domain.flow.core.dao.FlowConfigurationFilterDAO;
+import it.eng.care.domain.flow.core.dao.FlowConfigurationFilterFieldDAO;
+import it.eng.care.domain.flow.core.dto.FlowConfigurationFilter.FlowConfigurationFilterDTO;
+import it.eng.care.domain.flow.core.dto.FlowConfigurationFilter.FlowConfigurationFilterFieldDTO;
+import it.eng.care.domain.flow.core.entity.FlowConfigurationFilterDO;
+import it.eng.care.domain.flow.core.entity.FlowConfigurationFilterFieldDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.service.FlowConfigurationFilterService;
+import it.eng.care.domain.flow.core.service.FlowExportRequestService;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.stereotype.Service;
+
+import jakarta.transaction.Transactional;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Optional;
+import java.util.Set;
+
+@Service
+@Transactional
+public class FlowConfigurationFilterServiceImpl implements FlowConfigurationFilterService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(FlowConfigurationFilterServiceImpl.class);
+
+    @Autowired
+    public FlowExportRequestService flowExportRequestService;
+
+    @Autowired
+    public FlowConfigurationFilterDAO flowConfigurationFilterDAO;
+    @Autowired
+    public FlowConfigurationFilterFieldDAO flowConfigurationFilterFieldDAO;
+
+    @Autowired
+    public ConversionService conversionService;
+
+    @Override
+    public Pair<List<FlowConfigurationFilterDO>, SearchInfo> retrieveAllFiltered(BaseSearchInput searchInput, Boolean useFlowProfile) {
+        List<FlowConfigurationFilterDO> loList = flowConfigurationFilterDAO.cerca(searchInput, useFlowProfile);
+        return Pair.of(loList, SearchInfos.create());
+    }
+
+    @Override
+    public FlowConfigurationFilterDTO createEntity(FlowConfigurationFilterDTO dto) {
+
+        FlowConfigurationFilterDO flowConfigurationFilterDO = new FlowConfigurationFilterDO();
+
+        flowConfigurationFilterDO.setName(dto.getName());
+        flowConfigurationFilterDO.setFlow(dto.getFlow().getId());
+        flowConfigurationFilterDO.setVersion(dto.getVersion().getId());
+        flowConfigurationFilterDO.setType(dto.getType());
+        //flowConfigurationFilterDO.setExportRequest();
+        //flowConfigurationFilterDO.setFilterFields();
+        flowConfigurationFilterDAO.save(flowConfigurationFilterDO);
+        //ADD Chips Filter su STATIC
+        if(flowConfigurationFilterDO.getType().equals(1)){
+            FlowConfigurationFilterFieldDO flowConfigFilterFieldDO = new FlowConfigurationFilterFieldDO();
+            flowConfigFilterFieldDO.setConfigurationFilter(flowConfigurationFilterDO);
+            flowConfigFilterFieldDO.setName("Chips");
+            flowConfigFilterFieldDO.setFilterType("Chips");
+            flowConfigFilterFieldDO.setPosition("0");
+            flowConfigFilterFieldDO.setMandatory(true);
+            flowConfigurationFilterFieldDAO.save(flowConfigFilterFieldDO);
+        }
+        for (List<FlowConfigurationFilterFieldDTO> flowConfigurationFilterFieldDTOS : dto.getFields()) {
+            for (FlowConfigurationFilterFieldDTO flowConfigurationFilterFieldDTO : flowConfigurationFilterFieldDTOS) {
+                FlowConfigurationFilterFieldDO flowConfigurationFilterFieldDO = new FlowConfigurationFilterFieldDO();
+                flowConfigurationFilterFieldDO.setConfigurationFilter(flowConfigurationFilterDO);
+                flowConfigurationFilterFieldDO.setName(flowConfigurationFilterFieldDTO.getName());
+                flowConfigurationFilterFieldDO.setFilterType(flowConfigurationFilterFieldDTO.getFilterType());
+                flowConfigurationFilterFieldDO.setFilterField(flowConfigurationFilterFieldDTO.getFilterField());
+                flowConfigurationFilterFieldDO.setFilterTable(flowConfigurationFilterFieldDTO.getFilterTable());
+                flowConfigurationFilterFieldDO.setMandatory(flowConfigurationFilterFieldDTO.isMandatory());
+                flowConfigurationFilterFieldDO.setPosition(flowConfigurationFilterFieldDTO.getPosition());
+                flowConfigurationFilterFieldDO.setRange(flowConfigurationFilterFieldDTO.isRange());
+                flowConfigurationFilterFieldDAO.save(flowConfigurationFilterFieldDO);
+            }
+        }
+        return dto;
+    }
+
+    @Override
+    public FlowConfigurationFilterDTO updateEntity(FlowConfigurationFilterDTO dto) {
+
+        FlowConfigurationFilterDO flowConfigurationFilterDO = flowConfigurationFilterDAO.findById(dto.getId()).get();
+        flowConfigurationFilterDO.setName(dto.getName());
+        flowConfigurationFilterDO.setFlow(dto.getFlow().getId());
+        flowConfigurationFilterDO.setVersion(dto.getVersion().getId());
+        flowConfigurationFilterDO.setType(dto.getType());
+        //flowConfigurationFilterDO.setExportRequest();
+        //flowConfigurationFilterDO.setFilterFields();
+        flowConfigurationFilterDAO.save(flowConfigurationFilterDO);
+        for (List<FlowConfigurationFilterFieldDTO> flowConfigurationFilterFieldDTOS : dto.getFields()) {
+            for (FlowConfigurationFilterFieldDTO flowConfigurationFilterFieldDTO : flowConfigurationFilterFieldDTOS) {
+                FlowConfigurationFilterFieldDO flowConfigurationFilterFieldDO;
+                if (flowConfigurationFilterFieldDTO.getId() != null) {
+                    flowConfigurationFilterFieldDO = flowConfigurationFilterFieldDAO.findById(flowConfigurationFilterFieldDTO.getId()).get();
+                } else
+                    flowConfigurationFilterFieldDO = new FlowConfigurationFilterFieldDO();
+                flowConfigurationFilterFieldDO.setConfigurationFilter((flowConfigurationFilterDO));
+                flowConfigurationFilterFieldDO.setName(flowConfigurationFilterFieldDTO.getName());
+                flowConfigurationFilterFieldDO.setFilterField(flowConfigurationFilterFieldDTO.getFilterField());
+                flowConfigurationFilterFieldDO.setFilterType(flowConfigurationFilterFieldDTO.getFilterType());
+                flowConfigurationFilterFieldDO.setFilterTable(flowConfigurationFilterFieldDTO.getFilterTable());
+                flowConfigurationFilterFieldDO.setMandatory(flowConfigurationFilterFieldDTO.isMandatory());
+                flowConfigurationFilterFieldDO.setPosition(flowConfigurationFilterFieldDTO.getPosition());
+                flowConfigurationFilterFieldDO.setRange(flowConfigurationFilterFieldDTO.isRange());
+                flowConfigurationFilterFieldDAO.save(flowConfigurationFilterFieldDO);
+            }
+        }
+        return dto;
+    }
+
+    @Override
+    public Set<String> deleteEntity(FlowConfigurationFilterDO flowConfigurationFilterDO) {
+        flowConfigurationFilterDO = flowConfigurationFilterDAO.findById(flowConfigurationFilterDO.getId()).get();
+        Set<String> ids = new HashSet<>();
+        if (flowConfigurationFilterDO.getExportRequest() != null) {
+            if(flowConfigurationFilterDO.getExportRequest().size() >0){
+                for (FlowExportRequestDO exportRequestDO : flowConfigurationFilterDO.getExportRequest()) {
+                    //Se ci sono estrazioni "IN CANCELLAZIONE (JOB)" le cancello per poter
+                    // effettuare eliminazione della configurazione.
+                    if(exportRequestDO.getDeleted()!=null){
+                        if(exportRequestDO.getDeleted()==1) {
+                        flowExportRequestService.deletedByExtractionIds(exportRequestDO.getId());
+                    }
+                    else {
+                        ids.add(exportRequestDO.getId());
+                    }
+                    }
+                    else {
+                        ids.add(exportRequestDO.getId());
+                    }
+
+                }
+                return ids;
+            }
+        }
+        flowConfigurationFilterDAO.delete(flowConfigurationFilterDO);
+        return ids;
+
+    }
+
+
+}

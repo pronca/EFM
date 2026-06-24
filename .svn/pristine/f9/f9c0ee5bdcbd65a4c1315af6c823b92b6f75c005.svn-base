@@ -1,0 +1,69 @@
+<databaseChangeLog
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+    	http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.1.xsd"
+        logicalFilePath="db/changelogs/CREATE_FM_FLOW_EXPORTING_REQUEST">
+
+	<changeSet id="CREATE_FM_FLOW_EXPORTING_REQUEST" author="flow_management" failOnError="true" context="FM_FLOW_EXPORTING_REQUEST" >
+	 	
+	 	<comment>Creazione tabella FM_FLOW_EXPORTING_REQUEST</comment>
+		
+		<createTable tableName="FM_FLOW_EXPORTING_REQUEST" remarks="FM_FLOW_EXPORTING_REQUEST">
+			<column name="ID" type="VARCHAR(128)" remarks="ID"/>
+			<column name="RANDOM_ID" type="VARCHAR(128)" remarks="RANDOM_ID"/>
+			<column name="FLOW" type="VARCHAR(128)" remarks="FLOW"/>
+			<column name="VERSION" type="BOOLEAN" remarks="VERSION"/>
+			<column name="REQUESTER" type="BOOLEAN" remarks="REQUESTER"/>
+			<column name="STATUS" type="BOOLEAN" remarks="STATUS"/>
+			<column name="RECORD" type="BOOLEAN" remarks="RECORD"/>
+			<column name="REQUEST_DATE" type="VARCHAR(128)" remarks="REQUEST_DATE"/>
+			<column name="START_EXTRACTION_DATE" type="VARCHAR(128)" remarks="START_EXTRACTION_DATE"/>
+			<column name="END_EXTRACTION_DATE" type="VARCHAR(128)" remarks="END_EXTRACTION_DATE"/>
+			<column name="JOB_TALEND_ID" type="VARCHAR(128)" remarks="JOB_TALEND_ID"/>
+			<column name="FILE_TALEND" type="VARCHAR(128)" remarks="FILE_TALEND"/>
+			<column name="SCHEDULING_TYPE" type="VARCHAR(64)" remarks="SCHEDULING_TYPE"/>
+			<column name="SCHEDULING_STARTING_TIME" type="TIMESTAMP" remarks="SCHEDULING_STARTING_TIME"/>
+			<column name="SCHEDULING_INTERVAL" type="VARCHAR(64)" remarks="SCHEDULING_INTERVAL"/>
+			<column name="VALIDATION_STATUS" type="VARCHAR(64)" remarks="VALIDATION_STATUS"/>
+		</createTable>
+		
+		<addPrimaryKey tableName="FM_FLOW_EXPORTING_REQUEST" columnNames="ID"/>
+		
+		<addForeignKeyConstraint 
+			baseColumnNames="FLOW_REG"
+            baseTableName="FM_FLOW_EXPORTING_REQUEST"
+            constraintName="fk_FM_FLOW_EXPORTING_REQUEST_FLOW"
+            deferrable="true"
+            initiallyDeferred="true"
+            onDelete="CASCADE"
+            onUpdate="RESTRICT"
+            referencedColumnNames="ID"
+            referencedTableName="FM_FLOW"/>
+            
+        <addForeignKeyConstraint 
+			baseColumnNames="VERSION_REG"
+            baseTableName="FM_FLOW_EXPORTING_REQUEST"
+            constraintName="fk_FM_FLOW_EXPORTING_REQUEST_VERSION"
+            deferrable="true"
+            initiallyDeferred="true"
+            onDelete="CASCADE"
+            onUpdate="RESTRICT"
+            referencedColumnNames="ID"
+            referencedTableName="FM_VERSION"/>
+            
+		<addForeignKeyConstraint 
+			baseColumnNames="JOB_TALEND_ID"
+            baseTableName="FM_FLOW_EXPORTING_REQUEST"
+            constraintName="fk_FM_FLOW_EXPORTING_REQUEST_TALEND"
+            deferrable="true"
+            initiallyDeferred="true"
+            onDelete="CASCADE"
+            onUpdate="RESTRICT"
+            referencedColumnNames="ID"
+            referencedTableName="FM_JOB_TALEND"/>
+		
+	</changeSet>
+	
+	
+</databaseChangeLog>

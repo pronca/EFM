@@ -1,0 +1,83 @@
+package it.eng.care.domain.flow.jobs.config;
+
+import jakarta.annotation.PostConstruct;
+
+import org.quartz.SimpleTrigger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.scheduling.quartz.JobDetailFactoryBean;
+import org.springframework.scheduling.quartz.SimpleTriggerFactoryBean;
+
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.jobs.jobs.fistLevelValidation.FirstLevelValidationJob;
+import it.eng.care.domain.flow.jobs.jobs.fistLevelValidation.ResetValidationJob;
+import it.eng.care.domain.flow.jobs.jobs.fistLevelValidation.ValidateFlowImportRequestJob;
+import it.eng.care.domain.flow.jobs.jobs.fistLevelValidation.ValidateRestServiceFlowJob;
+import it.eng.care.domain.flow.jobs.jobs.fistLevelValidation.ValidateUploadedWithFileFlowJob;
+
+@Configuration
+@EnableCaching
+@Import(value = {})
+public class FirstLevelJobsConfig {
+	
+	@Autowired
+	protected ConfigurationDAO configuration;
+
+	protected String restValidationTime;
+//	protected String tableValidationTime;
+	
+	@PostConstruct
+	private void loadConfig() {
+		restValidationTime = configuration.findByKeyId("rest_validation_time").getValue();
+//		tableValidationTime = configuration.findByKeyId("table_validation_time").getValue();
+	}
+
+	@Bean
+	public FirstLevelValidationJob validationJob() {
+		return new FirstLevelValidationJob();
+	}
+
+//	@Bean
+//	public ValidateFlowImportRequestJob validateImportedFlowsJob() {
+//		return new ValidateFlowImportRequestJob();
+//	}
+
+	@Bean
+	public ValidateRestServiceFlowJob validateSingleRowJob() {
+		return new ValidateRestServiceFlowJob();
+	}
+	
+//	@Bean
+//	public ValidateUploadedWithFileFlowJob validateUploadedWithFileFlowJob() {
+//		return new ValidateUploadedWithFileFlowJob();
+//	}
+
+	@Bean
+	public ResetValidationJob resetValidationJob() {
+		return new ResetValidationJob();
+	}
+	
+	@Bean(name = "FirstLevelJobDetail")
+	public JobDetailFactoryBean FirstLevelValidationJobDetail() {
+		JobDetailFactoryBean jobDetailFactory = new JobDetailFactoryBean();
+		jobDetailFactory.setJobClass(FirstLevelValidationJob.class);
+		//jobDetailFactory.setJobClass(Test.class);
+		jobDetailFactory.setDescription("FirstLevelJobDetail");
+		jobDetailFactory.setDurability(true);
+		return jobDetailFactory;
+	}
+	
+	@Bean
+	public SimpleTriggerFactoryBean FirstLevelValidationJobTrigger() {
+		SimpleTriggerFactoryBean trigger = new SimpleTriggerFactoryBean();
+		trigger.setJobDetail(FirstLevelValidationJobDetail().getObject());
+		trigger.setRepeatInterval(new Integer(restValidationTime));
+		trigger.setRepeatCount(SimpleTrigger.REPEAT_INDEFINITELY);
+		return trigger;
+
+	}
+
+}

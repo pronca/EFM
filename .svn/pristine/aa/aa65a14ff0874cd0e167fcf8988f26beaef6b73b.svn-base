@@ -1,0 +1,27 @@
+package it.eng.care.domain.flow.core.dao;
+
+import java.util.List;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import it.eng.care.domain.flow.core.entity.DashboardDO;
+
+@Repository
+public interface DashboardDAO  extends JpaRepository<DashboardDO, String>{
+
+	List<DashboardDO> findByMonthBetweenAndYearEqualsAndFlowAndWidgetName(Integer monthFrom, Integer monthTo,
+			Integer year, String code, String string);	
+	
+	List<DashboardDO> findByMonthBetweenAndYearEqualsAndFlow(Integer monthFrom, Integer monthTo,
+			Integer year, String code);	
+	
+	List<DashboardDO> findAllByFlowAndCodiceAziendaIsNull(String flowName);
+	
+	List<DashboardDO> findByMonthBetweenAndYearEqualsAndFlowAndWidgetNameAndCodiceAziendaIn(Integer monthFrom, Integer monthTo,
+			Integer year, String code, String string, List<String> aziende);	
+	
+	List<DashboardDO> findByMonthBetweenAndYearEqualsAndFlowAndCodiceAziendaIn(Integer monthFrom, Integer monthTo,
+			Integer year, String code, List<String> aziende);
+	
+}

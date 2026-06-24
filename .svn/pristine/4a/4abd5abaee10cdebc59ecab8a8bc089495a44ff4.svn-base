@@ -1,0 +1,22 @@
+/**
+ * FlussiWs.java
+ *
+ * This file was auto-generated from WSDL
+ * by the Apache Axis 1.4 Apr 22, 2006 (06:55:48 PDT) WSDL2Java emitter.
+ */
+
+package it.eng.care.domain.flow.webservice.sis.ws.flussi;
+
+public interface FlussiWs extends java.rmi.Remote {
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito annullaConsolidamento(java.lang.String token, java.math.BigDecimal prgInvio, java.lang.String note) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito elimina(java.lang.String token, java.math.BigDecimal prgInvio) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito consolida(java.lang.String token, java.math.BigDecimal prgInvio, java.lang.String note) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito simula(java.lang.String token, java.math.BigDecimal prgInvio) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public java.math.BigDecimal[] preparaRitInfCaricamento(java.lang.String token, java.lang.String codTipoFlusso, int anno, int numInvio, java.lang.String codTipoGruppo, java.lang.String codFormatoFile) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public java.math.BigDecimal invioFile(java.lang.String token, java.lang.String codTipoFlusso, int anno, int numInvio, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] files) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] ritornoInformativoSimulazione(java.lang.String token, java.math.BigDecimal prgInvio, java.lang.String codTipoFile) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] scaricaRitInfCaricamento(java.lang.String token, java.math.BigDecimal[] prgFile) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito stato(java.lang.String token, java.math.BigDecimal prgInvio) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] ritornoInformativoCaricamento(java.lang.String token, java.lang.String codTipoFlusso, int anno, int numInvio, java.lang.String codTipoGruppo, java.lang.String codFormatoFile) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito inviaESimula(java.lang.String token, java.lang.String codTipoFlusso, int anno, int numInvio, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] files) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException;
+}

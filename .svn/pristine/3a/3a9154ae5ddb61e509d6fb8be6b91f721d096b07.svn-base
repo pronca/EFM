@@ -1,0 +1,446 @@
+package it.eng.care.domain.flow.core.dto.FlowView;
+
+import java.io.Serializable;
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+
+public class FlowViewFilterError implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    private FormFlowDTO flow;
+    private int index;
+    private String[] pkList;
+    private String[] pkNameList;
+    private String message;
+    private boolean topFive;
+    private String praticheTot;
+    private String errorCode;
+    private String month;
+    private String year;
+    private int firstResult;
+    private int maxResult;
+    private int firstResultAcc;
+    private int maxResultAcc;
+    private int firstResultReg;
+    private int maxResultReg;
+    private boolean accordionPag;
+    private boolean accordionReg;
+    private boolean view = false;
+    private String extractionId;
+    private String region; 
+    private Map<String,String> filters;
+    private List<Map<String, String>> extraFilter;
+    private Boolean canViewMonthFromToFilters;
+    private Integer extraMonthTo;
+    private Integer extraMonthFrom;
+    private String name;
+    private String queryDetail;
+    private boolean detailErr = false;
+    private String extractionIdFromGrid;
+    private String tipoImportazione;
+    private String fieldAcceptedQueryDetail;
+    private String codicePresidio;
+    private String codiceAzienda;
+    private List<String> errors;
+    private Boolean canViewDateFromToFilters;
+    private Date extraDateTo;
+    private Date extraDateFrom;
+    
+    public FlowViewFilterError() {
+
+    }
+
+
+    public String getName() {
+		return name;
+	}
+
+
+	public void setName(String name) {
+		this.name = name;
+	}
+
+
+	public FormFlowDTO getFlow() {
+        return flow;
+    }
+
+
+    public void setFlow(FormFlowDTO flow) {
+        this.flow = flow;
+    }
+
+
+    public int getIndex() {
+        return index;
+    }
+
+
+    public void setIndex(int index) {
+        this.index = index;
+    }
+
+
+    public String[] getPkList() {
+        return pkList;
+    }
+
+
+    public void setPkList(String[] pkList) {
+        this.pkList = pkList;
+    }
+
+
+    public String getMessage() {
+        return message;
+    }
+
+
+    public void setMessage(String message) {
+        this.message = message;
+    }
+
+
+    public boolean isTopFive() {
+        return topFive;
+    }
+
+
+    public void setTopFive(boolean topFive) {
+        this.topFive = topFive;
+    }
+
+    public String getPraticheTot() {
+        return praticheTot;
+    }
+
+    public void setPraticheTot(String praticheTot) {
+        this.praticheTot = praticheTot;
+    }
+
+
+    public String[] getPkNameList() {
+        return pkNameList;
+    }
+
+
+    public void setPkNameList(String[] pkNameList) {
+        this.pkNameList = pkNameList;
+    }
+
+
+    public String getErrorCode() {
+        return errorCode;
+    }
+
+
+    public void setErrorCode(String errorCode) {
+        this.errorCode = errorCode;
+    }
+
+
+    public String getMonth() {
+        return month;
+    }
+
+
+    public void setMonth(String month) {
+        this.month = month;
+    }
+
+
+    public String getYear() {
+        return year;
+    }
+
+
+    public void setYear(String year) {
+        this.year = year;
+    }
+
+
+    public int getFirstResult() {
+        return firstResult;
+    }
+
+
+    public void setFirstResult(int firstResult) {
+        this.firstResult = firstResult;
+    }
+
+
+    public int getMaxResult() {
+        return maxResult;
+    }
+
+
+    public void setMaxResult(int maxResult) {
+        this.maxResult = maxResult;
+    }
+
+
+    public int getFirstResultAcc() {
+        return firstResultAcc;
+    }
+
+
+    public void setFirstResultAcc(int firstResultAcc) {
+        this.firstResultAcc = firstResultAcc;
+    }
+
+
+    public int getMaxResultAcc() {
+        return maxResultAcc;
+    }
+
+
+    public void setMaxResultAcc(int maxResultAcc) {
+        this.maxResultAcc = maxResultAcc;
+    }
+
+
+    public boolean isAccordionPag() {
+        return accordionPag;
+    }
+
+
+    public void setAccordionPag(boolean accordionPag) {
+        this.accordionPag = accordionPag;
+    }
+
+
+	public boolean isView() {
+		return view;
+	}
+
+
+	public void setView(boolean view) {
+		this.view = view;
+	}
+
+
+	public int getFirstResultReg() {
+		return firstResultReg;
+	}
+
+
+	public void setFirstResultReg(int firstResultReg) {
+		this.firstResultReg = firstResultReg;
+	}
+
+
+	public int getMaxResultReg() {
+		return maxResultReg;
+	}
+
+
+	public void setMaxResultReg(int maxResultReg) {
+		this.maxResultReg = maxResultReg;
+	}
+
+
+	public boolean isAccordionReg() {
+		return accordionReg;
+	}
+
+
+	public void setAccordionReg(boolean accordionReg) {
+		this.accordionReg = accordionReg;
+	}
+
+
+	public String getExtractionId() {
+		return extractionId;
+	}
+
+
+	public void setExtractionId(String extractionId) {
+		this.extractionId = extractionId;
+	}
+
+
+	public String getRegion() {
+		return region;
+	}
+
+
+	public void setRegion(String region) {
+		this.region = region;
+	}
+
+
+	public Map<String, String> getFilters() {
+		return filters;
+	}
+
+
+	public void setFilters(Map<String, String> filters) {
+		this.filters = filters;
+	}
+
+
+	public List<Map<String, String>> getExtraFilter() {
+		return extraFilter;
+	}
+
+
+	public void setExtraFilter(List<Map<String, String>> extraFilter) {
+		this.extraFilter = extraFilter;
+	}
+
+
+	public Boolean isCanViewMonthFromToFilters() {
+		return canViewMonthFromToFilters;
+	}
+
+
+	public void setCanViewMonthFromToFilters(Boolean canViewMonthFromToFilters) {
+		this.canViewMonthFromToFilters = canViewMonthFromToFilters;
+	}
+
+	public Integer getExtraMonthTo() {
+		return extraMonthTo;
+	}
+
+
+	public void setExtraMonthTo(Integer extraMonthTo) {
+		this.extraMonthTo = extraMonthTo;
+	}
+
+
+	public Integer getExtraMonthFrom() {
+		return extraMonthFrom;
+	}
+
+
+	public void setExtraMonthFrom(Integer extraMonthFrom) {
+		this.extraMonthFrom = extraMonthFrom;
+	}
+
+
+	public Boolean getCanViewMonthFromToFilters() {
+		return canViewMonthFromToFilters;
+	}
+
+
+	public static long getSerialversionuid() {
+		return serialVersionUID;
+	}
+
+
+	public String getQueryDetail() {
+		return queryDetail;
+	}
+
+
+	public void setQueryDetail(String queryDetail) {
+		this.queryDetail = queryDetail;
+	}
+
+
+	public boolean getDetailErr() {
+		return detailErr;
+	}
+
+
+	public void setDetailErr(boolean detailErr) {
+		this.detailErr = detailErr;
+	}
+
+
+	public String getExtractionIdFromGrid() {
+		return extractionIdFromGrid;
+	}
+
+
+	public void setExtractionIdFromGrid(String extractionIdFromGrid) {
+		this.extractionIdFromGrid = extractionIdFromGrid;
+	}
+
+
+	public String getTipoImportazione() {
+		return tipoImportazione;
+	}
+
+
+	public void setTipoImportazione(String tipoImportazione) {
+		this.tipoImportazione = tipoImportazione;
+	}
+
+
+	public String getFieldAcceptedQueryDetail() {
+		return fieldAcceptedQueryDetail;
+	}
+
+
+	public void setFieldAcceptedQueryDetail(String fieldAcceptedQueryDetail) {
+		this.fieldAcceptedQueryDetail = fieldAcceptedQueryDetail;
+	}
+
+
+	public String getCodicePresidio() {
+		return codicePresidio;
+	}
+
+
+	public void setCodicePresidio(String codicePresidio) {
+		this.codicePresidio = codicePresidio;
+	}
+
+
+	public List<String> getErrors() {
+		return errors;
+	}
+
+
+	public void setErrors(List<String> errors) {
+		this.errors = errors;
+	}
+
+
+	public String getCodiceAzienda() {
+		return codiceAzienda;
+	}
+
+
+	public void setCodiceAzienda(String codiceAzienda) {
+		this.codiceAzienda = codiceAzienda;
+	}
+
+
+	public Boolean getCanViewDateFromToFilters() {
+		return canViewDateFromToFilters;
+	}
+
+
+	public void setCanViewDateFromToFilters(Boolean canViewDateFromToFilters) {
+		this.canViewDateFromToFilters = canViewDateFromToFilters;
+	}
+
+
+	public Date getExtraDateTo() {
+		return extraDateTo;
+	}
+
+
+	public void setExtraDateTo(Date extraDateTo) {
+		this.extraDateTo = extraDateTo;
+	}
+
+
+	public Date getExtraDateFrom() {
+		return extraDateFrom;
+	}
+
+
+	public void setExtraDateFrom(Date extraDateFrom) {
+		this.extraDateFrom = extraDateFrom;
+	}
+	
+	
+	
+}

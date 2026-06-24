@@ -1,0 +1,175 @@
+package it.eng.care.domain.flow.core.dto;
+
+import com.fasterxml.jackson.annotation.JsonIdentityInfo;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+import com.fasterxml.jackson.annotation.ObjectIdGenerators;
+
+import it.eng.care.domain.flow.core.entity.FlowDO;
+
+//@JsonIdentityInfo(
+//	    generator = ObjectIdGenerators.PropertyGenerator.class,
+//	    property = "id"
+//	)
+public class DashboardConfigDTO {
+
+	private String id;
+//	@JsonManagedReference
+//	@JsonIgnore
+	private FlowDO flow;
+	
+	private String name;
+	private String query;
+	private String label;
+	private String icon;
+	private String color;
+	private String badge;
+	private String footer;
+	private String tipo;
+	private String activity;
+	private String tooltip;
+	private String queryDetail;
+	private String codiceAzienda;
+	private String queryDetailExp;
+	private String fieldAcceptedQueryDetail;
+	private String queryDetailHeader;
+	
+	public String getId() {
+		return id;
+	}
+
+	public void setId(String id) {
+		this.id = id;
+	}
+
+	public FlowDO getFlow() {
+		return flow;
+	}
+
+	public void setFlow(FlowDO flow) {
+		this.flow = flow;
+	}
+
+	public String getName() {
+		return name;
+	}
+
+	public void setName(String name) {
+		this.name = name;
+	}
+
+	public String getQuery() {
+		return query;
+	}
+
+	public void setQuery(String query) {
+		this.query = query;
+	}
+
+	public String getLabel() {
+		return label;
+	}
+
+	public void setLabel(String label) {
+		this.label = label;
+	}
+
+	public String getIcon() {
+		return icon;
+	}
+
+	public void setIcon(String icon) {
+		this.icon = icon;
+	}
+
+	public String getColor() {
+		return color;
+	}
+
+	public void setColor(String color) {
+		this.color = color;
+	}
+
+	public String getBadge() {
+		return badge;
+	}
+
+	public void setBadge(String badge) {
+		this.badge = badge;
+	}
+
+	public String getFooter() {
+		return footer;
+	}
+
+	public void setFooter(String footer) {
+		this.footer = footer;
+	}
+
+	public String getTipo() {
+		return tipo;
+	}
+
+	public void setTipo(String tipo) {
+		this.tipo = tipo;
+	}
+
+	public String getActivity() {
+		return activity;
+	}
+
+	public void setActivity(String activity) {
+		this.activity = activity;
+	}
+
+	public String getTooltip() {
+		return tooltip;
+	}
+
+	public void setTooltip(String tooltip) {
+		this.tooltip = tooltip;
+	}
+	
+	public String getQueryDetail() {
+		return queryDetail;
+	}
+
+	public void setQueryDetail(String queryDetail) {
+		this.queryDetail = queryDetail;
+	}
+
+	public String getCodiceAzienda() {
+		return codiceAzienda;
+	}
+
+	public void setCodiceAzienda(String codiceAzienda) {
+		this.codiceAzienda = codiceAzienda;
+	}
+
+	public String getQueryDetailExp() {
+		return queryDetailExp;
+	}
+
+	public void setQueryDetailExp(String queryDetailExp) {
+		this.queryDetailExp = queryDetailExp;
+	}
+
+	public String getFieldAcceptedQueryDetail() {
+		return fieldAcceptedQueryDetail;
+	}
+
+	public void setFieldAcceptedQueryDetail(String fieldAcceptedQueryDetail) {
+		this.fieldAcceptedQueryDetail = fieldAcceptedQueryDetail;
+	}
+
+	public String getQueryDetailHeader() {
+		return queryDetailHeader;
+	}
+
+	public void setQueryDetailHeader(String queryDetailHeader) {
+		this.queryDetailHeader = queryDetailHeader;
+	}
+	
+	
+	
+}

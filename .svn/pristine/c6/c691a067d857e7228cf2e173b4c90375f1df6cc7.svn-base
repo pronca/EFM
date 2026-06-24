@@ -1,0 +1,115 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import java.util.Date;
+import java.util.List;
+import java.util.UUID;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Example;
+import org.springframework.statemachine.state.State;
+import org.springframework.stereotype.Service;
+
+import it.eng.care.domain.flow.core.dao.FlowDrgDAO;
+import it.eng.care.domain.flow.core.dto.FlowDrgDTO;
+import it.eng.care.domain.flow.core.entity.FlowDrgDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.enumeration.MachineEvent;
+import it.eng.care.domain.flow.core.service.FlowDrgService;
+import it.eng.care.domain.flow.core.spring.statemachine.StateMachineFlow;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import jakarta.transaction.Transactional;
+
+@Service
+@Transactional
+public class FlowDrgServiceImpl implements FlowDrgService {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(FlowDrgServiceImpl.class);
+	
+	@Autowired
+	private ConversionService conversionService;
+
+	@Autowired
+	private FlowDrgDAO flowDrgDAO;
+	
+	@Autowired(required = false)
+    private StateMachineFlow stateMachineFlow;
+
+	@Override
+	public List<FlowDrgDTO> searchDTOByExtractionId(String extractionId) {		
+		List<FlowDrgDO> list = searchByExtractionId(extractionId);
+		List<FlowDrgDTO> listDTO = conversionService.convertAllTo(list, FlowDrgDTO.class);
+		return listDTO;
+	}
+	
+	@Override
+	public List<FlowDrgDO> searchByExtractionId(String extractionId) {		
+		extractionId = extractionId.replaceAll("\"", "");
+		FlowDrgDO example = new FlowDrgDO();
+		FlowExportRequestDO extraction = new FlowExportRequestDO();
+		extraction.setId(extractionId);
+		example.setExtraction(extraction);		
+		List<FlowDrgDO> list = flowDrgDAO.findAll(Example.of(example));
+		return list;
+	}
+	
+	@Override
+	public void createDrgInvocationResults(String extractionId) {
+		FlowDrgDO result = new FlowDrgDO();
+		FlowExportRequestDO req = new FlowExportRequestDO();
+		req.setId(extractionId);
+		result.setExtraction(req);
+		result.setId(UUID.randomUUID().toString());
+		
+		List<FlowDrgDO> resultList = searchByExtractionId(extractionId);
+		if(resultList != null && !resultList.isEmpty()) {
+			result = resultList.get(0);
+		}
+		
+		result.setError(null);
+//		result.setNumPratiche("0");
+		result.setSendDate(new Date());
+//		result.setState("IN_CORSO");
+		
+		State<String, String> state = stateMachineFlow.createStateMachine(extractionId+"_DRG", "DRG");
+        result.setState(state.getId());
+		
+		flowDrgDAO.save(result);
+	}
+	
+	@Override
+	public void saveDrgResult(FlowDrgDO drgResult) {
+		flowDrgDAO.save(drgResult);
+	}
+	
+	@Override
+	public void startDrgInvocationResults(FlowDrgDO drg, boolean valid) {
+		
+		org.springframework.statemachine.state.State<String, String> stateDrg;
+		if(valid) {
+			try {
+				stateDrg = stateMachineFlow.execute(drg.getExtraction().getId() + "_DRG", "DRG", MachineEvent.DRG_IN_CORSO.getEvent());
+				drg.setState(stateDrg.getId());
+				flowDrgDAO.save(drg);
+			} catch (Exception e) {
+				LogUtil.logException(LOGGER, "", e);
+//				e.printStackTrace();
+			}
+		}else {
+			try {
+				stateDrg = stateMachineFlow.execute(drg.getExtraction().getId() + "_DRG", "DRG", MachineEvent.DRG_TERMINATO_KO_FROM_RICHIESTA.getEvent());
+				drg.setState(stateDrg.getId());
+				drg.setError("Estrazione non valida");
+				flowDrgDAO.save(drg);
+			} catch (Exception e) {
+				LogUtil.logException(LOGGER, "", e);
+//				e.printStackTrace();
+			}
+		}
+		
+	}
+	
+
+}

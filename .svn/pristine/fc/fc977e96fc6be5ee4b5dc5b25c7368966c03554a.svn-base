@@ -1,0 +1,95 @@
+package it.eng.care.domain.flow.core.service;
+
+import it.eng.care.domain.flow.core.dto.ExportDataDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.PrivacyManagerDTO.PMFormFlowView;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowVersionDO;
+import it.eng.care.domain.flow.core.entity.VersionDO;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import org.springframework.data.util.Pair;
+
+import java.io.File;
+import java.sql.SQLException;
+import java.util.List;
+
+public interface FormFlowService {
+
+    /**
+     * Creates the entity.
+     *
+     * @param dto the dto
+     * @return the e
+     * @throws Exception 
+     */
+    String saveEntity(FormFlowDTO dto,boolean isCreated) throws Exception;
+
+    /**
+     * Update entity.
+     *
+     * @param dto the dto
+     * @return the e
+     * @throws Exception 
+     */
+    String updateEntity(FormFlowDTO dto) throws Exception;
+
+
+    /**
+     * Retrieve all filtered.
+     *
+     * @param searchInput the search input
+     * @return the pair
+     */
+    Pair<List<FormFlowDTO>, SearchInfo> retrieveAllFiltered(BaseSearchInput searchInput);
+
+    /**
+     * Retrieve one.
+     *
+     * @param id the id
+     * @return the e
+     */
+    FormFlowDTO retrieveOne(String flowId, String versionId);
+
+
+    /**
+     * Delete entity.
+     *
+     * @param id the dto
+     * @return the e
+     */
+    void deleteEntity(String id);
+
+    /**
+     * CreateFlowTable.
+     *
+     * @param dto the dto
+     * @return the e
+     */
+    void createTable(FormFlowDTO dto,FormFlowTableDTO tableDto,boolean isCreated) throws SQLException;
+
+    void registerConverters();
+    
+    void deleteFlowTable(BaseSearchInput baseSearchInput);
+
+    Pair<FormFlowDTO, SearchInfo> getFlowWithLastVersion(BaseSearchInput input);
+
+	Pair<List<FormFlowDTO>, SearchInfo> retrieveAllFiltered(BaseSearchInput searchInput, Boolean useProfile);
+
+    public Boolean deletebyExtractionId(String extractionId, FlowDO flowDO, VersionDO versionDO);
+    
+    String handleFileXmlUpload(File file);
+    
+    ExportDataDTO exportDataDTO(FormFlowDTO dto);
+    
+    FlowVersionDO getFlowVersion(String flowName,String versionName);
+    
+    String getFlowRegionUnionSql(FormFlowDTO formFlowDTO);
+    
+    String executeImportFlowScript(File file,String versionId);
+
+	Pair<List<FormFlowDTO>, SearchInfo> retrieveAllFilteredInFlowConfiguration(BaseSearchInput searchInput,
+			Boolean useProfile);
+
+}

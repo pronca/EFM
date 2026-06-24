@@ -1,0 +1,114 @@
+package it.eng.care.domain.flow.webservice.sis.ws.flussi;
+
+public class FlussiWsProxy implements it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWs {
+  private String _endpoint = null;
+  private it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWs flussiWs = null;
+  
+  public FlussiWsProxy() {
+    _initFlussiWsProxy();
+  }
+  
+  public FlussiWsProxy(String endpoint) {
+    _endpoint = endpoint;
+    _initFlussiWsProxy();
+  }
+  
+  private void _initFlussiWsProxy() {
+    try {
+      flussiWs = (new it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsServiceLocator()).getFlussiWsPort();
+      if (flussiWs != null) {
+        if (_endpoint != null)
+          ((javax.xml.rpc.Stub)flussiWs)._setProperty("javax.xml.rpc.service.endpoint.address", _endpoint);
+        else
+          _endpoint = (String)((javax.xml.rpc.Stub)flussiWs)._getProperty("javax.xml.rpc.service.endpoint.address");
+      }
+      
+    }
+    catch (javax.xml.rpc.ServiceException serviceException) {}
+  }
+  
+  public String getEndpoint() {
+    return _endpoint;
+  }
+  
+  public void setEndpoint(String endpoint) {
+    _endpoint = endpoint;
+    if (flussiWs != null)
+      ((javax.xml.rpc.Stub)flussiWs)._setProperty("javax.xml.rpc.service.endpoint.address", _endpoint);
+    
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWs getFlussiWs() {
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs;
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito annullaConsolidamento(java.lang.String token, java.math.BigDecimal prgInvio, java.lang.String note) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.annullaConsolidamento(token, prgInvio, note);
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito elimina(java.lang.String token, java.math.BigDecimal prgInvio) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.elimina(token, prgInvio);
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito consolida(java.lang.String token, java.math.BigDecimal prgInvio, java.lang.String note) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.consolida(token, prgInvio, note);
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito simula(java.lang.String token, java.math.BigDecimal prgInvio) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.simula(token, prgInvio);
+  }
+  
+  public java.math.BigDecimal[] preparaRitInfCaricamento(java.lang.String token, java.lang.String codTipoFlusso, int anno, int numInvio, java.lang.String codTipoGruppo, java.lang.String codFormatoFile) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.preparaRitInfCaricamento(token, codTipoFlusso, anno, numInvio, codTipoGruppo, codFormatoFile);
+  }
+  
+  public java.math.BigDecimal invioFile(java.lang.String token, java.lang.String codTipoFlusso, int anno, int numInvio, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] files) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.invioFile(token, codTipoFlusso, anno, numInvio, files);
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] ritornoInformativoSimulazione(java.lang.String token, java.math.BigDecimal prgInvio, java.lang.String codTipoFile) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.ritornoInformativoSimulazione(token, prgInvio, codTipoFile);
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] scaricaRitInfCaricamento(java.lang.String token, java.math.BigDecimal[] prgFile) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.scaricaRitInfCaricamento(token, prgFile);
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito stato(java.lang.String token, java.math.BigDecimal prgInvio) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.stato(token, prgInvio);
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] ritornoInformativoCaricamento(java.lang.String token, java.lang.String codTipoFlusso, int anno, int numInvio, java.lang.String codTipoGruppo, java.lang.String codFormatoFile) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.ritornoInformativoCaricamento(token, codTipoFlusso, anno, numInvio, codTipoGruppo, codFormatoFile);
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito inviaESimula(java.lang.String token, java.lang.String codTipoFlusso, int anno, int numInvio, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile[] files) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.flussi.UtenteNonAbilitatoException, it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiWsException{
+    if (flussiWs == null)
+      _initFlussiWsProxy();
+    return flussiWs.inviaESimula(token, codTipoFlusso, anno, numInvio, files);
+  }
+  
+  
+}

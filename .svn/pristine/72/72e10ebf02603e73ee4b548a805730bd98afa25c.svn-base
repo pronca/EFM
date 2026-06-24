@@ -1,0 +1,39 @@
+package it.eng.care.domain.flow.core.dao;
+
+import java.math.BigDecimal;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import it.eng.care.domain.flow.b2b.exception.ValidationFlowException;
+import it.eng.care.domain.flow.core.dto.PaginatedPraticaDTO;
+import it.eng.care.domain.flow.core.dto.FlowView.FlowViewFilterError;
+
+public interface PraticaViewDAO {
+
+    PaginatedPraticaDTO search(FlowViewFilterError flowViewFilterError) throws ValidationFlowException;
+    BigDecimal errorCount(FlowViewFilterError flowViewFilterError);
+    List<Object[]> searchErrors(FlowViewFilterError flowViewFilterError) throws ValidationFlowException ;
+    HashMap<String, Object> checkState(List<String> pkList, String section0, Map<String,String> values);
+	BigDecimal praticheCount(FlowViewFilterError flowViewFilter);
+	BigDecimal praticheErrorCount(FlowViewFilterError flowViewFilter);
+	List<Object[]> searchPratica(List<String> whereFields, List<String> whereParams, HashMap<String, String> fields,
+			FlowViewFilterError flowViewFilterError);
+	BigDecimal praticheErrorAccordionCount(FlowViewFilterError flowViewFilterError);
+	BigDecimal praticheAccordionCount(FlowViewFilterError flowViewFilterError);
+	BigDecimal praticheDisallineateCount(FlowViewFilterError flowViewFilterError);
+	String getContextValue(List<List<String>> keys, String flow, String section, String param);
+	BigDecimal praticheCountDetail(FlowViewFilterError flowViewFilter);
+	List<Object> createQueryDetail(FlowViewFilterError flowViewFilterError) throws ValidationFlowException;
+	BigDecimal praticheCountQueryDetail(FlowViewFilterError flowViewFilter);	
+	List<Object> searchBadgeDownloadXLS(FlowViewFilterError flowViewFilterError);
+	List<Object> createQuery(FlowViewFilterError flowViewFilterError, List<String> aziende);
+	List<Object> createQueryErrors(FlowViewFilterError flowViewFilterError, List<String> aziende);
+	List<Object> createQueryPraticheXLS(FlowViewFilterError flowViewFilterError, List<String> aziende);
+	List<Object> createQueryXLS(FlowViewFilterError flowViewFilterError, List<String> aziende);
+	List<Object> createQueryErrorXLS(FlowViewFilterError flowViewFilterError, List<String> aziende);
+	List<Object> createQueryPratiche(FlowViewFilterError flowViewFilterError, List<String> aziende);
+	List<Object> createQueryErrorsXLS(FlowViewFilterError flowViewFilterError, List<String> aziende);
+	
+}
+

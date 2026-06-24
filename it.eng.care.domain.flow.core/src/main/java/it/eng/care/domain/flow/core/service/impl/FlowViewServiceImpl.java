@@ -1,0 +1,208 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CreationHelper;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFFont;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.hibernate.ScrollableResults;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.core.auditLog.FlowViewConverter;
+import it.eng.care.domain.flow.core.auditLog.FlowViewDownloadConverter;
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.FlowViewDAO;
+import it.eng.care.domain.flow.core.dao.VersionDAO;
+import it.eng.care.domain.flow.core.dto.ExtractionErrorMessage;
+import it.eng.care.domain.flow.core.dto.ValidationFilter;
+import it.eng.care.domain.flow.core.dto.FlowView.FlowViewFilter;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.dto.PrivacyManagerDTO.PMFlowView;
+import it.eng.care.domain.flow.core.entity.VersionDO;
+import it.eng.care.domain.flow.core.service.FlowViewService;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.platform.audit.api.model.privacymanager.annotation.PrivacyManagerLog;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventActionEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventCategoryEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityTypeEnum;
+
+public class FlowViewServiceImpl implements FlowViewService {
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(FlowViewServiceImpl.class);
+	
+    @Autowired
+    private FlowViewDAO flowViewDAO;
+
+    @Autowired
+    private VersionDAO versionDAO;
+    
+    @Autowired
+    private ConfigurationDAO configuration;
+    
+    @Override
+	@PrivacyManagerLog(action = AuditEventActionEnum.READ, category = AuditEventCategoryEnum.ACCESS_LOG, description="Download xlsx Pratiche", converter= FlowViewDownloadConverter.class, entity= EntityEnum.FLUSSI, entityType= EntityTypeEnum.SCHEDA_MEDICA)
+    public byte[] sendAuditDownDatiFlussiToPM(FlowViewFilter flowViewFilter, byte[] bytes) {
+    	return bytes;
+    }
+    
+    @Override
+    public byte[] downloadFlowViewXlsx(FlowViewFilter flowViewFilter) {
+        flowViewFilter.setPaginated(false);
+        flowViewFilter.setMaxResult(0);
+        String fileName = flowViewFilter.getFlow().getName();
+        XSSFWorkbook workBook = new XSSFWorkbook();
+        List<Object> results = flowViewDAO.search(flowViewFilter);
+        HashMap<String, List<Object>> hashMap = (HashMap<String, List<Object>>) results.get(0);
+        Row row = null;
+        CreationHelper creationHelper = workBook.getCreationHelper();
+        XSSFCellStyle style = workBook.createCellStyle();
+        XSSFCellStyle styleData = workBook.createCellStyle();
+        styleData.setDataFormat(creationHelper.createDataFormat().getFormat("dd-mm-yyyy"));
+        style.setBorderTop(BorderStyle.valueOf((short) 6)); // double lines border
+        style.setBorderBottom(BorderStyle.valueOf((short) 1)); // single line border
+        XSSFFont font = workBook.createFont();
+        font.setFontHeightInPoints((short) 12);
+        font.setBold(true);
+        style.setFont(font);
+        for (Map.Entry<String, List<Object>> entry : hashMap.entrySet()) {
+            //xssfSheets.add(workBook.createSheet(entry.getKey().toUpperCase()));
+            XSSFSheet sheet = workBook.createSheet(entry.getKey().toUpperCase());
+            //Creazione Headers
+            List<String> headers = new ArrayList<>();
+            for (FormFlowTableDTO formFlowTableDTO : flowViewFilter.getFlow().getFlowTableList()) {
+                if (formFlowTableDTO.getName().toUpperCase().equals(entry.getKey().toUpperCase())) {
+                    for (FormFlowTableFieldDTO formFlowTableFieldDTO : formFlowTableDTO.getFlowTableFieldList()) {
+                    	if (formFlowTableFieldDTO.getActive())
+                    		headers.add(formFlowTableFieldDTO.getDescriptionsm().toUpperCase());
+                    }
+                }
+            }
+            int rowCount = 0;
+            row = sheet.createRow(rowCount);
+            int columnCount = -1;
+            for (String head : headers) {
+                Cell cell = row.createCell(++columnCount);
+                cell.setCellStyle(style);
+                cell.setCellValue((head));
+            }
+            for (Object obj : entry.getValue()) {
+                //Converto Object in List
+                List<?> list = new ArrayList<>();
+                if (obj.getClass().isArray()) {
+                    list = Arrays.asList((Object[]) obj);
+                } else if (obj instanceof Collection) {
+                    list = new ArrayList<>((Collection<?>) obj);
+                }
+                row = sheet.createRow(++rowCount);
+                columnCount = -1;
+
+                for (Object field : list) {
+                    Cell cell = row.createCell(++columnCount);
+                    if (field instanceof String) {
+                        cell.setCellValue((String) field);
+                    } else if (field instanceof Date) {
+                    	cell.setCellStyle(styleData);
+                        cell.setCellValue((Date) field);
+                    }
+                }
+            }
+            for(int i = 0; i<=columnCount; i++){
+                sheet.autoSizeColumn(i);
+            }
+        }
+        
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        try {
+            try {
+                workBook.write(bos);
+                workBook.close();
+            } catch (IOException e) {
+            	LogUtil.logException(LOGGER, "", e);
+//                e.printStackTrace();
+            }
+        } finally {
+            try {
+                bos.close();
+            } catch (IOException e) {
+            	LogUtil.logException(LOGGER, "", e);
+//                e.printStackTrace();
+            }
+        }
+        byte[] bytes = bos.toByteArray();
+        //System.out.println(System.getProperty("java.io.tmpdir"));
+        return bytes;
+
+    }
+    
+
+    @Override
+    public PMFlowView executeQuery(FlowViewFilter flowViewFilter, HashMap<String,String> campiPraticaSubjectGen) {
+    	
+        List<Object> result = flowViewDAO.search(flowViewFilter);
+        
+        PMFlowView pmReturn = new PMFlowView();
+        
+        pmReturn.setFlowViewReturn(result);
+        
+        return pmReturn;
+    }
+    
+    @Override
+    @PrivacyManagerLog(action = AuditEventActionEnum.READ, category = AuditEventCategoryEnum.ACCESS_LOG, description="Visualizzazione Flusso", converter= FlowViewConverter.class, entity= EntityEnum.FLUSSI, entityType= EntityTypeEnum.SCHEDA_MEDICA)
+	public PMFlowView sendAuditVisuaFlussiToPM (FlowViewFilter flowViewFilter, HashMap<String,String> campiPraticaSubjectGen, PMFlowView pMresults)  {        
+        return pMresults;
+    }
+    
+    @Override
+    public List<Object> executeQueryCount(FlowViewFilter flowViewFilter) {
+
+    	List<Object> result = flowViewDAO.search(flowViewFilter);
+
+        return result;
+    }
+
+    @Override
+    public String getVersion(String versionId) {
+
+        VersionDO versione = (versionId== null || versionId.isBlank()) ? null : versionDAO.findById(versionId).orElse(null);
+
+        String versionName = versione.getVersion();
+
+        return versionName;
+    }
+
+    @Override
+    public List<Map<String, Object>> searchForValidation(ValidationFilter request, FormFlowDTO formFlowDTO, List<FormFlowTableFieldDTO> groupListCfg) {
+    	String cfg = configuration.findByKeyId("validation_fetch_size").getValue();
+        return flowViewDAO.searchForValidation(request, formFlowDTO, groupListCfg, cfg != null ?  Integer.valueOf(cfg) : null);
+    }
+
+    @Override
+    public ScrollableResults scrollForValidation(ValidationFilter request, FormFlowDTO formFlowDTO, List<FormFlowTableFieldDTO> groupListCfg) {
+    	String cfg = configuration.findByKeyId("validation_fetch_size").getValue();
+        return flowViewDAO.scrollForValidation(request, formFlowDTO, groupListCfg, cfg != null ?  Integer.valueOf(cfg) : null);
+    }
+
+    @Override
+    public List<ExtractionErrorMessage> getExtractionErrors(FormFlowDTO configuration, String extractionId) {
+        return flowViewDAO.getExtractionErrors(configuration, extractionId);
+    }
+}

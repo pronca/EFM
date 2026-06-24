@@ -1,0 +1,59 @@
+<?xml version="1.1" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog
+	xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+	xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog-ext http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.6.xsd"
+	logicalFilePath="db/changelogs">
+
+	<changeSet author="flowmanager" id="fm_flow_rule-04004">
+		<createTable tableName="fm_flow_rule">
+			<column name="fr_id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="fm_flow_rule_pk" />
+			</column>
+			<column name="rule_type" type="VARCHAR(40)" />
+			<column name="flow" type="VARCHAR(255)" />
+			<column name="version" type="VARCHAR(255)" />
+		</createTable>
+	</changeSet>
+	
+	<changeSet author="flowmanager" id="fm_flow_rule-00505">
+		<addForeignKeyConstraint
+			baseColumnNames="flow" baseTableName="fm_flow_rule"
+			constraintName="fm_flow_rule_flow_fk" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="id" referencedTableName="fm_flow" />
+	</changeSet>
+	
+	<changeSet author="flowmanager" id="fm_flow_rule-0066">
+		<addForeignKeyConstraint
+			baseColumnNames="version" baseTableName="fm_flow_rule"
+			constraintName="fm_flow_rule_version_fk" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="id" referencedTableName="fm_version" />
+	</changeSet>
+	
+	
+	<changeSet author="flowmanager" id="fm_flow_rule-file-0001">
+		<createTable tableName="fm_flow_rule_file">
+			<column name="id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="fm_flow_rule_file_pk" />
+			</column>
+			<column name="flow_rule_id" type="VARCHAR(255)" />
+			<column name="filename" type="VARCHAR(255)" />
+			<column name="rule" type="oid" />
+		</createTable>
+	</changeSet>
+	
+	<changeSet author="flowmanager" id="fm_flow_rule_file-0002">
+		<addForeignKeyConstraint
+			baseColumnNames="flow_rule_id" baseTableName="fm_flow_rule_file"
+			constraintName="fm_flow_rule_file_fk1" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="fr_id" referencedTableName="fm_flow_rule" />
+	</changeSet>
+
+
+</databaseChangeLog>

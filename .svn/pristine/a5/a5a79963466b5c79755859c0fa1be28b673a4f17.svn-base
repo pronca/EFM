@@ -1,0 +1,50 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import it.eng.care.domain.flow.core.dao.DataSourceDAO;
+import it.eng.care.domain.flow.core.entity.DataSourceDO;
+import it.eng.care.domain.flow.core.service.DataSourceService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.stereotype.Service;
+
+import jakarta.transaction.Transactional;
+import java.util.List;
+import java.util.Optional;
+
+@Service
+@Transactional
+public class DataSourceServiceImpl implements DataSourceService {
+
+    @Autowired
+    private DataSourceDAO dataSourceDAO;
+
+
+    public DataSourceDO createEntity(DataSourceDO poValue) {
+        return dataSourceDAO.save(poValue);
+    }
+
+    public DataSourceDO updateEntity(DataSourceDO poValue) {
+        return dataSourceDAO.save(poValue);
+    }
+
+    public Pair<List<DataSourceDO>, SearchInfo> retrieveAllFiltered(BaseSearchInput searchInput) {
+        List<DataSourceDO> loList = dataSourceDAO.cerca(searchInput);
+        return Pair.of(loList, SearchInfos.create());
+    }
+
+    public List<DataSourceDO> findAll() {
+        return dataSourceDAO.findAll();
+    }
+
+    public DataSourceDO retrieveOne(String id) {
+        return dataSourceDAO.findById(id).get();
+    }
+
+    public void deleteEntity(String id) {
+        dataSourceDAO.deleteById(id);
+    }
+
+}

@@ -1,0 +1,76 @@
+package it.eng.care.domain.flow.core.entity;
+
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Type;
+
+import jakarta.persistence.*;
+import org.hibernate.type.SqlTypes;
+
+@Entity
+@Table(name = "FM_FLOW_VERSION")
+public class FlowVersionDO {
+
+    @EmbeddedId
+    private FlowVersionPrimaryKeyDO id;
+
+    //@ManyToOne(fetch = FetchType.LAZY, cascade = CascadeType.ALL)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "flow", insertable = false, updatable = false)
+    private FlowDO flow;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "version", insertable = false, updatable = false)
+    private VersionDO version;
+
+    @Lob
+    @Column(name = "json_schema")
+    @JdbcTypeCode(SqlTypes.LONGVARCHAR)
+    private String jsonSchema;
+
+    public FlowVersionDO() {
+        super();
+        id = new FlowVersionPrimaryKeyDO();
+    }
+
+    public FlowVersionDO(FlowDO flow, VersionDO version) {
+        super();
+        assert flow != null;
+        assert version != null;
+        this.id = new FlowVersionPrimaryKeyDO(flow.getId(), version.getId());
+        this.flow = flow;
+        this.version = version;
+    }
+
+    public FlowVersionPrimaryKeyDO getId() {
+        return id;
+    }
+
+    public void setId(FlowVersionPrimaryKeyDO id) {
+        this.id = id;
+    }
+
+    public String getJsonSchema() {
+        return jsonSchema;
+    }
+
+    public void setJsonSchema(String jsonSchema) {
+        this.jsonSchema = jsonSchema;
+    }
+
+    public FlowDO getFlow() {
+        return flow;
+    }
+
+    public void setFlow(FlowDO flow) {
+        this.flow = flow;
+    }
+
+    public VersionDO getVersion() {
+        return version;
+    }
+
+    public void setVersion(VersionDO version) {
+        this.version = version;
+    }
+
+}

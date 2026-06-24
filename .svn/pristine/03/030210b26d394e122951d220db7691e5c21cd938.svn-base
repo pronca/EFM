@@ -1,0 +1,9 @@
+package it.eng.care.domain.flow.drools.dao;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import it.eng.care.domain.flow.drools.entity.ValidationRequestResultDO;
+
+public interface ValidationRequestResultDAO extends JpaRepository<ValidationRequestResultDO, String> {
+
+}

@@ -1,0 +1,175 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import it.eng.care.domain.flow.core.converter.ExtractionFilter.FlowImportRequestDTOtoExtractionDTO;
+import it.eng.care.domain.flow.core.dao.FlowImportRequestDAO;
+import it.eng.care.domain.flow.core.dto.ExtractionFilter.ExtractionFilterDTO;
+import it.eng.care.domain.flow.core.dto.FlowImportRequestDTO;
+import it.eng.care.domain.flow.core.entity.FlowImportRequestDO;
+import it.eng.care.domain.flow.core.entity.FlowImportRequestFieldDateDO;
+import it.eng.care.domain.flow.core.enumeration.MachineEvent;
+import it.eng.care.domain.flow.core.enumeration.MachineState;
+import it.eng.care.domain.flow.core.service.FlowExtractionService;
+import it.eng.care.domain.flow.core.service.FlowImportRequestService;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.service.StateService;
+import it.eng.care.domain.flow.core.spring.statemachine.StateMachineFlow;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.util.Pair;
+import org.springframework.statemachine.state.State;
+import org.springframework.stereotype.Service;
+
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+import java.util.Date;
+import java.util.List;
+import java.util.UUID;
+
+@Service
+@Transactional
+public class FlowImportRequestServiceImpl implements FlowImportRequestService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(FlowImportRequestServiceImpl.class);
+    @Autowired
+    FlowImportRequestDTOtoExtractionDTO flowImportRequestDTOtoExtractionFilterDTOConverter;
+    @Autowired
+    EntityManager entityManager;
+    @Autowired
+    private FlowImportRequestDAO flowImportRequestDAO;
+    @Autowired
+    private ConversionService conversionService;
+    @Autowired(required=false)
+    private StateMachineFlow stateMachineFlow;
+    @Autowired
+    private FlowExtractionService flowExtractionService;
+    private MachineState machineState;
+    private MachineEvent machineEvent;
+    @Autowired
+    private StateService stateService;
+    
+    @Autowired
+    private FlowManagerProfileService flowManagerProfileService;
+    
+    
+    @Override
+    public FlowImportRequestDO createEntity(FlowImportRequestDO flowImportRequestDO, Boolean useFlowProfile) {
+        // set my UUID
+    	
+    	if(useFlowProfile && !flowManagerProfileService.checkFlowById(flowImportRequestDO.getFlow().getId())) {
+        	return null;
+        }
+
+        flowImportRequestDO.setId(UUID.randomUUID().toString());
+
+        for (FlowImportRequestFieldDateDO dateDO : flowImportRequestDO.getDateFields()) {
+            dateDO.setFlowImportRequest(flowImportRequestDO);
+        }
+
+        State<String, String> state = stateMachineFlow.createStateMachine(flowImportRequestDO.getId(), "ESTRAZIONE");
+        flowImportRequestDO.setRequestDate(new Date());
+        flowImportRequestDO.setStatus(state.getId());
+
+        flowImportRequestDAO.save(flowImportRequestDO);
+        return flowImportRequestDO;
+    }
+
+    @Override
+    public FlowImportRequestDO updateEntity(FlowImportRequestDO flowImportRequestDO, Boolean useFlowProfile) {
+    	
+    	if(useFlowProfile && !flowManagerProfileService.checkFlowById(flowImportRequestDO.getFlow().getId())) {
+        	return null;
+        }
+    	
+        for (FlowImportRequestFieldDateDO dateDO : flowImportRequestDO.getDateFields()) {
+            dateDO.setFlowImportRequest(flowImportRequestDO);
+        }
+
+        flowImportRequestDAO.save(flowImportRequestDO);
+        return flowImportRequestDO;
+    }
+
+    public Pair<List<FlowImportRequestDO>, SearchInfo> retrieveAllFiltered(BaseSearchInput searchInput, Boolean useFlowProfile) {
+    	
+        if (searchInput.getValue("state") != null) {
+            try {
+                String stateId = searchInput.getValue("state").toString();
+                String state = stateService.searchState(stateId);
+                searchInput.setValue("status", state);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+
+        int limit = searchInput.getParam("limit");
+        int offset = searchInput.getParam("startIndex");
+        Pageable page =  PageRequest.of(offset / limit, limit);
+        List<FlowImportRequestDO> loList = flowImportRequestDAO.cerca(searchInput, page, useFlowProfile);
+        return Pair.of(loList, SearchInfos.create());
+    }
+
+    @Override
+    public FlowImportRequestDO retrieveOne(String id) {
+        return null;
+    }
+
+    @Override
+    public Integer deleteEntity(FlowImportRequestDO flowImportRequestDO, Boolean useFlowProfile) {
+        // Logical Delete
+        String state = "";
+        try {
+        	
+        	if(useFlowProfile && !flowManagerProfileService.checkFlowById(flowImportRequestDO.getFlow().getId())) {
+            	return -1;
+            }
+        	
+            State<String, String> stateExtraction = stateMachineFlow.execute(flowImportRequestDO.getId(), "ESTRAZIONE",
+                    MachineEvent.CANCELLA_ESTRAZIONE.getEvent());
+            state = stateExtraction.getId();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        if (flowImportRequestDO.getStatus() != state) {
+            for (FlowImportRequestFieldDateDO dateDO : flowImportRequestDO.getDateFields()) {
+                dateDO.setFlowImportRequest(flowImportRequestDO);
+            }
+            flowImportRequestDO.setStatus(state);
+            flowImportRequestDAO.save(flowImportRequestDO);
+            return 1;
+        } else {
+            return 2;
+        }
+    }
+
+    @Override
+    public Integer cancelExtraction(FlowImportRequestDO flowImportRequestDO) {
+        return null;
+    }
+
+    @Override
+    public void startImport(FlowImportRequestDTO flowImportRequestDTO, Boolean useFlowProfile) {
+        conversionService.registerConverter(FlowImportRequestDTO.class, ExtractionFilterDTO.class,
+                flowImportRequestDTOtoExtractionFilterDTOConverter);
+        
+        if(useFlowProfile && !flowManagerProfileService.checkFlowById(flowImportRequestDTO.getFlow().getId())) {
+        	return;
+        }
+
+        ExtractionFilterDTO extractionFilterDTO = conversionService.convertTo(flowImportRequestDTO,
+                ExtractionFilterDTO.class);
+        
+        flowExtractionService.extraction(extractionFilterDTO);
+    }
+
+    @Override
+    public void extraction(ExtractionFilterDTO extractionFilterDTO) {
+
+    }
+
+}

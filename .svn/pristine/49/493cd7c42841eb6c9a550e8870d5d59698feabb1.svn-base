@@ -1,0 +1,50 @@
+package it.eng.care.domain.flow.tabgen.converter;
+
+import com.github.dozermapper.core.loader.DozerBuilder;
+import com.github.dozermapper.core.loader.api.BeanMappingBuilder;
+import com.github.dozermapper.core.loader.api.FieldsMappingOptions;
+import com.github.dozermapper.core.loader.api.TypeMappingOption;
+import it.eng.care.domain.flow.tabgen.dto.TabgenField;
+import it.eng.care.domain.flow.tabgen.entity.TabgenFieldDO;
+import it.eng.care.platform.common.dozer.converter.DozerConverter;
+import it.eng.care.platform.tool.transport.conversion.ConversionContext;
+import it.eng.care.platform.tool.transport.conversion.Converter;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import jakarta.annotation.PostConstruct;
+
+public class TabgenFieldDOToDTOFKConverter implements Converter<TabgenFieldDO, TabgenField> {
+	
+	@Autowired
+	private DozerConverter mapper;
+	
+	@Override
+	public void convert(TabgenFieldDO fromObject, TabgenField intoObject, ConversionContext ctx) {
+		intoObject = mapper.convert(fromObject, TabgenField.class, getMapId());
+	}
+	
+	@PostConstruct
+	public void post() {
+		
+		mapper.register(new BeanMappingBuilder() {
+		    @Override
+		    protected void configure() {
+				mapping(TabgenFieldDO.class, TabgenField.class, new TypeMappingOption() {
+
+					@Override
+					public void apply(DozerBuilder.MappingBuilder fieldMappingBuilder) {
+						fieldMappingBuilder.mapId(getMapId());
+					}
+		        	
+		        })
+		        .fields("tabgen", "tabgen", FieldsMappingOptions.useMapId(TabgenFieldDOToDTOBareConverter.getMapId()))
+		        .exclude("tabgenValues");
+		    }
+		});
+	}
+	
+	public static String getMapId() {
+		return "TABGENFIELD_DO_to_DTO_FK";
+	}
+
+}

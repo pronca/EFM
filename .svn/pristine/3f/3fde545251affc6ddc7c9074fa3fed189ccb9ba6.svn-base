@@ -1,0 +1,257 @@
+package it.eng.care.domain.flow.tabgen.controller.impl;
+
+import java.lang.reflect.Method;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.data.util.Pair;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import it.eng.care.domain.flow.core.config.LogAccessiPMConfig;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.tabgen.controller.TabgenValueController;
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenResultBean;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.entity.TabgenValueDO;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+import it.eng.care.domain.flow.tabgen.service.TabgenService;
+import it.eng.care.domain.flow.tabgen.utility.TabgenUtility;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+import it.eng.care.platform.tool.transport.operations.SaveOperationResult;
+import it.eng.care.platform.tool.transport.operations.SearchOperationResult;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+
+@RestController
+@RequestMapping("fm/TabgenValue")
+public class TabgenValueControllerImpl implements TabgenValueController{
+	private static final Logger LOGGER = LoggerFactory.getLogger(TabgenControllerImpl.class);
+	
+	protected Boolean profilaturaFlussi;
+	
+	public TabgenValueControllerImpl() {
+		LOGGER.info("TabgenControllerImpl");
+	}
+
+	@Autowired
+	private TabgenDelegate tabgenDelegate;
+
+	@Autowired
+	private TabgenService tabgenService;
+	
+	@Autowired
+	private LogAccessiPMConfig logAccessiPMConfig;
+	
+	@Override
+	@PostMapping("/_search")
+	@ResponseBody
+	public SearchOperationResult<TabgenValue> searchTableValue(@RequestBody BaseSearchInput searchInput) {
+
+		TabgenValueFilter tabGenValueFilter = new TabgenValueFilter();	
+		List<String> field = new ArrayList<String>();
+		List<String> param = new ArrayList<String>();
+		
+		SimpleDateFormat sdf = new SimpleDateFormat("dd/MM/yyyy HH:mm:ss");
+		
+		tabGenValueFilter.setTabgenId(searchInput.getParam("tabgenId"));
+		
+		if (searchInput.getParam("limit") != null && searchInput.getParam("offset") != null) {
+		tabGenValueFilter.setLimit(searchInput.getParam("limit"));
+		tabGenValueFilter.setOffset(searchInput.getParam("offset"));
+		}
+		
+		if(searchInput.getParam("direction") != null && searchInput.getParam("fieldId") != null) {
+			tabGenValueFilter.setSortDir(searchInput.getParam("direction"));
+			tabGenValueFilter.setSortField(searchInput.getParam("fieldId"));
+		}
+		
+		if (searchInput.getParam("dateIn") != null) {
+			tabGenValueFilter.setEnabledDate(searchInput.getParam("dateIn"));
+		}
+
+		if (searchInput.getParam("dateOut") != null) {
+			tabGenValueFilter.setDisabledDate(searchInput.getParam("dateOut"));
+		}
+
+		if ((searchInput.getParam("field") != null) && (searchInput.getParam("parameter") != null)) {
+
+			field = searchInput.getParam("field");
+			param = searchInput.getParam("parameter");
+			
+			for (int i = 0; i < field.size(); i++) {
+			    try {
+
+			        String methodName = "set" + field.get(i);
+			        Method tabgenMethod = TabgenUtility.getMethod(TabgenValueFilter.class, methodName);
+
+			        if (tabgenMethod == null) {
+			            System.out.println("Metodo non trovato: " + methodName);
+			            continue;
+			        }
+
+			        Class<?> type = tabgenMethod.getParameterTypes()[0];
+
+			        Object rawObject = param.get(i);
+			        String raw = rawObject != null ? rawObject.toString() : null;
+
+			        Object value = null;
+
+			        if (raw == null) {
+			            value = null;
+			        }
+			        else if (type == String.class) {
+			            value = raw;
+			        }
+			        else if (type == Boolean.class || type == boolean.class) {
+			            value = Boolean.parseBoolean(raw);
+			        }
+			        else if (type == Date.class) {
+			            try {
+			                value = sdf.parse(raw);
+			            } catch (Exception ex) {
+			            	LogUtil.logException(LOGGER, "Formato data non valido "+raw+"", ex);
+			                continue;
+			            }
+			        }
+			        else {
+			            value = raw;
+			        }
+
+			        tabgenMethod.invoke(tabGenValueFilter, value);
+
+			    } catch (Exception e) {
+			    	LogUtil.logException(LOGGER, "", e);
+//			        e.printStackTrace();
+			    }
+			}
+	
+		}
+		
+		BasePagingLoadResult<Tabgen> results = tabgenDelegate.searchValue(tabGenValueFilter);
+		
+		if(results.getList().get(0).getTabgenValues() == null) {
+			
+	
+			return SearchOperationResult.success(new ArrayList<TabgenValue>(), SearchInfos.create(results.getTotalLength()));
+		}
+			
+		Pair<List<TabgenValue>, SearchInfo> searchResults = Pair.of(results.getList().get(0).getTabgenValues(),
+				SearchInfos.create(results.getTotalLength()));
+		
+		if (results != null && !results.getList().isEmpty() && "PROFILATURA".equals(results.getList().get(0).getType())) {
+    		if (!field.isEmpty() && !param.isEmpty()) {
+    			if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogRicProfil())) {
+    	    		BasePagingLoadResult<Tabgen> resultsLogAccessi = tabgenService.sendAuditSearchProfilToPM(searchInput, results);
+    	    	}
+    		} else {
+    			if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogVisuaProfil())) {
+    	    		BasePagingLoadResult<Tabgen> resultsLogAccessi = tabgenService.sendAuditVisuaProfilToPM(searchInput, results);
+    	    	}
+    		}
+		}
+
+		return SearchOperationResult.success(results.getList().get(0).getTabgenValues(), searchResults.getSecond());
+	}
+	
+	
+	@Override
+	@PostMapping("/saveValue")
+	@CacheEvict(allEntries = false, cacheNames = "lookupCache", keyGenerator = "saveTabgenKeyGenerator")
+	public SaveOperationResult<TabgenResultBean> saveValue(@RequestBody TabgenValue inputDTO) {
+
+	    try {
+	        if (inputDTO == null || inputDTO.getTabgen() == null || inputDTO.getTabgen().getId() == null) {
+	            return SaveOperationResult.failure("Tabgen o TabgenId non presente.");
+	        }
+
+			TabgenValueFilter filter = new TabgenValueFilter();
+			filter.setTabgenId(inputDTO.getTabgen().getId());
+			filter.setField1((inputDTO.getField1()!=null && !inputDTO.getField1().isEmpty() ? inputDTO.getField1() : null));
+			filter.setField2((inputDTO.getField2()!=null && !inputDTO.getField2().isEmpty() ? inputDTO.getField2() : null));
+			filter.setField3((inputDTO.getField3()!=null && !inputDTO.getField3().isEmpty() ? inputDTO.getField3() : null));
+			filter.setField4((inputDTO.getField4()!=null && !inputDTO.getField4().isEmpty() ? inputDTO.getField4() : null));
+			filter.setField5((inputDTO.getField5()!=null && !inputDTO.getField5().isEmpty() ? inputDTO.getField5() : null));
+			filter.setField6((inputDTO.getField6()!=null && !inputDTO.getField6().isEmpty() ? inputDTO.getField6() : null));
+			filter.setField7((inputDTO.getField7()!=null && !inputDTO.getField7().isEmpty() ? inputDTO.getField7() : null));
+			filter.setField8((inputDTO.getField8()!=null && !inputDTO.getField8().isEmpty() ? inputDTO.getField8() : null));
+			filter.setField9((inputDTO.getField9()!=null && !inputDTO.getField9().isEmpty() ? inputDTO.getField9() : null));
+			filter.setField10((inputDTO.getField10()!=null && !inputDTO.getField10().isEmpty() ? inputDTO.getField10() : null));
+			filter.setField11((inputDTO.getField11()!=null && !inputDTO.getField11().isEmpty() ? inputDTO.getField11() : null));
+			filter.setField12((inputDTO.getField12()!=null && !inputDTO.getField12().isEmpty() ? inputDTO.getField12() : null));
+			filter.setField13((inputDTO.getField13()!=null && !inputDTO.getField13().isEmpty() ? inputDTO.getField13() : null));
+			filter.setField14((inputDTO.getField14()!=null && !inputDTO.getField14().isEmpty() ? inputDTO.getField14() : null));
+			filter.setField15((inputDTO.getField15()!=null && !inputDTO.getField15().isEmpty() ? inputDTO.getField15() : null));
+			filter.setField16((inputDTO.getField16()!=null && !inputDTO.getField16().isEmpty() ? inputDTO.getField16() : null));
+			filter.setField17((inputDTO.getField17()!=null && !inputDTO.getField17().isEmpty() ? inputDTO.getField17() : null));
+			filter.setField18((inputDTO.getField18()!=null && !inputDTO.getField18().isEmpty() ? inputDTO.getField18() : null));
+			filter.setField19((inputDTO.getField19()!=null && !inputDTO.getField19().isEmpty() ? inputDTO.getField19() : null));
+			filter.setField20((inputDTO.getField20()!=null && !inputDTO.getField20().isEmpty() ? inputDTO.getField20() : null));
+			
+	        boolean isInsert = (inputDTO.getId() == null || inputDTO.getId().trim().isEmpty());
+
+	        if (isInsert) {
+
+	            List<TabgenValueDO> existing = tabgenService.searchTabgenValueByFilter(filter);
+
+	            if (existing != null && !existing.isEmpty()) {
+	                String key = inputDTO.getField1() != null ? inputDTO.getField1() : "(chiave sconosciuta)";
+
+	                return SaveOperationResult.failure(
+	                    "Esiste già una configurazione con la stessa chiave: " + key
+	                );
+	            }
+	        }
+
+	        if (!isInsert) {
+
+	            TabgenValueDO existing = tabgenService.findById(inputDTO.getId());
+
+	            if (existing == null) {
+	                return SaveOperationResult.failure(
+	                    "Aggiornamento non possibile: record con ID " + inputDTO.getId() + " inesistente."
+	                );
+	            }
+	        }
+
+	        TabgenResultBean result = tabgenDelegate.saveValue(inputDTO);
+
+	        return SaveOperationResult.success(result);
+
+	    } catch (Exception ex) {
+	    	LogUtil.logException(LOGGER, "Errore durante il salvataggio", ex);
+	        return SaveOperationResult.failure("Errore durante il salvataggio: " + ex.getMessage());
+	    }
+	}
+
+	@Override
+	@PostMapping("/deleteValue")
+	@CacheEvict(allEntries = false, cacheNames = "lookupCache", keyGenerator = "saveTabgenKeyGenerator")
+	public TabgenResultBean deleteValue(@RequestBody TabgenValue input) {
+		// TODO Auto-generated method stub
+		String valueId = input.getId();
+		return tabgenDelegate.deleteValue(valueId, true);
+		
+	}
+
+	@Override
+	@PostMapping("/retriveColumnValue")
+	public OperationResult<Object> retriveColumnValueByColumnName(@RequestBody BaseSearchInput searchInput) {
+		return OperationResult.success(tabgenService.retriveColumnValueByColumnName(searchInput));
+	}
+
+
+}

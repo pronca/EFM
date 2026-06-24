@@ -1,0 +1,25 @@
+package it.eng.care.domain.flow.b2b.controller;
+
+import jakarta.servlet.http.HttpServletRequest;
+
+import it.eng.care.domain.flow.b2b.model.ErrorWellFormedDTO;
+import it.eng.care.domain.flow.b2b.model.FlowResult;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+
+public interface FlowReceiverController {
+	
+	OperationResult<FlowResult> testValidateSingleFlow(String flow, String flowId, String version);
+
+	ErrorWellFormedDTO sendSingleFlow(String flow, String flowId, String version, HttpServletRequest request);
+
+	OperationResult<FlowResult> sendMultipleFlow(String flow, String flowId, String version);
+
+	OperationResult<FlowResult> sendCompressedFlow(String flowId, String version, HttpServletRequest request);
+
+	OperationResult<String> getSchema(String flowName, String version);
+
+	OperationResult<String> cancelProcedure(String procedure, String flowName, String version);
+
+	OperationResult<String> getErrors(String request, String flowName, String version);
+
+}

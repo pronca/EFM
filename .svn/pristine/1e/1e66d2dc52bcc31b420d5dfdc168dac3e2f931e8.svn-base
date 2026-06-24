@@ -1,0 +1,532 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+
+import it.eng.care.domain.flow.core.config.C3P0DataSource;
+import it.eng.care.domain.flow.core.dao.FlowImportRequestDAO;
+import it.eng.care.domain.flow.core.dao.FlowTableDAO;
+import it.eng.care.domain.flow.core.dao.FlowTableFieldDAO;
+import it.eng.care.domain.flow.core.dto.DataSourceDTO;
+import it.eng.care.domain.flow.core.dto.ExtractionFilter.ExtractionFilterDTO;
+import it.eng.care.domain.flow.core.dto.ExtractionFilter.Field;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableLinkDTO;
+import it.eng.care.domain.flow.core.entity.FlowImportRequestDO;
+import it.eng.care.domain.flow.core.entity.FlowTableDO;
+import it.eng.care.domain.flow.core.entity.FlowTableFieldDO;
+import it.eng.care.domain.flow.core.enumeration.ImportTypeEnum;
+import it.eng.care.domain.flow.core.enumeration.MachineEvent;
+import it.eng.care.domain.flow.core.service.DataSourceService;
+import it.eng.care.domain.flow.core.service.FlowExtractionService;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.domain.flow.core.spring.statemachine.StateMachineFlow;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import org.hibernate.internal.SessionImpl;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.statemachine.state.State;
+import org.springframework.transaction.annotation.Transactional;
+
+import jakarta.persistence.EntityManager;
+
+import javax.sql.DataSource;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.*;
+
+public class FlowExtractionServiceImpl implements FlowExtractionService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(FlowExtractionServiceImpl.class);
+
+    private static String TABLE_PREFIX = "FM_FLOW_";
+    private static String TABLE_NAME_SEP = "_";
+
+    @Autowired
+    private DataSource dataSource;
+    @Autowired(required=false)
+    StateMachineFlow stateMachineFlow;
+    @Autowired
+    ConversionService conversionService;
+    @Autowired
+    DataSourceService datasourceService;
+    @Autowired
+    EntityManager entityManager;
+    @Autowired
+    FlowTableFieldDAO flowTableFieldDAO;
+    @Autowired
+    FlowTableDAO flowTableDAO;
+    @Autowired
+    FormFlowService formFlowService;
+    @Autowired
+    FlowImportRequestDAO flowImportRequestDAO;
+    @Autowired
+	FlowManagerProfileService flowManagerProfileService;
+    
+    @Transactional
+    public void changeStateRecord(String extractionId, State<String, String> state) {
+        //Cambio stato record
+        FlowImportRequestDO flowImportRequestDO = flowImportRequestDAO.findById(extractionId).get();
+        flowImportRequestDO.setStatus(state.getId());
+        flowImportRequestDAO.save(flowImportRequestDO);
+    }
+
+    //TODO return extraction effetuata o no
+    @Transactional
+    public State<String, String> extraction(ExtractionFilterDTO extractionFilterDTO) {
+        State<String, String> state = null;
+        SessionImpl session = (SessionImpl) entityManager.getDelegate();
+        //Cambio stato "IN_CORSO"
+        try {
+            state = stateMachineFlow.execute(extractionFilterDTO.getExtractionId(), "ESTRAZIONE", MachineEvent.ESEGUI_ESTRAZIONE.getEvent());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        //Cambio stato record
+        changeStateRecord(extractionFilterDTO.getExtractionId(), state);
+
+        //Recupero configurazione flusso
+        FormFlowDTO formFlowDTO = formFlowService.retrieveOne(extractionFilterDTO.getFormFlow().getId(), extractionFilterDTO.getFormFlow().getVersion());
+
+        String selectSQL = "SELECT ";
+        String insertSQL = "INSERT INTO ";
+        String fromSQl = " FROM ";
+        String whereSQL = " WHERE ";
+        String campiSelect = "";
+        String rootTable = "";
+        String insertSection = "";
+        String updateSection = "";
+        String dataSourceID = null;
+        String rootTable2 = "";
+        String filterSQL = "";
+        
+        ResultSet resultSet = null;
+        Connection connectionLocal = null;
+        Connection connectionSource = null;
+        		
+       //caricamento lista aziende visibili dall'utente
+  		List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+  		
+        //Controllo se ci sono filtri data e li aggiungo
+        if (extractionFilterDTO.getFields() != null && !extractionFilterDTO.getFields().isEmpty()) {
+            for (Field field : extractionFilterDTO.getFields()) {
+                FlowTableFieldDO flowTableFieldDOfilter = flowTableFieldDAO.findById(field.getFieldId().trim()).get();
+                if (flowTableFieldDOfilter!=null) {
+                	FlowTableDO flowTableDOFilter = flowTableDAO.findById(flowTableFieldDOfilter.getFlowTable().getId()).get();
+                    filterSQL += TABLE_PREFIX + formFlowDTO.getName() + TABLE_NAME_SEP + flowTableDOFilter.getSection() + "." +
+                            flowTableFieldDOfilter.getName() + " BETWEEN ? AND ? AND ";	
+                    filterSQL = filterSQL.substring(0, filterSQL.length() - 4);
+                }
+            }
+        }
+      		
+        List<PreparedStatement> preparedStaInsert = new ArrayList<>();
+        List<PreparedStatement> preparedStaUpdate = new ArrayList<>();
+        List<PreparedStatement> preparedStaUpdateSource = new ArrayList<>();
+        List<PreparedStatement> preparedStaInsertOk = new ArrayList<>();
+        List<PreparedStatement> preparedStaUpdateOk = new ArrayList<>();
+        List<PreparedStatement> preparedStaUpdateSourceOk = new ArrayList<>();
+        List<List<String>> fieldNames = new ArrayList<>();
+        HashMap<Integer, List<Integer>> primaryKeyHashMap = new HashMap<>();
+        HashMap<Integer, HashMap<String, String>> recordHashMap = new HashMap<>();
+        try {
+            //recupero conf. datasource flusso
+            DataSourceDTO dataSourceDTO = this.getDataSource(formFlowDTO);
+            connectionLocal = dataSource.getConnection();
+            connectionSource = C3P0DataSource.getInstance(dataSourceDTO).getConnection();
+            connectionSource.setAutoCommit(false);
+            connectionLocal.setAutoCommit(false);
+            int countFieldPk = 1;
+            for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+                String campiInsert = "";
+                if (formFlowTableDTO.getSection() == 0) {
+                    rootTable = TABLE_PREFIX + formFlowDTO.getName() + TABLE_NAME_SEP + formFlowTableDTO.getSection();
+                    rootTable2 = TABLE_PREFIX + formFlowDTO.getName() + TABLE_NAME_SEP;
+                }
+                String tableName = TABLE_PREFIX + formFlowDTO.getName() + TABLE_NAME_SEP + formFlowTableDTO.getSection();
+                insertSection = insertSQL + tableName;
+                updateSection = "UPDATE " + tableName + " SET " + "EXPORTED = ?,EXTRACTION_ID=? WHERE ";
+                String insertSectionI = "";
+                List<String> fields = new ArrayList<>();
+                List<Integer> isPkList = new ArrayList<>();
+                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+                    fields.add(tableName + "." + field.getName());
+                    campiSelect += tableName + "." + field.getName() + " , ";
+                    campiInsert += field.getName() + " , ";
+                    insertSectionI += "?, ";
+                    if (field.isPk()) {
+            			updateSection += field.getName() + "=? AND ";
+                        isPkList.add(countFieldPk);
+                        primaryKeyHashMap.put(formFlowTableDTO.getSection(), isPkList);
+                        if (formFlowTableDTO.getSection() == 0 && !aziende.isEmpty() && field.getName().toUpperCase().equals("CODICEAZIENDA")) {
+                  			filterSQL += tableName + "." + field.getName() + " IN ('" + String.join("','",aziende) + "')";
+                  		}
+                    }
+                    countFieldPk++;
+                }
+                fieldNames.add(fields);
+                insertSectionI += "?, ?, ?, ?  ";
+
+                if (campiInsert.endsWith(", ")) {
+                    campiInsert = campiInsert.substring(0, campiInsert.length() - 2);
+                }
+
+                if (insertSectionI.endsWith(", ")) {
+                    insertSectionI = insertSectionI.substring(0, insertSectionI.length() - 2);
+                }
+                insertSection += "(" + campiInsert + ", EXPORTED ,EXTRACTION_ID, UUID, IMPORT_TYPE)" + "VALUES" + "(" + insertSectionI;
+                insertSection += ")";
+
+                if (formFlowTableDTO.getSection() == 0) {
+                    fromSQl += rootTable + " ";
+                } else {
+                    if (formFlowTableDTO.getListFk().size() > 0) {
+                        fromSQl += "LEFT JOIN " + tableName + " ON (";
+                        for (FormFlowTableLinkDTO formFlowTableLinkDTO : formFlowTableDTO.getListFk()) {
+                            String sectionTable = String.valueOf(flowTableDAO.findById(formFlowTableLinkDTO.getIdTable()).get());
+                            String nameFieldTable = String.valueOf(flowTableFieldDAO.findById(formFlowTableLinkDTO.getIdFieldTable()).get());
+                            String sectionTableReferenced = String.valueOf(flowTableDAO.findById(formFlowTableLinkDTO.getIdTableReferenced()).get());
+                            String nameFieldTableReferenced = String.valueOf(flowTableFieldDAO.findById(formFlowTableLinkDTO.getIdFieldTableReferenced()).get());
+                            fromSQl += rootTable2 + sectionTable + "." + nameFieldTable +
+                                    " = " + rootTable2 + sectionTableReferenced + "."
+                                    + nameFieldTableReferenced + " AND ";
+                        }
+                        if (fromSQl.endsWith(" AND ")) {
+                            fromSQl = fromSQl.substring(0, fromSQl.length() - 5);
+                            fromSQl += ") ";
+                        }
+                    }
+                }
+
+                if (updateSection.endsWith("AND ")) {
+                    updateSection = updateSection.substring(0, updateSection.length() - 4);
+                }
+                LOGGER.debug("INSERT SQL QUERY:" + insertSection);
+                LOGGER.debug("UPDATE SQL QUERY:" + updateSection);
+                preparedStaUpdate.add(connectionLocal.prepareStatement(updateSection));
+                preparedStaUpdateSource.add(connectionSource.prepareStatement(updateSection));
+                preparedStaInsert.add(connectionLocal.prepareStatement(insertSection));
+            }
+            if (campiSelect.endsWith(", ")) {
+                campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+            }
+            String select = "";
+            if (!filterSQL.equals("")) {
+                select += selectSQL + campiSelect + fromSQl + whereSQL + filterSQL;
+            } else
+                select += selectSQL + campiSelect + fromSQl;
+            LOGGER.debug("SELECT SQL QUERY:" + select);
+            //Retrive Datasource
+            PreparedStatement preparedStatement =
+                    connectionSource.prepareStatement(select,
+                    		ResultSet.TYPE_SCROLL_INSENSITIVE , 
+                            ResultSet.CONCUR_UPDATABLE);
+            if (extractionFilterDTO.getFields() != null) {
+                int i = 1;
+                for (Field field : extractionFilterDTO.getFields()) {
+                    SimpleDateFormat format =
+                            new SimpleDateFormat("yyyy-MM-dd");
+                    String fromString = format.format(field.getForm());
+                    java.util.Date fromDate = format.parse(fromString);
+                    String toString = format.format(field.getTo());
+                    java.util.Date toDate = format.parse(toString);
+                    java.sql.Date sqlDateFrom = new java.sql.Date(fromDate.getTime());
+                    java.sql.Date sqlDateTo = new java.sql.Date(toDate.getTime());
+                    preparedStatement.setDate(i, sqlDateFrom);
+                    preparedStatement.setDate(i + 1, sqlDateTo);
+                    i++;
+                }
+            }
+
+            preparedStatement.setFetchSize(5000);
+            resultSet = preparedStatement.executeQuery();
+            boolean add = false;
+            int whileIndex = 0;
+            int rowsNum = getRowCount(resultSet);
+            int insertIndexOk = 0;
+            while (resultSet.next()) {
+                int insertIndex = 0;
+                int indexSelect = 1;
+                
+                //Section
+                for (List<String> fieldName : fieldNames) {
+                    List<Integer> pkList = primaryKeyHashMap.get(insertIndex);
+                    int fieldIndex = 1;
+                    //duplicate
+                    boolean flag = checkPk(resultSet, insertIndex, recordHashMap, primaryKeyHashMap);
+                    //Field
+                    for (String field : fieldName) {
+                    	if (flag) {
+                            //record null
+                            if (recordIsNull(resultSet, pkList)) {
+                                add = true;
+                                preparedStaInsert.get(insertIndex).
+                                        setObject(fieldIndex, resultSet.getObject(indexSelect));
+                            } else {
+                                add = false;
+                            }
+                    	} else {
+                        	add = false;
+                        }
+                    	
+                        indexSelect++;
+                        fieldIndex++;
+                    }
+                    
+                    if (flag) {
+                        if (recordIsNull(resultSet, pkList)) {
+                            preparedStaInsert.get(insertIndex).setObject(fieldIndex, "1"); // EXPORTED 
+                            preparedStaInsert.get(insertIndex).setObject(fieldIndex + 1, extractionFilterDTO.getExtractionId()); // EXTRACTION_ID
+                            preparedStaInsert.get(insertIndex).setObject(fieldIndex + 2, UUID.randomUUID().toString()); // UID
+                            preparedStaInsert.get(insertIndex).setObject(fieldIndex + 3, ImportTypeEnum.FROM_TABLE.name()); // IMPORT_TYPE
+                            preparedStaUpdate.get(insertIndex).setObject(1, 1);
+                            preparedStaUpdate.get(insertIndex).setObject(2, extractionFilterDTO.getExtractionId());
+                            preparedStaUpdateSource.get(insertIndex).setObject(1, 1);
+                            preparedStaUpdateSource.get(insertIndex).setObject(2, extractionFilterDTO.getExtractionId());
+                            int i = 3;
+                            for (Integer pk : pkList) {
+                                preparedStaUpdate.get(insertIndex).setObject(i, resultSet.getObject(pk));
+                                preparedStaUpdateSource.get(insertIndex).setObject(i, resultSet.getObject(pk));
+                                i++;
+                            }
+                        }
+                    }
+                    if (add) {
+                    	preparedStaUpdateOk.add(preparedStaUpdate.get(insertIndex));
+                    	preparedStaUpdateOk.get(insertIndexOk).addBatch();
+                        preparedStaUpdate.get(insertIndex).clearParameters();
+                        preparedStaUpdateSourceOk.add(preparedStaUpdateSource.get(insertIndex));
+                        preparedStaUpdateSourceOk.get(insertIndexOk).addBatch();
+                        preparedStaUpdateSource.get(insertIndex).clearParameters();
+                        preparedStaInsertOk.add(preparedStaInsert.get(insertIndex));
+                        preparedStaInsertOk.get(insertIndexOk).addBatch();
+                        preparedStaInsert.get(insertIndex).clearParameters();
+                        insertIndexOk++;
+                    }
+                    insertIndex++;
+                }
+                if (whileIndex % 1000 == 0 || rowsNum-1 == whileIndex) {
+                    for (PreparedStatement pre : preparedStaInsertOk) {
+                        pre.executeBatch();
+                        pre.clearBatch();
+                        pre.clearParameters();
+                    }
+                    for (PreparedStatement pre : preparedStaUpdateOk) {
+                        pre.executeBatch();
+                        pre.clearBatch();
+                        pre.clearParameters();
+                    }
+                    for (PreparedStatement pre : preparedStaUpdateSourceOk) {
+                        pre.executeBatch();
+                        pre.clearBatch();
+                        pre.clearParameters();
+                    }
+                    connectionLocal.commit();
+                    connectionSource.commit();
+                    
+                    preparedStaInsertOk.clear();
+                    preparedStaUpdateOk.clear();
+                    preparedStaUpdateSourceOk.clear();
+                    insertIndexOk = 0;
+                }
+                whileIndex++;
+            }
+            
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+        	if (resultSet!=null) {
+                try {
+					resultSet.close();
+				} catch (SQLException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+            }
+        	if (connectionSource!=null) {
+	            try {
+	            	connectionSource.commit();
+					connectionSource.close();
+				} catch (SQLException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+        	}
+        	if (connectionLocal!=null) {
+	            try {
+	            	connectionLocal.commit();
+	            	//connectionLocal.close();
+				} catch (SQLException e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
+        	}
+            
+		}
+
+        try {
+            state =
+                    stateMachineFlow.execute(extractionFilterDTO.getExtractionId(), "ESTRAZIONE", MachineEvent.ESTRAZIONE_SUCCESS.getEvent());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        //Cambio stato record
+        changeStateRecord(extractionFilterDTO.getExtractionId(), state);
+
+
+        return state;
+
+    }
+
+    public boolean compareResultSet(Connection connectionLocal, Connection connectionSource,
+                                    String select, ExtractionFilterDTO extractionFilterDTO)
+            throws SQLException, ParseException {
+        PreparedStatement preparedStatement2 = connectionLocal.prepareStatement(select,
+                ResultSet.TYPE_FORWARD_ONLY,
+                ResultSet.CONCUR_UPDATABLE,
+                ResultSet.FETCH_FORWARD);
+        PreparedStatement preparedStatement = connectionSource.prepareStatement(select,
+                ResultSet.TYPE_FORWARD_ONLY,
+                ResultSet.CONCUR_UPDATABLE,
+                ResultSet.FETCH_FORWARD);
+        if (extractionFilterDTO.getFields() != null) {
+            int i = 1;
+            for (Field field : extractionFilterDTO.getFields()) {
+                SimpleDateFormat format =
+                        new SimpleDateFormat("yyyy-MM-dd");
+                String fromString = format.format(field.getForm());
+                java.util.Date fromDate = format.parse(fromString);
+                String toString = format.format(field.getTo());
+                java.util.Date toDate = format.parse(toString);
+                java.sql.Date sqlDateFrom = new java.sql.Date(fromDate.getTime());
+                java.sql.Date sqlDateTo = new java.sql.Date(toDate.getTime());
+                preparedStatement2.setDate(i, sqlDateFrom);
+                preparedStatement2.setDate(i + 1, sqlDateTo);
+                preparedStatement.setDate(i, sqlDateFrom);
+                preparedStatement.setDate(i + 1, sqlDateTo);
+                i++;
+            }
+        }
+
+        preparedStatement2.setFetchSize(5000);
+        ResultSet resultSet2 = preparedStatement2.executeQuery();
+
+        preparedStatement.setFetchSize(5000);
+        ResultSet resultSet = preparedStatement.executeQuery();
+
+        int col = 1;
+        while (resultSet.next() && resultSet2.next()) {
+            //saltare i primi 5 cambpi del ResultsSet Locale.
+            if (!(col >= 1 && col <= 5)) {
+
+                final Object res1 = resultSet.getObject(col);
+                final Object res2 = resultSet2.getObject(col);
+                // Check values
+                if (!res1.equals(res2)) {
+                    return false;
+                    //throw new RuntimeException(String.format("%s and %s aren't equal at common position %d",
+                    //       res1, res2, col));
+                }
+
+//            // rs1 and rs2 must reach last row in the same iteration
+//            if ((resultSet.isLast() != resultSet2.isLast())) {
+//                throw new RuntimeException("The two ResultSets contains different number of columns!");
+//            }
+
+                col++;
+            }
+        }
+
+        return true;
+    }
+
+
+    public boolean recordIsNull(ResultSet resultSet, List<Integer> listPK) throws SQLException {
+        boolean flag = true;
+        for (Integer pk : listPK) {
+            if (resultSet.getObject(pk) == null) {
+                flag = false;
+            }
+        }
+        return flag;
+
+    }
+
+
+    public boolean checkPk(ResultSet resultSet,
+                           Integer section,
+                           HashMap<Integer, HashMap<String, String>> recordHashMap,
+                           HashMap<Integer, List<Integer>> primaryKeyHashMap) throws SQLException {
+
+        //get position number key section
+        List<Integer> pkList = primaryKeyHashMap.get(section);
+        //Build concat key
+        String key = "";
+        for (Integer pk : pkList) {
+            key += resultSet.getObject(pk);
+            if (key == null || key.isEmpty() || key.equals("null")) {
+            	return false;
+            }
+        }
+        if (recordHashMap.containsKey(section)) {
+            if (!recordHashMap.get(section).containsKey(key)) {
+                recordHashMap.get(section).put(key, "");
+                return true;
+            } else
+                recordHashMap.get(section).put(key, "");
+        } else {
+            HashMap<String, String> hashMap = new HashMap<>();
+            hashMap.put(key, "");
+            recordHashMap.put(section, hashMap);
+            return true;
+        }
+        return false;
+    }
+
+
+    public DataSourceDTO getDataSource(FormFlowDTO formFlowDTO) {
+    	DataSourceDTO retDataSource = new DataSourceDTO();
+    	if (formFlowDTO!=null && formFlowDTO.getFlowTableList()!=null && !formFlowDTO.getFlowTableList().isEmpty()) {
+    		retDataSource = conversionService.convertTo(datasourceService.retrieveOne(
+    				formFlowDTO.getFlowTableList().get(0).getDatasource()), DataSourceDTO.class);
+    	}
+    	return retDataSource;
+    }
+
+    //TODO
+    public void setFlagExtract(FormFlowDTO formFlowDTO) {
+
+    }
+
+    public void extractionInsert(DataSourceDTO dataSourceDTO, String select, List<String> fieldNames,
+                                 List<PreparedStatement> preparedSta) {
+
+    }
+
+    public String updateRecordSQL(String table, HashMap<String, String> columnValue, String condition) {
+        String scriptSQL = "UPDATE " + table + " SET ";
+        for (Map.Entry<String, String> entry : columnValue.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue();
+            scriptSQL += key + "=" + value;
+        }
+        scriptSQL += " WHERE " + condition;
+        return scriptSQL;
+    }
+    
+    private static int getRowCount(ResultSet resultSet) throws SQLException {
+        int rowCount = 0;
+        if (resultSet != null && resultSet.last()) {
+            rowCount = resultSet.getRow();
+            resultSet.beforeFirst(); // Move cursor back to the beginning
+        }
+        return rowCount;
+    }
+    
+}

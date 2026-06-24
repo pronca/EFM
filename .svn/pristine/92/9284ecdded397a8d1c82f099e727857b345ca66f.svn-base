@@ -1,0 +1,66 @@
+package it.eng.care.domain.flow.core.dto;
+
+import com.fasterxml.jackson.annotation.JsonBackReference;
+import com.fasterxml.jackson.annotation.JsonIdentityInfo;
+import com.fasterxml.jackson.annotation.ObjectIdGenerators;
+
+import java.util.Date;
+
+//@JsonIdentityInfo(
+//	    generator = ObjectIdGenerators.PropertyGenerator.class,
+//	    property = "id"
+//	)
+public class FlowImportRequestFieldDateDTO {
+    private String id;
+
+    private String id_field;
+
+    private Date date_to;
+
+    private Date date_from;
+//    @JsonBackReference
+    private FlowImportRequestDTO flowImportRequest;
+
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    public String getId_field() {
+        return id_field;
+    }
+
+    public void setId_field(String id_field) {
+        this.id_field = id_field;
+    }
+
+    public Date getDate_to() {
+        return date_to;
+    }
+
+    public void setDate_to(Date date_to) {
+        this.date_to = date_to;
+    }
+
+    public Date getDate_from() {
+        return date_from;
+    }
+
+    public void setDate_from(Date date_from) {
+        this.date_from = date_from;
+    }
+
+    public FlowImportRequestDTO getFlowImportRequest() {
+        return flowImportRequest;
+    }
+
+    public void setFlowImportRequest(FlowImportRequestDTO flowImportRequest) {
+        this.flowImportRequest = flowImportRequest;
+    }
+}
+
+

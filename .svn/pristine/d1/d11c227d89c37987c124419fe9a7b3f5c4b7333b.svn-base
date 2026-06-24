@@ -1,0 +1,4 @@
+insert into fm_tabgen_field (tabgen_id ,description, progressive, type, visible, pk, nullable, tabgen_value_column, tf_id) values ('FM_CONTEXT_CONFIGURATION','SEZIONE', '6', 'String', '1', '0', '1', 'FIELD6', '4751ebe0-49f1-44f0-a41b-507a21047ec4');
+
+CREATE OR REPLACE FORCE EDITIONABLE VIEW "HC40_FLOW_MANAGER"."FM_CONTEXT_CONFIGURATION" ("ID", "ACTIVITY", "FLOW", "NAME", "PARAM", "SEZIONE", "DT_ENABLE", "DT_DISABLE") AS 
+  select FIELD1 ID , FIELD4 ACTIVITY , FIELD2 FLOW , FIELD5 NAME , FIELD3 PARAM , FIELD6 SEZIONE , dt_enable, dt_disable from FM_TABGEN_VALUE where tabgen_id = 'FM_CONTEXT_CONFIGURATION';

@@ -1,0 +1,153 @@
+package it.eng.care.domain.flow.core.entity;
+
+import it.eng.care.platform.persistence.api.IBaseEntity;
+import org.hibernate.annotations.GenericGenerator;
+
+import jakarta.persistence.*;
+import java.util.Date;
+
+@Entity
+@Table(name = "FM_JOB_TALEND")
+public class JobTalendDO implements IBaseEntity {
+
+    @Id
+    @GeneratedValue(generator = "care-uuid")
+    @GenericGenerator(name = "care-uuid", strategy = "it.eng.care.platform.persistence.impl.jpa.idgenerator.CareIdGenerator")
+    @Column(name = "ID")
+    private String id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "FLOW")
+    private FlowDO flow;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "VERSION")
+    private VersionDO version;
+
+    @Column(name = "NAME")
+    private String name;
+
+    @Column(name = "DESCRIPTION")
+    private String description;
+
+    @Column(name = "CLASS_NAME")
+    private String className;
+
+    @Column(name = "TYPE")
+    private String type;
+
+    @Column(name = "PACKAGE_JOB")
+    private String packageJob;
+
+    @Column(name = "DELETED")
+    private boolean deleted;
+
+    @Column(name = "LAST_UPDATE_USER")
+    private String lastUpdateUser;
+
+    @Column(name = "LAST_UPDATE_DATE")
+    private Date lastUpdateDate;
+
+    @OneToOne(mappedBy = "jobTalend", fetch = FetchType.LAZY)
+    private JobTalendFileDO file;
+
+    @Override
+    public String getId() {
+        return id;
+    }
+
+    @Override
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    public FlowDO getFlow() {
+        return flow;
+    }
+
+    public void setFlow(FlowDO flow) {
+        this.flow = flow;
+    }
+
+    public VersionDO getVersion() {
+        return version;
+    }
+
+    public void setVersion(VersionDO version) {
+        this.version = version;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public String getClassName() {
+        return className;
+    }
+
+    public void setClassName(String className) {
+        this.className = className;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
+    public String getPackageJob() {
+        return packageJob;
+    }
+
+    public void setPackageJob(String packageJob) {
+        this.packageJob = packageJob;
+    }
+
+    public boolean getDeleted() {
+        return deleted;
+    }
+
+    public void setDeleted(boolean deleted) {
+        this.deleted = deleted;
+    }
+
+    public String getLastUpdateUser() {
+        return lastUpdateUser;
+    }
+
+    public void setLastUpdateUser(String lastUpdateUser) {
+        this.lastUpdateUser = lastUpdateUser;
+    }
+
+    public Date getLastUpdateDate() {
+        return lastUpdateDate;
+    }
+
+    public void setLastUpdateDate(Date lastUpdateDate) {
+        this.lastUpdateDate = lastUpdateDate;
+    }
+
+    public JobTalendFileDO getFile() {
+        return file;
+    }
+
+    public void setFile(JobTalendFileDO file) {
+        this.file = file;
+    }
+
+
+}

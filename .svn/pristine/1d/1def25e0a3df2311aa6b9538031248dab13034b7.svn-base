@@ -1,0 +1,93 @@
+package it.eng.care.domain.flow.tabgen.dto;
+
+import com.fasterxml.jackson.annotation.JsonIdentityInfo;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonManagedReference;
+import com.fasterxml.jackson.annotation.ObjectIdGenerators;
+
+import java.io.Serializable;
+import java.util.List;
+
+//@JsonIdentityInfo(
+//	    generator = ObjectIdGenerators.PropertyGenerator.class,
+//	    property = "id"
+//	)
+public class Tabgen implements Serializable {
+    private static final long serialVersionUID = 1L;
+
+    private String id;
+
+    private String description;
+
+    private Integer fieldNum;
+
+    private Integer visible;
+
+//    @JsonManagedReference
+    private List<TabgenField> tabgenFields;
+
+//    @JsonManagedReference
+    private List<TabgenValue> tabgenValues;
+
+    private String type;
+
+    public Tabgen() {
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public Integer getFieldNum() {
+        return fieldNum;
+    }
+
+    public void setFieldNum(Integer fieldNum) {
+        this.fieldNum = fieldNum;
+    }
+
+    public Integer getVisible() {
+        return visible;
+    }
+
+    public void setVisible(Integer visible) {
+        this.visible = visible;
+    }
+
+    public List<TabgenField> getTabgenFields() {
+        return tabgenFields;
+    }
+
+    public void setTabgenFields(List<TabgenField> tabgenFields) {
+        this.tabgenFields = tabgenFields;
+    }
+
+    public List<TabgenValue> getTabgenValues() {
+        return tabgenValues;
+    }
+
+    public void setTabgenValues(List<TabgenValue> tabgenValues) {
+        this.tabgenValues = tabgenValues;
+    }
+
+    public String getType() {
+        return type;
+    }
+
+    public void setType(String type) {
+        this.type = type;
+    }
+
+}

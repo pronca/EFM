@@ -1,0 +1,78 @@
+package it.eng.care.domain.flow.webservice.sis.ws.login;
+
+public class LoginWsProxy implements it.eng.care.domain.flow.webservice.sis.ws.login.LoginWs {
+  private String _endpoint = null;
+  private it.eng.care.domain.flow.webservice.sis.ws.login.LoginWs loginWs = null;
+  
+  public LoginWsProxy() {
+    _initLoginWsProxy();
+  }
+  
+  public LoginWsProxy(String endpoint) {
+    _endpoint = endpoint;
+    _initLoginWsProxy();
+  }
+  
+  private void _initLoginWsProxy() {
+    try {
+      loginWs = (new it.eng.care.domain.flow.webservice.sis.ws.login.LoginWsServiceLocator()).getLoginWsPort();
+      if (loginWs != null) {
+        if (_endpoint != null)
+          ((javax.xml.rpc.Stub)loginWs)._setProperty("javax.xml.rpc.service.endpoint.address", _endpoint);
+        else
+          _endpoint = (String)((javax.xml.rpc.Stub)loginWs)._getProperty("javax.xml.rpc.service.endpoint.address");
+      }
+      
+    }
+    catch (javax.xml.rpc.ServiceException serviceException) {}
+  }
+  
+  public String getEndpoint() {
+    return _endpoint;
+  }
+  
+  public void setEndpoint(String endpoint) {
+    _endpoint = endpoint;
+    if (loginWs != null)
+      ((javax.xml.rpc.Stub)loginWs)._setProperty("javax.xml.rpc.service.endpoint.address", _endpoint);
+    
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.login.LoginWs getLoginWs() {
+    if (loginWs == null)
+      _initLoginWsProxy();
+    return loginWs;
+  }
+  
+  public java.lang.String getUsernameByToken(java.lang.String token) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.login.UtenteNonAbilitatoException{
+    if (loginWs == null)
+      _initLoginWsProxy();
+    return loginWs.getUsernameByToken(token);
+  }
+  
+  public void logout(java.lang.String token) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.login.UtenteNonAbilitatoException{
+    if (loginWs == null)
+      _initLoginWsProxy();
+    loginWs.logout(token);
+  }
+  
+  public void autorizzato(java.lang.String token, java.lang.String url) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.login.UtenteNonAbilitatoException{
+    if (loginWs == null)
+      _initLoginWsProxy();
+    loginWs.autorizzato(token, url);
+  }
+  
+  public java.lang.String login(java.lang.String username, java.lang.String password) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.login.UtenteNonAbilitatoException{
+    if (loginWs == null)
+      _initLoginWsProxy();
+    return loginWs.login(username, password);
+  }
+  
+  public it.eng.care.domain.flow.webservice.sis.ws.login.UserDetail getUserDetailByToken(java.lang.String token) throws java.rmi.RemoteException, it.eng.care.domain.flow.webservice.sis.ws.login.UtenteNonAbilitatoException{
+    if (loginWs == null)
+      _initLoginWsProxy();
+    return loginWs.getUserDetailByToken(token);
+  }
+  
+  
+}

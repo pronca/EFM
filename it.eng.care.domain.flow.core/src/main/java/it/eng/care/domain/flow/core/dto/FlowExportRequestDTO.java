@@ -1,0 +1,296 @@
+package it.eng.care.domain.flow.core.dto;
+
+import java.io.Serializable;
+import java.util.Date;
+import java.util.List;
+import java.util.Set;
+
+import it.eng.care.domain.flow.core.dto.FlowConfigurationFilter.FlowConfigurationFilterDTO;
+import it.eng.care.domain.flow.core.dto.FlowConfigurationFilter.FlowConfigurationFilterFieldValueDTO;
+
+public class FlowExportRequestDTO implements Serializable {
+
+    private static final long serialVersionUID = 1L;
+
+    private String id;
+    private FlowDTO flow;
+    private VersionDTO version;
+    private String requester;
+    private String record;
+    private String status;
+    private Date requestDate;
+    private Date startExtractionDate;
+    private Date endExtractionDate;
+    private JobTalendDTO jobTalendId;
+    private Set<FlowConfigurationFilterDTO> flowConfigurationFilters;
+    private Set<FlowConfigurationFilterFieldValueDTO> flowConfigurationFilterFieldValues;
+    private Set<String> flowErrorDetails;
+    private String schedulingType;
+    private String schedulingTypeDescr;
+    private Date schedulingStartingTime;
+    private Date schedulingNextTime;
+    private String schedulingInterval;
+    private String validationStatus;
+    private String validationStatusDrl;
+    private Boolean consolidata;
+    private String userCons;
+    private Date dateCons;
+    private List<String> errorDetails;
+    private String regionValidationStatus;
+    private Boolean drg = false;
+    private UploadReturnsRequestDTO lastUploadReturnsRequest;
+    private Integer schedulingIntervalMinutes;
+    private Integer schedulingIntervalSeconds;
+    private String aziendeProfiloFlussi;	
+
+    public FlowExportRequestDTO() {
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    public FlowDTO getFlow() {
+        return flow;
+    }
+
+    public void setFlow(FlowDTO flow) {
+        this.flow = flow;
+    }
+
+    public VersionDTO getVersion() {
+        return version;
+    }
+
+    public void setVersion(VersionDTO version) {
+        this.version = version;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+    public void setStatus(String status) {
+        this.status = status;
+    }
+
+    public Date getRequestDate() {
+        return requestDate;
+    }
+
+    public void setRequestDate(Date requestDate) {
+        this.requestDate = requestDate;
+    }
+
+
+    public String getRecord() {
+        return record;
+    }
+
+    public void setRecord(String record) {
+        this.record = record;
+    }
+
+    public Date getEndExtractionDate() {
+        return endExtractionDate;
+    }
+
+    public void setEndExtractionDate(Date endExtractionDate) {
+        this.endExtractionDate = endExtractionDate;
+    }
+
+    public JobTalendDTO getJobTalendId() {
+        return jobTalendId;
+    }
+
+    public void setJobTalendId(JobTalendDTO jobTalendId) {
+        this.jobTalendId = jobTalendId;
+    }
+
+    public String getRequester() {
+        return requester;
+    }
+
+    public void setRequester(String requester) {
+        this.requester = requester;
+    }
+
+    public Set<FlowConfigurationFilterDTO> getFlowConfigurationFilters() {
+        return flowConfigurationFilters;
+    }
+
+    public void setFlowConfigurationFilters(Set<FlowConfigurationFilterDTO> flowConfigurationFilters) {
+        this.flowConfigurationFilters = flowConfigurationFilters;
+    }
+
+    public Date getStartExtractionDate() {
+        return startExtractionDate;
+    }
+
+    public void setStartExtractionDate(Date startExtractionDate) {
+        this.startExtractionDate = startExtractionDate;
+    }
+
+    public String getSchedulingType() {
+        return schedulingType;
+    }
+
+    public void setSchedulingType(String schedulingType) {
+        this.schedulingType = schedulingType;
+    }
+
+    public Date getSchedulingStartingTime() {
+        return schedulingStartingTime;
+    }
+
+    public void setSchedulingStartingTime(Date schedulingStartingTime) {
+        this.schedulingStartingTime = schedulingStartingTime;
+    }
+
+    public String getSchedulingInterval() {
+        return schedulingInterval;
+    }
+
+    public void setSchedulingInterval(String schedulingInterval) {
+        this.schedulingInterval = schedulingInterval;
+    }
+
+    public Date getSchedulingNextTime() {
+        return schedulingNextTime;
+    }
+
+    public void setSchedulingNextTime(Date schedulingNextTime) {
+        this.schedulingNextTime = schedulingNextTime;
+    }
+
+
+    public String getValidationStatus() {
+        return validationStatus;
+    }
+
+    public void setValidationStatus(String validationStatus) {
+        this.validationStatus = validationStatus;
+    }
+
+    public Set<FlowConfigurationFilterFieldValueDTO> getFlowConfigurationFilterFieldValues() {
+        return flowConfigurationFilterFieldValues;
+    }
+
+    public void setFlowConfigurationFilterFieldValues(Set<FlowConfigurationFilterFieldValueDTO> flowConfigurationFilterFieldValues) {
+        this.flowConfigurationFilterFieldValues = flowConfigurationFilterFieldValues;
+    }
+
+	public Boolean getConsolidata() {
+		return consolidata;
+	}
+
+	public void setConsolidata(Boolean consolidata) {
+		this.consolidata = consolidata;
+	}
+
+    public String getUserCons() {
+        return userCons;
+    }
+
+    public void setUserCons(String userCons) {
+        this.userCons = userCons;
+    }
+
+    public Date getDateCons() {
+        return dateCons;
+    }
+
+    public void setDateCons(Date dateCons) {
+        this.dateCons = dateCons;
+    }
+
+	public List<String> getErrorDetails() {
+		return errorDetails;
+	}
+
+	public void setErrorDetails(List<String> errorDetails) {
+		this.errorDetails = errorDetails;
+	}
+
+	public Set<String> getFlowErrorDetails() {
+		return flowErrorDetails;
+	}
+
+	public void setFlowErrorDetails(Set<String> flowErrorDetails) {
+		this.flowErrorDetails = flowErrorDetails;
+	}
+
+	public String getRegionValidationStatus() {
+		return regionValidationStatus;
+	}
+
+	public void setRegionValidationStatus(String regionValidationStatus) {
+		this.regionValidationStatus = regionValidationStatus;
+	}
+
+	public Boolean isDrg() {
+		return drg;
+	}
+
+	public void setDrg(Boolean drg) {
+		this.drg = drg;
+	}
+
+	public String getValidationStatusDrl() {
+		return validationStatusDrl;
+	}
+
+	public void setValidationStatusDrl(String validationStatusDrl) {
+		this.validationStatusDrl = validationStatusDrl;
+	}
+
+	public UploadReturnsRequestDTO getLastUploadReturnsRequest() {
+		return lastUploadReturnsRequest;
+	}
+
+	public void setLastUploadReturnsRequest(UploadReturnsRequestDTO lastUploadReturnsRequest) {
+		this.lastUploadReturnsRequest = lastUploadReturnsRequest;
+	}
+
+	public String getSchedulingTypeDescr() {
+		return schedulingTypeDescr;
+	}
+
+	public void setSchedulingTypeDescr(String schedulingTypeDescr) {
+		this.schedulingTypeDescr = schedulingTypeDescr;
+	}
+
+	public Boolean getDrg() {
+		return drg;
+	}
+
+	public Integer getSchedulingIntervalMinutes() {
+	    return schedulingIntervalMinutes;
+	}
+
+	public void setSchedulingIntervalMinutes(Integer schedulingIntervalMinutes) {
+	    this.schedulingIntervalMinutes = schedulingIntervalMinutes;
+	}
+	
+	public Integer getSchedulingIntervalSeconds() {
+	    return schedulingIntervalSeconds;
+	}
+
+	public void setSchedulingIntervalSeconds(Integer schedulingIntervalSeconds) {
+	    this.schedulingIntervalSeconds = schedulingIntervalSeconds;
+	}
+	
+	public String getAziendeProfiloFlussi() {
+		return aziendeProfiloFlussi;
+	}
+
+	public void setAziendeProfiloFlussi(String aziendeProfiloFlussi) {
+		this.aziendeProfiloFlussi = aziendeProfiloFlussi;
+	}
+	
+
+}

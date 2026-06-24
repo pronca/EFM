@@ -1,0 +1,20 @@
+package it.eng.care.domain.flow.drools;
+
+import it.eng.care.domain.flow.drools.model.row.ValidationBean
+import it.eng.care.domain.flow.drools.service.api.DroolsService;
+import it.eng.care.domain.flow.drools.utility.api.DroolsDateUtility;
+import it.eng.care.domain.flow.drools.utility.api.DroolsQueryUtility;
+import it.eng.care.domain.flow.drools.utility.api.DroolsStringUtility;
+import it.eng.care.domain.flow.drools.utility.api.DroolsUtility;
+import it.eng.care.domain.flow.drools.utility.api.FlowRowUtility;
+import it.eng.care.domain.flow.drools.utility.api.LookupUtility;
+import java.util.*;
+import org.slf4j.Logger;
+
+global DroolsDateUtility droolsDateUtility;
+global DroolsQueryUtility droolsQueryUtility;
+global DroolsStringUtility droolsStringUtility;
+global DroolsUtility droolsUtility;
+global FlowRowUtility flowRowUtility;
+global LookupUtility lookupUtility;
+global Logger LOGGER;

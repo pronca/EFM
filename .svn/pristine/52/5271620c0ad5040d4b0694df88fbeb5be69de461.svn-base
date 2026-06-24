@@ -1,0 +1,244 @@
+package it.eng.care.domain.flow.tabgen.controller.impl;
+
+
+import java.io.File;
+import java.io.FileOutputStream;
+import java.util.List;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.data.util.Pair;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.tabgen.controller.TabgenController;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenField;
+import it.eng.care.domain.flow.tabgen.dto.TabgenFilter;
+import it.eng.care.domain.flow.tabgen.dto.TabgenResultBean;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+import it.eng.care.domain.flow.tabgen.service.impl.ImportTabgenService;
+import it.eng.care.platform.tool.security.annotation.NoAuthenticationRequired;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+import it.eng.care.platform.tool.transport.operations.SaveOperationResult;
+import it.eng.care.platform.tool.transport.operations.SearchOperationResult;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+@CrossOrigin
+@RestController
+@RequestMapping("fm/Tabgen")
+public class TabgenControllerImpl implements TabgenController {
+	
+	protected Boolean profilaturaFlussi = false;
+	protected Boolean configFlussi = false;
+	
+	
+	//@Value("${tabgen.temp.dir}")
+	//private String expDir;
+	
+	@Autowired
+	private TabgenDelegate tabgenDelegate;
+	
+	@Autowired
+	private ImportTabgenService tabgenService;
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(TabgenControllerImpl.class);
+	
+	public TabgenControllerImpl() {
+		LOGGER.info("TabgenControllerImpl");
+	}
+	
+	@Override
+	@PostMapping("/_searchFields")
+	@ResponseBody
+	public SearchOperationResult<TabgenField> searchFieldsByTabgenId(@RequestBody BaseSearchInput searchInput) {
+		List<TabgenField> fields = tabgenDelegate.searchFieldsByTabgenId((String)searchInput.getValue("id"));
+		
+		Pair<List<TabgenField>, SearchInfo> searchResults = Pair.of(fields, SearchInfos.create());
+
+		return SearchOperationResult.success(fields, searchResults.getSecond());
+	}
+		
+
+	@Override
+	@PostMapping("/_search")
+	@ResponseBody
+	public SearchOperationResult<Tabgen> searchTable(@RequestBody BaseSearchInput searchInput) {
+	
+		TabgenFilter tabGenFilter = new TabgenFilter();
+		tabGenFilter.setId(searchInput.getParam("id"));
+		tabGenFilter.setDescription(searchInput.getParam("description"));
+		tabGenFilter.setType(searchInput.getParam("type"));
+		tabGenFilter.setLimit(searchInput.getParam("limit"));
+		tabGenFilter.setOffset(searchInput.getParam("startIndex"));
+		
+		if(this.profilaturaFlussi) {
+			tabGenFilter.setType("PROFILATURA");
+		}
+		if(this.configFlussi) {
+			tabGenFilter.setType("CONFIGURAZIONI");
+		}
+		
+		List<Tabgen> results = tabgenDelegate.searchTable(tabGenFilter);
+			
+		Pair<List<Tabgen>, SearchInfo> searchResults = Pair.of(results, SearchInfos.create());
+
+		return SearchOperationResult.success(results, searchResults.getSecond());
+	}
+
+    
+	@Override
+	@PostMapping("/_export")
+	@ResponseBody
+	public OperationResult<String> exportTable(@RequestBody BaseSearchInput searchInput) {
+		
+		TabgenValueFilter tabGenFilterTable = new TabgenValueFilter();
+	    tabGenFilterTable.setTabgenId(searchInput.getParam("id"));
+	    //TODO aggiungere gestione filtri per ricerca
+	    	    
+	    String results = tabgenDelegate.exportTable(tabGenFilterTable);
+	
+		return OperationResult.success(results);
+
+	    }
+
+	
+	@Override
+	@PostMapping("/_checkExport")
+	@ResponseBody
+	public OperationResult<Boolean> checkExport(@RequestBody String id) {
+		
+		Boolean value = tabgenDelegate.checkExport(id);
+
+		return OperationResult.success(value);
+	}
+	
+	
+	@Override
+	@GetMapping(value = "/_downloadExport/{exportId}", produces= "application/zip")
+	@NoAuthenticationRequired
+	@ResponseBody
+    public HttpEntity<byte[]> downloadExportedTable(@PathVariable String exportId) {
+    		byte[] byt = tabgenDelegate.downloadExportedTable(exportId);
+			HttpHeaders header = new HttpHeaders();
+			int index = exportId.lastIndexOf("$");
+	       
+			header.set("Content-Disposition", "attachment; filename=" +  exportId.substring(0, index) +".zip");
+	        
+	        
+	        return new HttpEntity<byte[]>(byt, header);
+	}
+
+	
+	@Override
+	@PostMapping(path = "/_import")
+    @ResponseBody
+    public OperationResult<String> handleFileUpload(
+            @RequestHeader(name = "fileName", defaultValue = "unknown") String fileName,
+            @RequestHeader(name = "fileType", defaultValue = MediaType.APPLICATION_OCTET_STREAM_VALUE) String fileType,
+            @RequestHeader(name = "anagraficaTableId", defaultValue = "unknown") String anagraficaTableId,
+            @RequestBody byte[] bytes
+            ) {
+       
+		String results = null;
+		try {
+			File file = File.createTempFile(fileName, "");
+	        // File file = new File(this.expDir + "/"+ fileName);
+			FileOutputStream fos = new FileOutputStream(file);
+			 fos.write(bytes);
+			 fos.close();
+			 results = tabgenService.handleFileUpload(file, fileName, anagraficaTableId);
+			 file.delete();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();			
+		}
+
+        return OperationResult.success(results);
+       }
+	
+	
+
+	@Override
+	@PostMapping("/save")
+	@CacheEvict(allEntries = false, cacheNames = "lookupCache", keyGenerator = "saveTabgenKeyGenerator")
+	public SaveOperationResult<TabgenResultBean> save(@RequestBody Tabgen inputDTO) {
+		
+		 TabgenResultBean result = tabgenDelegate.saveTable(inputDTO);
+		 
+		return SaveOperationResult.success(result);
+	}
+
+	
+	@Override
+	@GetMapping("/{entityKeyName}/{entityKeyValue}")
+	public OperationResult<Tabgen> getEntityBy(@PathVariable("entityKeyName") String entityKeyName, @PathVariable("entityKeyValue") String entityKeyValue) {
+		
+		TabgenFilter tabGenFilter = new TabgenFilter();
+		tabGenFilter.setId(entityKeyValue);
+		
+		List<Tabgen> results = tabgenDelegate.searchTable(tabGenFilter);
+		
+		Tabgen result = results.get(0);
+		
+		return OperationResult.success(result);
+	}
+
+	@Override
+	@PostMapping("/deleteTabgen")
+	@CacheEvict(allEntries = false, cacheNames = "lookupCache", keyGenerator = "saveTabgenKeyGenerator")
+	public TabgenResultBean deleteTabgen(@RequestBody BaseSearchInput data) {
+
+		String tabgenId = data.getParam("id");
+		Boolean deleteAll = data.getParam("deleteAll");
+		Boolean deleteField = data.getParam("deleteField");
+		Boolean deleteValue = data.getParam("deleteValue");
+		
+		return tabgenDelegate.deleteTable(tabgenId, deleteAll, deleteField, deleteValue);
+		
+	}
+
+	
+	@Override
+	@PostMapping("/deleteAllValue")
+	@CacheEvict(allEntries = false, cacheNames = "lookupCache", keyGenerator = "saveTabgenKeyGenerator")
+	public TabgenResultBean deleteAllValues(@RequestBody Tabgen input) {
+
+		String valueId = input.getId();
+		
+		return tabgenDelegate.deleteAllValues(valueId, true);
+		
+	}
+
+	@Override
+	@PostMapping("/deleteField")
+	@CacheEvict(allEntries = false, cacheNames = "lookupCache", keyGenerator = "saveTabgenKeyGenerator")
+	public TabgenResultBean deleteField(@RequestBody BaseSearchInput data) {
+
+		String fieldId = data.getParam("id");
+		Boolean del = data.getParam("delete");
+		
+		return tabgenDelegate.deleteField(fieldId, del);
+	}
+
+	
+
+
+	
+}

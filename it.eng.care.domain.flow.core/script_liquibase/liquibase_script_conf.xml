@@ -1,0 +1,289 @@
+<databaseChangeLog
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xsi:schemaLocation="
+    	http://www.liquibase.org/xml/ns/dbchangelog
+    	http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.1.xsd"
+        logicalFilePath="db/changelogs/2019"
+>
+
+    <changeSet id="2019" author="gennaro.damelio" failOnError="true" context="fm_flow" >
+        <comment>FLOW TABLES</comment>
+
+        <createTable tableName="FM_FLOW" remarks="FM_FLOW">
+            <column name="ID" type="VARCHAR(64)" remarks="Identificativo">
+                <constraints nullable="false"/>
+            </column>
+            <column name="CODE" type="VARCHAR(10)" remarks="Codice">
+                <constraints nullable="false"/>
+            </column>
+            <column name="NAME" type="VARCHAR(255)" remarks="Nome">
+                <constraints nullable="false"/>
+            </column>
+            <column name="DESCRIPTION" type="VARCHAR(255)" remarks="Descrizione">
+                <constraints nullable="false"/>
+            </column>
+            <column name="STATUS" type="BOOLEAN" remarks="Stato">
+                <constraints nullable="false"/>
+            </column>
+            <column name="REMOTE_SEND" type="BOOLEAN" remarks="Invio Remoto Ente Accoglienza">
+                <constraints nullable="false"/>
+            </column>
+            <column name="UNIQUENESS" type="BOOLEAN" remarks="Controllo Univocità Estrazione Certificata">
+                <constraints nullable="false"/>
+            </column>
+            <column name="SCHEDULING" type="BOOLEAN" remarks="Schedulazione">
+                <constraints nullable="false"/>
+            </column>
+            <column name="PERIODICITY" type="VARCHAR(64)" remarks="Periodicità">
+                <constraints nullable="false"/>
+            </column>
+            <column name="MONTHLY_DEADLINE" type="DATE" remarks="Giorno Scadenza Raccolta Mensile">
+                <constraints nullable="false"/>
+            </column>
+            <column name="TYPE" type="VARCHAR(30)" remarks="Tipo flusso">
+             	<constraints nullable="false"/>
+             </column>
+        </createTable>
+        <addPrimaryKey tableName="FM_FLOW" columnNames="ID"/>
+
+        <createTable tableName="FM_FLOW_TABLE" remarks="FM_FLOW_TABLE">
+            <column name="ID" type="VARCHAR(64)" remarks="Identificativo">
+                <constraints nullable="false"/>
+            </column>
+            <column name="NAME" type="VARCHAR(64)" remarks="Nome">
+                <constraints nullable="false"/>
+            </column>
+            <column name="DESCRIPTION" type="VARCHAR(255)" remarks="Descrizione">
+                <constraints nullable="false"/>
+            </column>
+            <column name="SECTION" type="INT" remarks="Sezione">
+                <constraints nullable="false"/>
+            </column>
+            <column name="FLOW_VERSION" type="VARCHAR(64)" remarks="FLOW">
+                <constraints nullable="false" />
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="FM_FLOW_TABLE" columnNames="ID"/>
+
+
+        <createTable tableName="FM_FLOW_TABLE_FIELD" remarks="FM_FLOW_TABLE_FIELD">
+            <column name="ID" type="VARCHAR(64)" remarks="Identificativo">
+                <constraints nullable="false"/>
+            </column>
+            <column name="NAME" type="VARCHAR(64)" remarks="Codice">
+                <constraints nullable="false"/>
+            </column>
+            <column name="DESCRIPTION" type="VARCHAR(255)" remarks="Descrizione">
+                <constraints nullable="false"/>
+            </column>
+            <column name="FIELD_TYPE" type="VARCHAR(64)" remarks="FIELD_TYPE_ID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="POSITION" type="INT" remarks="Posizione">
+                <constraints nullable="false"/>
+            </column>
+            <column name="IS_PK" type="BOOLEAN" defaultValueBoolean="false" remarks="IS_PK">
+                <constraints nullable="false"/>
+            </column>
+            <column name="FLOW_TABLE" type="VARCHAR(64)" remarks="FLOW_TABLE_ID">
+                <constraints nullable="false"/>
+            </column>
+            <column name="FLOW_TABLE_FIELD_ID" type="VARCHAR(64)" remarks="FLOW_TABLE_FIELD_ID">
+            </column>
+            <column name="LENGTH" type="INT" remarks="Lunghezza">
+                <constraints nullable="false"/>
+            </column>
+            <column name="MANDATORY" type="BOOLEAN" defaultValueBoolean="false" remarks="Mandatory">
+                <constraints nullable="false"/>
+            </column>
+            <column name="REG_EXP" type="VARCHAR(255)"  remarks="Espressione regolare">
+                <constraints nullable="false"/>
+            </column>
+            <column name="IS_REFERENCE_DATE" type="BOOLEAN" defaultValueBoolean="false" remarks="Reference date">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="FM_FLOW_TABLE_FIELD" columnNames="ID"/>
+
+
+        <createTable tableName="FM_FIELD_TYPE" remarks="FM_FIELD_TYPE">
+            <column name="ID" type="VARCHAR(64)" remarks="Identificativo">
+                <constraints nullable="false"/>
+            </column>
+            <column name="DESCRIPTION" type="VARCHAR(255)" remarks="Descrizione">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="FM_FIELD_TYPE" columnNames="ID"/>
+
+        <createTable tableName="FM_VERSION" remarks="FM_VERSION">
+            <column name="ID" type="VARCHAR(64)" remarks="Identificativo">
+                <constraints nullable="false"/>
+            </column>
+            <column name="VERSION" type="VARCHAR(32)" remarks="Codice">
+                <constraints nullable="false"/>
+            </column>
+            <column name="DESCRIPTION" type="VARCHAR(255)" remarks="Descrizione">
+                <constraints nullable="false"/>
+            </column>
+            <column name="START_DATE" type="DATE" remarks="START_DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="END_DATE" type="DATE" remarks="END_DATE">
+                <constraints nullable="false"/>
+            </column>
+            <column name="CREATION_DATE" type="DATE" remarks="CREATION_DATE">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="FM_VERSION" columnNames="ID"/>
+
+
+        <createTable tableName="FM_DATA_SOURCE" remarks="FM_DATA_SOURCE">
+            <column name="ID" type="VARCHAR(64)" remarks="Identificativo">
+                <constraints nullable="false"/>
+            </column>
+            <column name="NAME" type="VARCHAR(64)" remarks="Nome">
+                <constraints nullable="false"/>
+            </column>
+            <column name="HOSTNAME" type="VARCHAR(64)" remarks="Hostname">
+                <constraints nullable="false"/>
+            </column>
+            <column name="PORT" type="VARCHAR(10)" remarks="Porta">
+                <constraints nullable="false"/>
+            </column>
+            <column name="SERVICE_NAME" type="VARCHAR(64)" remarks="Service Name">
+                <constraints nullable="false"/>
+            </column>
+            <column name="DRIVER" type="VARCHAR(64)" remarks="Driver Database">
+                <constraints nullable="false"/>
+            </column>
+            <column name="USERNAME" type="VARCHAR(64)" remarks="Username">
+                <constraints nullable="false"/>
+            </column>
+            <column name="PASSWORD" type="VARCHAR(64)" remarks="Password">
+                <constraints nullable="false"/>
+            </column>
+            <column name="ENABLED" type="BOOLEAN" defaultValueBoolean="true" remarks="Stato Datasource">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="FM_DATA_SOURCE" columnNames="ID"/>
+
+
+        <createTable tableName="FM_DRIVER" remarks="FM_DRIVER">
+            <column name="ID" type="VARCHAR(64)" remarks="Identificativo">
+                <constraints nullable="false"/>
+            </column>
+            <column name="NAME" type="VARCHAR(64)" remarks="Nome">
+                <constraints nullable="false"/>
+            </column>
+            <column name="DESCRIPTION" type="VARCHAR(255)" remarks="Descrizione">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="FM_DRIVER" columnNames="ID"/>
+
+
+        <createTable tableName="FM_FLOW_TABLE_DATA_SOURCE" remarks="FM_FLOW_TABLE_DATA_SOURCE">
+            <column name="ID" type="VARCHAR(64)" remarks="Identificativo">
+                <constraints nullable="false"/>
+            </column>
+            <column name="FLOW_TABLE" type="VARCHAR(64)" remarks="Identificativo Flow Table">
+                <constraints nullable="false"/>
+            </column>
+            <column name="DATA_SOURCE" type="VARCHAR(64)" remarks="Identificativo Data Source">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="FM_FLOW_TABLE_DATA_SOURCE" columnNames="ID"/>
+
+
+        <createTable tableName="FM_FLOW_VERSION" remarks="FM_FLOW_VERSION">
+            <column name="ID" type="VARCHAR(64)" remarks="Identificativo">
+                <constraints nullable="false"/>
+            </column>
+            <column name="FLOW" type="VARCHAR(64)" remarks="Identificativo Flusso">
+                <constraints nullable="false"/>
+            </column>
+            <column name="VERSION" type="VARCHAR(64)" remarks="Identificativo Versione">
+                <constraints nullable="false"/>
+            </column>
+        </createTable>
+        <addPrimaryKey tableName="FM_FLOW_VERSION" columnNames="ID"/>
+
+
+        <addForeignKeyConstraint baseColumnNames="FLOW_VERSION"
+                             baseTableName="FM_FLOW_TABLE"
+                             constraintName="FK_FM_FLOW_TABLE_FM_FLOW"
+                             deferrable="true"
+                             initiallyDeferred="true"
+                             onDelete="CASCADE"
+                             onUpdate="RESTRICT"
+                             referencedColumnNames="ID"
+                             referencedTableName="FM_FLOW_VERSION"/>
+
+        <addForeignKeyConstraint baseColumnNames="FIELD_TYPE"
+                                 baseTableName="FM_FLOW_TABLE_FIELD"
+                                 constraintName="FK_FM_FLOW_TABLE_FIELD_FM_FIELD_TYPE"
+                                 deferrable="true"
+                                 initiallyDeferred="true"
+                                 onDelete="CASCADE"
+                                 onUpdate="RESTRICT"
+                                 referencedColumnNames="ID"
+                                 referencedTableName="FM_FIELD_TYPE"/>
+
+        <addForeignKeyConstraint baseColumnNames="FLOW_TABLE"
+                                 baseTableName="FM_FLOW_TABLE_FIELD"
+                                 constraintName="FK_FM_FLOW_TABLE_FIELD_FM_FLOW_TABLE"
+                                 deferrable="true"
+                                 initiallyDeferred="true"
+                                 onDelete="CASCADE"
+                                 onUpdate="RESTRICT"
+                                 referencedColumnNames="ID"
+                                 referencedTableName="FM_FLOW_TABLE"/>
+
+        <addForeignKeyConstraint baseColumnNames="VERSION"
+                                 baseTableName="FM_FLOW_VERSION"
+                                 constraintName="FM_FLOW_VERSION_1"
+                                 deferrable="true"
+                                 initiallyDeferred="true"
+                                 onDelete="CASCADE"
+                                 onUpdate="RESTRICT"
+                                 referencedColumnNames="ID"
+                                 referencedTableName="FM_VERSION"/>
+
+        <addForeignKeyConstraint baseColumnNames="FLOW"
+                                 baseTableName="FM_FLOW_VERSION"
+                                 constraintName="FM_FLOW_VERSION_2"
+                                 deferrable="true"
+                                 initiallyDeferred="true"
+                                 onDelete="CASCADE"
+                                 onUpdate="RESTRICT"
+                                 referencedColumnNames="ID"
+                                 referencedTableName="FM_FLOW"/>
+
+        <addForeignKeyConstraint baseColumnNames="DATA_SOURCE"
+                                 baseTableName="FM_FLOW_TABLE_DATA_SOURCE"
+                                 constraintName="FK_FM_FLOW_TABLE_DATA_SOURCE_1"
+                                 deferrable="true"
+                                 initiallyDeferred="true"
+                                 onDelete="CASCADE"
+                                 onUpdate="RESTRICT"
+                                 referencedColumnNames="ID"
+                                 referencedTableName="FM_DATA_SOURCE"/>
+
+        <addForeignKeyConstraint baseColumnNames="FLOW_TABLE"
+                                 baseTableName="FM_FLOW_TABLE_DATA_SOURCE"
+                                 constraintName="FK_FM_FLOW_TABLE_DATA_SOURCE_2"
+                                 deferrable="true"
+                                 initiallyDeferred="true"
+                                 onDelete="CASCADE"
+                                 onUpdate="RESTRICT"
+                                 referencedColumnNames="ID"
+                                 referencedTableName="FM_FLOW_TABLE"/>
+
+</changeSet>
+
+</databaseChangeLog>

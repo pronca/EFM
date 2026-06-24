@@ -1,0 +1,232 @@
+package it.eng.care.domain.flow.jobs.jobs.secondLevelValidation;
+
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
+
+import org.quartz.DisallowConcurrentExecution;
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.core.controller.FlowExportRequestController;
+import it.eng.care.domain.flow.core.dto.FlowExportRequestDTO;
+import it.eng.care.domain.flow.jobs.enumeration.SchedulingIntervalEnum;
+import it.eng.care.domain.flow.jobs.enumeration.SchedulingTypeEnum;
+import it.eng.care.domain.flow.jobs.service.JobService;
+import it.eng.care.platform.tool.transport.operations.SaveOperationResult;
+
+/**
+ *
+ * Schedulatore delle richieste di estrazione di secondo livello FM_FLOW_EXPORTING_REQUEST
+ *
+ */
+@DisallowConcurrentExecution
+public class ExecuteFlowExportRequestJob implements Job {
+	
+	@Autowired(required=false)
+	private FlowExportRequestController restService;
+	
+	@Autowired
+	private JobService jobService;
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(ExecuteFlowExportRequestJob.class);
+	
+	private final Long MILLS_IN_DAY =  Long.valueOf(1000 * 60 * 60 * 24);
+	private final Long MILLS_IN_WEEK = MILLS_IN_DAY * 7;
+
+	@Override
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+		
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  EXECUTE FLOW EXPORT REQUEST JOB - START >>>>>>>>>>>>>>>>>>>>>>>");
+		
+		List<FlowExportRequestDTO> requestList = jobService.getExportRequestToExecute();
+		
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  EXECUTE FLOW EXPORT REQUEST JOB - LIST SIZE : " + requestList.size() + " >>>>>>>>>>>>>>>>>>>>>>>");
+		
+		for (FlowExportRequestDTO request : requestList) {
+			
+			try {
+			
+				String type = request.getSchedulingType();
+				String interval = request.getSchedulingInterval();
+				
+				Boolean startExtraction = false;
+				Boolean createNextExtraction = false;
+				
+				Date now = new Date();
+				Date schedulingStartingTime = request.getSchedulingStartingTime();
+				Date nextExtraction = null;
+				
+				if(type != null) {
+					if(type.equals(SchedulingTypeEnum.ISTANTLY.name())) {
+						
+						startExtraction = true;
+						
+					} else if(type.equals(SchedulingTypeEnum.ONE_TIME.name())) {
+						
+						if(!now.before(schedulingStartingTime)) {
+							startExtraction = true;
+						}
+						
+					}  else if(type.equals(SchedulingTypeEnum.PERIODICALLY.name())) {
+						
+						Date schedulingNextTime = request.getSchedulingNextTime();
+						
+						if(!now.before(schedulingNextTime)) {
+							startExtraction = true;
+							createNextExtraction = true;
+							
+							if(interval.equals(SchedulingIntervalEnum.DAILY.name())) {
+								
+								nextExtraction = getNextDay(schedulingNextTime);
+								
+							} else if(interval.equals(SchedulingIntervalEnum.WEEKLY.name())) {
+								
+								nextExtraction = getNextWeek(schedulingNextTime);
+								
+							} else if(interval.equals(SchedulingIntervalEnum.MONTHLY.name())) {
+								
+								nextExtraction = getNextMonth(schedulingStartingTime, schedulingNextTime);
+								
+							} else if(interval.equals(SchedulingIntervalEnum.YEARLY.name())) {
+								
+								nextExtraction = getNextYear(schedulingStartingTime, schedulingNextTime);
+								
+							}
+							
+						}
+						
+					}
+				}
+				
+				if(startExtraction) {
+					 
+					LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  EXECUTE FLOW EXPORT REQUEST JOB - START EXTRACTION : " + request.getId() + " >>>>>>>>>>>>>>>>>>>>>>>");
+					
+					SaveOperationResult<FlowExportRequestDTO> result = restService.startExtractionIn(request, false);
+					
+					if(result != null && result.success()) {
+						
+						restService.createDrgRequest(request.getId());
+												
+						if(createNextExtraction) {
+							LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  EXECUTE FLOW EXPORT REQUEST JOB - NEXT EXTRACTION : " + nextExtraction + " >>>>>>>>>>>>>>>>>>>>>>>");
+				            jobService.createNextSchedulation(request.getId(), nextExtraction);
+						}
+					} else {
+						LOGGER.error("<<<<<<<<<<<<<<<<<<<<<<<  EXECUTE FLOW EXPORT REQUEST JOB - ERROR(1) >>>>>>>>>>>>>>>>>>>>>>>");
+					}
+					
+				}
+			
+			} catch (Exception ex) {
+				LOGGER.error("<<<<<<<<<<<<<<<<<<<<<<<  EXECUTE FLOW EXPORT REQUEST JOB - ERROR(2) >>>>>>>>>>>>>>>>>>>>>>>");
+				LOGGER.error(ex.getMessage());
+				ex.printStackTrace();
+				
+			}
+			
+		}
+		
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  EXECUTE FLOW EXPORT REQUEST JOB - END >>>>>>>>>>>>>>>>>>>>>>>");
+		
+	}
+	
+	/**
+	 * Incrementa una data di un giorno
+	 * 
+	 * @param date data da incrementare
+	 * @return
+	 */
+	public Date getNextDay(Date date) {
+		Date nextDate = new Date(date.getTime() + MILLS_IN_DAY);
+		return nextDate;
+	}
+	
+	/**
+	 * Incrementa una data di 7 giorni
+	 * 
+	 * @param date data da incrementare
+	 * @return
+	 */
+	public Date getNextWeek(Date date) {
+		Date nextDate = new Date(date.getTime() + MILLS_IN_WEEK);
+		return nextDate;
+	}
+	
+	/**
+	 * Incrementa una data di un mese impostando come giorno quello definito in firstDate;
+	 * se il giorno selezionato non esiste perchè il mese successivo è più corto del precedente allora viene preso l'ultimo giorno del mese.
+	 * 
+	 * @param firstDate data di riferimento per il calcolo del giorno del mese
+	 * @param lastDate data da incrementare
+	 * @return
+	 */
+	public Date getNextMonth(Date firstDate, Date lastDate) {
+		// Aggiunge controllo su esistenza del giorno x nel mese y
+		// es 1. data inizio schedulazione = 31/10/2019 data prossima schedulazione = 30/10/2019 -> modifica quindi il giorno scelto dall'utente perchè il 31-nov non esiste
+		// es 2. data inizio schedulazione = 30/09/2019 data prossima schedulazione = 30/10/2019 non modificare il giorno scelto dall'utente
+		// ad ogni schedulazione bisogna sempre dare la priorità al giorno selezionato dall'utente (SchedulingStartingTime); se non esiste allora imposta l'ultimo giorno del mese
+		
+		Calendar lastCalendar = Calendar.getInstance();
+		lastCalendar.setTime(lastDate);
+		int lastCalendarMonth = lastCalendar.get(Calendar.MONTH);
+		int lastCalendarYear = lastCalendar.get(Calendar.YEAR);
+		
+		int nextMonth = lastCalendarMonth == Calendar.DECEMBER ? Calendar.JANUARY : (lastCalendarMonth + 1);
+		int nextYear = lastCalendarMonth == Calendar.DECEMBER ? (lastCalendarYear + 1) : lastCalendarYear;
+		
+		Calendar nextCalendar = Calendar.getInstance();
+		nextCalendar.setTime(firstDate);
+		nextCalendar.set(Calendar.DAY_OF_MONTH, 1);
+		nextCalendar.set(Calendar.MONTH, nextMonth);
+		nextCalendar.set(Calendar.YEAR, nextYear);
+		int lastDayOfNextCalendarMonth = nextCalendar.getActualMaximum(Calendar.DAY_OF_MONTH);
+		
+		// se il giorno selezionato in fase di creazione schedulazione supera l'ultimo giorno del mese allora prendi l'ultimo giorno del mese
+		Calendar firstCalendar = Calendar.getInstance();
+		firstCalendar.setTime(firstDate);
+		int firstCalendarDay = firstCalendar.get(Calendar.DAY_OF_MONTH);
+		
+		int nextDay = firstCalendarDay <= lastDayOfNextCalendarMonth ? firstCalendarDay : lastDayOfNextCalendarMonth;
+		nextCalendar.set(Calendar.DAY_OF_MONTH, nextDay);
+		
+		Date nextDate = nextCalendar.getTime();
+		return nextDate;
+	}
+	
+	/**
+	 * Incrementa una data di un anno evitando di impostare come giorno il 29/feb quando l'anno non è bisestile.
+	 * 
+	 * @param firstDate data di riferimento per il calcolo del giorno del mese
+	 * @param lastDate data da incrementare
+	 * @return
+	 */
+	public Date getNextYear(Date firstDate, Date lastDate) {
+		// aggiungi controllo per l'anno bisestile (es. data impostata in creazione (SchedulingStartingTime)=29/02/2020 l'anno successivo febbraio si ferma al 28)
+		Calendar lastCalendar = Calendar.getInstance();
+		lastCalendar.setTime(lastDate);
+		
+		
+		Calendar nextCalendar = Calendar.getInstance();
+		nextCalendar.setTime(firstDate);
+		nextCalendar.set(Calendar.DAY_OF_MONTH, 1);
+		nextCalendar.set(Calendar.YEAR, lastCalendar.get(Calendar.YEAR) + 1);
+		int lastDayOfNextCalendarMonth = nextCalendar.getActualMaximum(Calendar.DAY_OF_MONTH);
+		
+		Calendar firstCalendar = Calendar.getInstance();
+		firstCalendar.setTime(firstDate);
+		int firstCalendarDay = firstCalendar.get(Calendar.DAY_OF_MONTH);
+		
+		int nextDay = firstCalendarDay <= lastDayOfNextCalendarMonth ? firstCalendarDay : lastDayOfNextCalendarMonth;
+		nextCalendar.set(Calendar.DAY_OF_MONTH, nextDay);
+		
+		Date nextDate = nextCalendar.getTime();
+		return nextDate;
+	}
+	
+}

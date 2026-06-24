@@ -1,0 +1,44 @@
+package it.eng.care.domain.flow.jobs.jobs;
+
+import javax.mail.MessagingException;
+
+import it.eng.care.domain.flow.jobs.look.LockJob;
+import org.quartz.DisallowConcurrentExecution;
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.email.service.MailSender;
+
+@DisallowConcurrentExecution
+public class SendEmailsForErrors implements Job{
+
+@Autowired
+ MailSender mailSender;
+
+private static final Logger LOGGER = LoggerFactory.getLogger(SendEmailsForErrors.class);
+
+	@Override
+	@LockJob(entity = "SendEmailsForErrors", untilCfg = "SendEmailsForErrors.locktimeout")
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+		
+		
+		try {
+			LOGGER.debug("<<<<<<<<<<<<<<<<<<<<<<<  SENDING ERROR EMAILS >>>>>>>>>>>>>>>>>>>>>>>");
+
+			mailSender.sendEmailErrors();
+			
+			LOGGER.debug("<<<<<<<<<<<<<<<<<<<<<<<  ERROR EMAILS SENDEND >>>>>>>>>>>>>>>>>>>>>>>");
+
+		} catch (MessagingException e) {
+			
+			LOGGER.debug("<<<<<<<<<<<<<<<<<<<<<<< EXCEPTION ON  ERROR EMAILS  >>>>>>>>>>>>>>>>>>>>>>>");
+
+			e.printStackTrace();
+		}
+	}
+
+}

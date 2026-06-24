@@ -1,0 +1,1082 @@
+{
+	"definitions": {
+		
+	},
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "http://example.com/root.json",
+	"type": "object",
+	"title": "The Root Schema",
+	"required": [
+		"Anagrafica"
+	],
+	"properties": {
+		"Anagrafica": {
+			"$id": "#/properties/Anagrafica",
+			"type": "object",
+			"title": "The Anagrafica Schema",
+			"required": [
+				"REGIONE",
+				"AZIENDASANITARIA",
+				"ETA",
+				"COMUNENASCITA",
+				"CITTADINANZA",
+				"REGIONERESIDENZA",
+				"COMUNERESIDENZA",
+				"ASLRESIDENZA",
+				"MEDICOPRESCRITTORE",
+				"COGNOME",
+				"NOME",
+				"CODICEFISCALE",
+				"CODICEISTITUZIONECOMPETENTE",
+				"NUMEROIDENTIFICAZIONEPERSONALE",
+				"NUMEROIDENTIFICAZIONETESSERA",
+				"DATANASCITA",
+				"DATASCADENZATESSERA",
+				"NUMEROSDOMADRE",
+				"LIVELLOISTRUZIONE",
+				"GENERE",
+				"ISTITUTODIMISSIONE",
+				"NUMEROSCHEDA",
+				"STATOCIVILE",
+				"TIPOPRESCRITTORE",
+				"STATOESTERO",
+				"Clinica",
+				"Interventi",
+				"Diagnosi",
+				"Trasferimenti"
+			],
+			"properties": {
+				"REGIONE": {
+					"$id": "#/properties/Anagrafica/properties/REGIONE",
+					"type": "string",
+					"title": "The Regione Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"AZIENDASANITARIA": {
+					"$id": "#/properties/Anagrafica/properties/AZIENDASANITARIA",
+					"type": "string",
+					"title": "The Aziendasanitaria Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"ETA": {
+					"$id": "#/properties/Anagrafica/properties/ETA",
+					"type": "string",
+					"title": "The Eta Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"COMUNENASCITA": {
+					"$id": "#/properties/Anagrafica/properties/COMUNENASCITA",
+					"type": "string",
+					"title": "The Comunenascita Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"CITTADINANZA": {
+					"$id": "#/properties/Anagrafica/properties/CITTADINANZA",
+					"type": "string",
+					"title": "The Cittadinanza Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"REGIONERESIDENZA": {
+					"$id": "#/properties/Anagrafica/properties/REGIONERESIDENZA",
+					"type": "string",
+					"title": "The Regioneresidenza Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"COMUNERESIDENZA": {
+					"$id": "#/properties/Anagrafica/properties/COMUNERESIDENZA",
+					"type": "string",
+					"title": "The Comuneresidenza Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"ASLRESIDENZA": {
+					"$id": "#/properties/Anagrafica/properties/ASLRESIDENZA",
+					"type": "string",
+					"title": "The Aslresidenza Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"MEDICOPRESCRITTORE": {
+					"$id": "#/properties/Anagrafica/properties/MEDICOPRESCRITTORE",
+					"type": "string",
+					"title": "The Medicoprescrittore Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"COGNOME": {
+					"$id": "#/properties/Anagrafica/properties/COGNOME",
+					"type": "string",
+					"title": "The Cognome Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"NOME": {
+					"$id": "#/properties/Anagrafica/properties/NOME",
+					"type": "string",
+					"title": "The Nome Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"CODICEFISCALE": {
+					"$id": "#/properties/Anagrafica/properties/CODICEFISCALE",
+					"type": "string",
+					"title": "The Codicefiscale Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"CODICEISTITUZIONECOMPETENTE": {
+					"$id": "#/properties/Anagrafica/properties/CODICEISTITUZIONECOMPETENTE",
+					"type": "string",
+					"title": "The Codiceistituzionecompetente Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"NUMEROIDENTIFICAZIONEPERSONALE": {
+					"$id": "#/properties/Anagrafica/properties/NUMEROIDENTIFICAZIONEPERSONALE",
+					"type": "string",
+					"title": "The Numeroidentificazionepersonale Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"NUMEROIDENTIFICAZIONETESSERA": {
+					"$id": "#/properties/Anagrafica/properties/NUMEROIDENTIFICAZIONETESSERA",
+					"type": "string",
+					"title": "The Numeroidentificazionetessera Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"DATANASCITA": {
+					"$id": "#/properties/Anagrafica/properties/DATANASCITA",
+					"type": "string",
+					"title": "The Datanascita Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"DATASCADENZATESSERA": {
+					"$id": "#/properties/Anagrafica/properties/DATASCADENZATESSERA",
+					"type": "string",
+					"title": "The Datascadenzatessera Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"NUMEROSDOMADRE": {
+					"$id": "#/properties/Anagrafica/properties/NUMEROSDOMADRE",
+					"type": "string",
+					"title": "The Numerosdomadre Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"LIVELLOISTRUZIONE": {
+					"$id": "#/properties/Anagrafica/properties/LIVELLOISTRUZIONE",
+					"type": "string",
+					"title": "The Livelloistruzione Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"GENERE": {
+					"$id": "#/properties/Anagrafica/properties/GENERE",
+					"type": "string",
+					"title": "The Genere Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"ISTITUTODIMISSIONE": {
+					"$id": "#/properties/Anagrafica/properties/ISTITUTODIMISSIONE",
+					"type": "string",
+					"title": "The Istitutodimissione Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"NUMEROSCHEDA": {
+					"$id": "#/properties/Anagrafica/properties/NUMEROSCHEDA",
+					"type": "string",
+					"title": "The Numeroscheda Schema",
+					"default": "",
+					"examples": [
+						"1"
+					],
+					"pattern": "^(.*)$"
+				},
+				"STATOCIVILE": {
+					"$id": "#/properties/Anagrafica/properties/STATOCIVILE",
+					"type": "string",
+					"title": "The Statocivile Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"TIPOPRESCRITTORE": {
+					"$id": "#/properties/Anagrafica/properties/TIPOPRESCRITTORE",
+					"type": "string",
+					"title": "The Tipoprescrittore Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"STATOESTERO": {
+					"$id": "#/properties/Anagrafica/properties/STATOESTERO",
+					"type": "string",
+					"title": "The Statoestero Schema",
+					"default": "",
+					"examples": [
+						""
+					],
+					"pattern": "^(.*)$"
+				},
+				"Clinica": {
+					"$id": "#/properties/Anagrafica/properties/Clinica",
+					"type": "object",
+					"title": "The Clinica Schema",
+					"required": [
+						"ISTITUTOAMMISSIONE",
+						"REPARTOAMMISSIONE",
+						"REGIMERICOVERO",
+						"ORARICOVERO",
+						"ONEREDEGENZA",
+						"PROVENIENZAPAZIENTE",
+						"TIPORICOVERO",
+						"CLASSIPRIORITA",
+						"DATADIMISSIONEMORTE",
+						"NUMEROORGANDAIVIVENTE",
+						"PESONASCITA",
+						"RILEVAZIONEDOLORE",
+						"PRESSIONEARTERIOSASISTOLICA",
+						"CREATININASERICA",
+						"FRAZIONEEIEZIONE",
+						"MOTIVORICOVEROREGIMEDIURNO",
+						"NUMEROGIORNATEDH",
+						"GIORNIPERMESSO",
+						"NUMEROGIORNATEDEGENZA",
+						"CODICEDRG",
+						"CODICEDRG_AZIENDA",
+						"IMPORTODEGENZA_AZIENDA",
+						"IMPORTORIMODULATO",
+						"POSIZIONECONTABILE",
+						"TIPOTRASMISSIONE",
+						"DATARICOVERO",
+						"DATAPRENOTAZIONE",
+						"MOTIVORICOVERODO",
+						"TRAUMATISMOINTOSSICAZIONE",
+						"CAUSAESTERNA",
+						"REPARTODIMISSIONE",
+						"AREAFUNZIONALEDIMISSIONE",
+						"ORADIMISSIONEMORTE",
+						"MODALITADIMISSIONE",
+						"RISCONTROAUTOPTICO",
+						"ESPIANTO",
+						"NUMEROORGANIDACADAVERE",
+						"NUMORGANICADAVERETRASPORTATI"
+					],
+					"properties": {
+						"ISTITUTOAMMISSIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/ISTITUTOAMMISSIONE",
+							"type": "string",
+							"title": "The Istitutoammissione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"REPARTOAMMISSIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/REPARTOAMMISSIONE",
+							"type": "string",
+							"title": "The Repartoammissione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"REGIMERICOVERO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/REGIMERICOVERO",
+							"type": "string",
+							"title": "The Regimericovero Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"ORARICOVERO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/ORARICOVERO",
+							"type": "string",
+							"title": "The Oraricovero Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"ONEREDEGENZA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/ONEREDEGENZA",
+							"type": "string",
+							"title": "The Oneredegenza Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"PROVENIENZAPAZIENTE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/PROVENIENZAPAZIENTE",
+							"type": "string",
+							"title": "The Provenienzapaziente Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"TIPORICOVERO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/TIPORICOVERO",
+							"type": "string",
+							"title": "The Tiporicovero Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"CLASSIPRIORITA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/CLASSIPRIORITA",
+							"type": "string",
+							"title": "The Classipriorita Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"DATADIMISSIONEMORTE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/DATADIMISSIONEMORTE",
+							"type": "string",
+							"title": "The Datadimissionemorte Schema",
+							"default": "",
+							"examples": [
+								"2019-07-17T08:55:05+00:00"
+							],
+							"pattern": "^(.*)$"
+						},
+						"NUMEROORGANDAIVIVENTE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/NUMEROORGANDAIVIVENTE",
+							"type": "string",
+							"title": "The Numeroorgandaivivente Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"PESONASCITA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/PESONASCITA",
+							"type": "string",
+							"title": "The Pesonascita Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"RILEVAZIONEDOLORE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/RILEVAZIONEDOLORE",
+							"type": "string",
+							"title": "The Rilevazionedolore Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"PRESSIONEARTERIOSASISTOLICA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/PRESSIONEARTERIOSASISTOLICA",
+							"type": "string",
+							"title": "The Pressionearteriosasistolica Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"CREATININASERICA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/CREATININASERICA",
+							"type": "string",
+							"title": "The Creatininaserica Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"FRAZIONEEIEZIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/FRAZIONEEIEZIONE",
+							"type": "string",
+							"title": "The Frazioneeiezione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"MOTIVORICOVEROREGIMEDIURNO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/MOTIVORICOVEROREGIMEDIURNO",
+							"type": "string",
+							"title": "The Motivoricoveroregimediurno Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"NUMEROGIORNATEDH": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/NUMEROGIORNATEDH",
+							"type": "string",
+							"title": "The Numerogiornatedh Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"GIORNIPERMESSO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/GIORNIPERMESSO",
+							"type": "string",
+							"title": "The Giornipermesso Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"NUMEROGIORNATEDEGENZA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/NUMEROGIORNATEDEGENZA",
+							"type": "string",
+							"title": "The Numerogiornatedegenza Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"CODICEDRG": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/CODICEDRG",
+							"type": "string",
+							"title": "The Codicedrg Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"CODICEDRG_AZIENDA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/CODICEDRG_AZIENDA",
+							"type": "string",
+							"title": "The Codicedrg_azienda Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"IMPORTODEGENZA_AZIENDA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/IMPORTODEGENZA_AZIENDA",
+							"type": "string",
+							"title": "The Importodegenza_azienda Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"IMPORTORIMODULATO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/IMPORTORIMODULATO",
+							"type": "string",
+							"title": "The Importorimodulato Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"POSIZIONECONTABILE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/POSIZIONECONTABILE",
+							"type": "string",
+							"title": "The Posizionecontabile Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"TIPOTRASMISSIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/TIPOTRASMISSIONE",
+							"type": "string",
+							"title": "The Tipotrasmissione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"DATARICOVERO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/DATARICOVERO",
+							"type": "string",
+							"title": "The Dataricovero Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"ISTITUTODIMISSIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/ISTITUTODIMISSIONE",
+							"type": "string",
+							"title": "The Istitutodimissione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"DATAPRENOTAZIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/DATAPRENOTAZIONE",
+							"type": "string",
+							"title": "The Dataprenotazione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"NUMEROSCHEDA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/NUMEROSCHEDA",
+							"type": "string",
+							"title": "The Numeroscheda Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"MOTIVORICOVERODO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/MOTIVORICOVERODO",
+							"type": "string",
+							"title": "The Motivoricoverodo Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"TRAUMATISMOINTOSSICAZIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/TRAUMATISMOINTOSSICAZIONE",
+							"type": "string",
+							"title": "The Traumatismointossicazione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"CAUSAESTERNA": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/CAUSAESTERNA",
+							"type": "string",
+							"title": "The Causaesterna Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"REPARTODIMISSIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/REPARTODIMISSIONE",
+							"type": "string",
+							"title": "The Repartodimissione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"AREAFUNZIONALEDIMISSIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/AREAFUNZIONALEDIMISSIONE",
+							"type": "string",
+							"title": "The Areafunzionaledimissione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"ORADIMISSIONEMORTE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/ORADIMISSIONEMORTE",
+							"type": "string",
+							"title": "The Oradimissionemorte Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"MODALITADIMISSIONE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/MODALITADIMISSIONE",
+							"type": "string",
+							"title": "The Modalitadimissione Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"RISCONTROAUTOPTICO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/RISCONTROAUTOPTICO",
+							"type": "string",
+							"title": "The Riscontroautoptico Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"ESPIANTO": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/ESPIANTO",
+							"type": "string",
+							"title": "The Espianto Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"NUMEROORGANIDACADAVERE": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/NUMEROORGANIDACADAVERE",
+							"type": "string",
+							"title": "The Numeroorganidacadavere Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						},
+						"NUMORGANICADAVERETRASPORTATI": {
+							"$id": "#/properties/Anagrafica/properties/Clinica/properties/NUMORGANICADAVERETRASPORTATI",
+							"type": "string",
+							"title": "The Numorganicadaveretrasportati Schema",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^(.*)$"
+						}
+					}
+				},
+				"Interventi": {
+					"$id": "#/properties/Anagrafica/properties/Interventi",
+					"type": "array",
+					"title": "The Interventi Schema",
+					"items": {
+						"$id": "#/properties/Anagrafica/properties/Interventi/items",
+						"type": "object",
+						"title": "The Items Schema",
+						"required": [
+							"INTERVENTOCHIRURGICOPROCPARTO",
+							"INTERVENTOCHIRURGICOPARTOEST",
+							"ORAINIZIOINTERVENTOPROCPARTO",
+							"IDENTIFICATIVOCHIRURGICO1",
+							"IDENTIFICATIVOCHIRURGICO2",
+							"IDENTIFICATIVOCHIRURGICO3",
+							"IDENTIFICATIVOANESTESIA",
+							"CHECKLISTSALAOPERATORIA",
+							"LATERALITA",
+							"PROGRESSIVOINTERVENTO",
+							"DATAINTERVENTOCHIRPROCPARTO"
+						],
+						"properties": {
+							"INTERVENTOCHIRURGICOPROCPARTO": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/INTERVENTOCHIRURGICOPROCPARTO",
+								"type": "string",
+								"title": "The Interventochirurgicoprocparto Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"INTERVENTOCHIRURGICOPARTOEST": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/INTERVENTOCHIRURGICOPARTOEST",
+								"type": "string",
+								"title": "The Interventochirurgicopartoest Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"ORAINIZIOINTERVENTOPROCPARTO": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/ORAINIZIOINTERVENTOPROCPARTO",
+								"type": "string",
+								"title": "The Orainiziointerventoprocparto Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"IDENTIFICATIVOCHIRURGICO1": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/IDENTIFICATIVOCHIRURGICO1",
+								"type": "string",
+								"title": "The Identificativochirurgico1 Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"IDENTIFICATIVOCHIRURGICO2": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/IDENTIFICATIVOCHIRURGICO2",
+								"type": "string",
+								"title": "The Identificativochirurgico2 Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"IDENTIFICATIVOCHIRURGICO3": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/IDENTIFICATIVOCHIRURGICO3",
+								"type": "string",
+								"title": "The Identificativochirurgico3 Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"IDENTIFICATIVOANESTESIA": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/IDENTIFICATIVOANESTESIA",
+								"type": "string",
+								"title": "The Identificativoanestesia Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"CHECKLISTSALAOPERATORIA": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/CHECKLISTSALAOPERATORIA",
+								"type": "string",
+								"title": "The Checklistsalaoperatoria Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"LATERALITA": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/LATERALITA",
+								"type": "string",
+								"title": "The Lateralita Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"PROGRESSIVOINTERVENTO": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/PROGRESSIVOINTERVENTO",
+								"type": "string",
+								"title": "The Progressivointervento Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"DATAINTERVENTOCHIRPROCPARTO": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/DATAINTERVENTOCHIRPROCPARTO",
+								"type": "string",
+								"title": "The Datainterventochirprocparto Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"ISTITUTODIMISSIONE": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/ISTITUTODIMISSIONE",
+								"type": "string",
+								"title": "The Istitutodimissione Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"NUMEROSCHEDA": {
+								"$id": "#/properties/Anagrafica/properties/Interventi/items/properties/NUMEROSCHEDA",
+								"type": "string",
+								"title": "The Numeroscheda Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							}
+						}
+					}
+				},
+				"Diagnosi": {
+					"$id": "#/properties/Anagrafica/properties/Diagnosi",
+					"type": "array",
+					"title": "The Diagnosi Schema",
+					"items": {
+						"$id": "#/properties/Anagrafica/properties/Diagnosi/items",
+						"type": "object",
+						"title": "The Items Schema",
+						"required": [
+							"PROGRESSIVODIAGNOSI",
+							"DIAGNOSIPRINCIPALEDIMISSIONE",
+							"DIAGNOSIPRINCIPALERICOVERO",
+							"LATERALITA",
+							"STADIAZIONECONDENSATA"
+						],
+						"properties": {
+							"PROGRESSIVODIAGNOSI": {
+								"$id": "#/properties/Anagrafica/properties/Diagnosi/items/properties/PROGRESSIVODIAGNOSI",
+								"type": "string",
+								"title": "The Progressivodiagnosi Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"DIAGNOSIPRINCIPALEDIMISSIONE": {
+								"$id": "#/properties/Anagrafica/properties/Diagnosi/items/properties/DIAGNOSIPRINCIPALEDIMISSIONE",
+								"type": "string",
+								"title": "The Diagnosiprincipaledimissione Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"DIAGNOSIPRINCIPALERICOVERO": {
+								"$id": "#/properties/Anagrafica/properties/Diagnosi/items/properties/DIAGNOSIPRINCIPALERICOVERO",
+								"type": "string",
+								"title": "The Diagnosiprincipalericovero Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"LATERALITA": {
+								"$id": "#/properties/Anagrafica/properties/Diagnosi/items/properties/LATERALITA",
+								"type": "string",
+								"title": "The Lateralita Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"STADIAZIONECONDENSATA": {
+								"$id": "#/properties/Anagrafica/properties/Diagnosi/items/properties/STADIAZIONECONDENSATA",
+								"type": "string",
+								"title": "The Stadiazionecondensata Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"ISTITUTODIMISSIONE": {
+								"$id": "#/properties/Anagrafica/properties/Diagnosi/items/properties/ISTITUTODIMISSIONE",
+								"type": "string",
+								"title": "The Istitutodimissione Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"NUMEROSCHEDA": {
+								"$id": "#/properties/Anagrafica/properties/Diagnosi/items/properties/NUMEROSCHEDA",
+								"type": "string",
+								"title": "The Numeroscheda Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							}
+						}
+					}
+				},
+				"Trasferimenti": {
+					"$id": "#/properties/Anagrafica/properties/Trasferimenti",
+					"type": "array",
+					"title": "The Trasferimenti Schema",
+					"items": {
+						"$id": "#/properties/Anagrafica/properties/Trasferimenti/items",
+						"type": "object",
+						"title": "The Items Schema",
+						"required": [
+							"REPARTOTRASFERIMENTO",
+							"DATATRASFERIMENTO",
+							"ORATRASFERIMENTO",
+							"PROGRESSIVOTRASFERIMENTO",
+							"ISTITUTORICOVEROTRASFERIMENTO"
+						],
+						"properties": {
+							"REPARTOTRASFERIMENTO": {
+								"$id": "#/properties/Anagrafica/properties/Trasferimenti/items/properties/REPARTOTRASFERIMENTO",
+								"type": "string",
+								"title": "The Repartotrasferimento Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"DATATRASFERIMENTO": {
+								"$id": "#/properties/Anagrafica/properties/Trasferimenti/items/properties/DATATRASFERIMENTO",
+								"type": "string",
+								"title": "The Datatrasferimento Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"ORATRASFERIMENTO": {
+								"$id": "#/properties/Anagrafica/properties/Trasferimenti/items/properties/ORATRASFERIMENTO",
+								"type": "string",
+								"title": "The Oratrasferimento Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"PROGRESSIVOTRASFERIMENTO": {
+								"$id": "#/properties/Anagrafica/properties/Trasferimenti/items/properties/PROGRESSIVOTRASFERIMENTO",
+								"type": "string",
+								"title": "The Progressivotrasferimento Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"ISTITUTORICOVEROTRASFERIMENTO": {
+								"$id": "#/properties/Anagrafica/properties/Trasferimenti/items/properties/ISTITUTORICOVEROTRASFERIMENTO",
+								"type": "string",
+								"title": "The Istitutoricoverotrasferimento Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"ISTITUTODIMISSIONE": {
+								"$id": "#/properties/Anagrafica/properties/Trasferimenti/items/properties/ISTITUTODIMISSIONE",
+								"type": "string",
+								"title": "The Istitutodimissione Schema",
+								"default": "",
+								"examples": [
+									""
+								],
+								"pattern": "^(.*)$"
+							},
+							"NUMEROSCHEDA": {
+								"$id": "#/properties/Anagrafica/properties/Trasferimenti/items/properties/NUMEROSCHEDA",
+								"type": "string",
+								"title": "The Numeroscheda Schema",
+								"default": "",
+								"examples": [
+									"2"
+								],
+								"pattern": "^(.*)$"
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+}

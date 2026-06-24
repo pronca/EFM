@@ -1,0 +1,10 @@
+#sonar.projectKey=it.eng.care.domain.flow
+#sonar.projectName=it.eng.care.domain.flow
+#sonar.sourceEncoding=UTF-8
+
+sonar.modules=it.eng.care.domain.flow.api,it.eng.care.domain.flow.core,it.eng.care.domain.flow.drools,it.eng.care.domain.flow.jobs
+
+# Modules inherit properties set at parent level
+#sonar.sources=src
+#sonar.sourceEncoding=UTF-8
+#sonar.language=java

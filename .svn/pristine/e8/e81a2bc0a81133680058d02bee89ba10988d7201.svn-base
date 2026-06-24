@@ -1,0 +1,22 @@
+package it.eng.care.domain.flow.flowupload.dao;
+
+import java.util.List;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import it.eng.care.domain.flow.flowupload.dao.QuerySearch.FlowSectionFileDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.flowupload.model.FlowFileUploadRequestDO;
+import it.eng.care.domain.flow.flowupload.model.FlowSectionFileDO;
+import it.eng.care.platform.persistence.api.QueryByCriteria;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+
+@Repository
+public interface FlowSectionFileDAO extends JpaRepository<FlowSectionFileDO, String> {
+	
+	@QueryByCriteria(FlowSectionFileDAOQueryByBaseSearchInput.class)
+	List<FlowSectionFileDO> cerca(BaseSearchInput input);
+	
+	FlowSectionFileDO findByRequestAndSection(FlowFileUploadRequestDO request, int section);
+
+}

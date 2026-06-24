@@ -1,0 +1,67 @@
+package it.eng.care.domain.flow.core.spring.statemachine;
+
+import it.eng.care.domain.flow.core.entity.StateMachinePersistDO;
+import it.eng.care.domain.flow.core.entity.StateMachinePersistHistoryDO;
+import it.eng.care.domain.flow.core.service.StateMachinePersistHistoryService;
+import it.eng.care.platform.authentication.api.service.LoggedUserService;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.statemachine.StateMachineContext;
+import org.springframework.statemachine.StateMachinePersist;
+import org.springframework.statemachine.data.StateMachineRepository;
+import org.springframework.statemachine.service.StateMachineSerialisationService;
+import org.springframework.statemachine.support.DefaultStateMachineContext;
+
+import jakarta.transaction.Transactional;
+import java.util.Date;
+import java.util.UUID;
+
+@Transactional
+public class InMemoryStateMachinePersist implements StateMachinePersist<String, String, String> {
+
+    @Autowired
+    private StateMachineRepository<StateMachinePersistDO> stateMachineRepository;
+
+    @Autowired
+    private StateMachineSerialisationService<String, String> serialisation;
+
+    @Autowired
+    private StateMachinePersistHistoryService persistHistory;
+
+    @Autowired
+    private LoggedUserService loggUserService;
+
+
+    @Override
+    public void write(StateMachineContext<String, String> context, String contextObj) throws Exception {
+        StateMachinePersistDO machine = new StateMachinePersistDO();
+
+        machine.setId(contextObj);
+        machine.setState(context.getState());
+        machine.setDateStatus(new Date());
+        machine.setUser(loggUserService.getCurrentUser().getUsername());
+        machine.setEvent(context.getEvent());
+        stateMachineRepository.save(machine);
+
+        StateMachinePersistHistoryDO history = new StateMachinePersistHistoryDO();
+        history.setId(UUID.randomUUID().toString());
+        history.setEntityId(contextObj);
+        history.setState(context.getState());
+        history.setDateStatus(new Date());
+        history.setUser(loggUserService.getCurrentUser().getUsername());
+        history.setEvent(context.getEvent());
+
+        persistHistory.createEntity(history);
+
+    }
+
+    @Override
+    public StateMachineContext<String, String> read(String contextObj) throws Exception {
+
+        StateMachinePersistDO machine = stateMachineRepository.findById(contextObj).get();
+        StateMachineContext<String, String> ctx = new DefaultStateMachineContext<String, String>(machine.getState(),
+                machine.getEvent(), null, null, null, contextObj);
+
+        return ctx;
+
+    }
+}

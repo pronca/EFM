@@ -1,0 +1,508 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+
+import org.apache.commons.lang3.StringUtils;
+import org.hibernate.internal.SessionImpl;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Example;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+
+import it.eng.care.domain.flow.b2b.model.DrgDTO;
+import it.eng.care.domain.flow.b2b.model.ErrorFieldsDTO;
+import it.eng.care.domain.flow.b2b.model.ErrorModelDTO;
+import it.eng.care.domain.flow.b2b.model.ErrorsDTO;
+import it.eng.care.domain.flow.b2b.model.FieldErrorsDTO;
+import it.eng.care.domain.flow.b2b.model.KeysDTO;
+import it.eng.care.domain.flow.b2b.model.SendDrgDTO;
+import it.eng.care.domain.flow.b2b.utils.ErrorService;
+import it.eng.care.domain.flow.core.auditLog.MonitorSDOConverter;
+import it.eng.care.domain.flow.core.auditLog.MonitorSDODownloadXmlConverter;
+import it.eng.care.domain.flow.core.dao.ErrorViewDAO;
+import it.eng.care.domain.flow.core.dao.FlowExportRequestDAO;
+import it.eng.care.domain.flow.core.dao.MonitorSdoXlDAO;
+import it.eng.care.domain.flow.core.dao.MonitorSdoXlFileDAO;
+import it.eng.care.domain.flow.core.dto.MonitorSdoPaginDTO;
+import it.eng.care.domain.flow.core.dto.MonitorSdoXlErrorDTO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.entity.MonitorSdoXlDO;
+import it.eng.care.domain.flow.core.service.FlowService;
+import it.eng.care.domain.flow.core.service.MonitorSdoXlService;
+import it.eng.care.domain.flow.core.service.TransactionalTwoLevelResultsService;
+import it.eng.care.domain.flow.core.service.TwoLevelResultsService;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.entity.TabgenValueDO;
+import it.eng.care.domain.flow.tabgen.service.TabgenService;
+import it.eng.care.domain.flow.ws.results.Error;
+import it.eng.care.domain.flow.ws.results.ResultRequest;
+import it.eng.care.platform.audit.api.model.privacymanager.annotation.PrivacyManagerLog;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventActionEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventCategoryEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityTypeEnum;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+
+import javax.sql.DataSource;
+
+@Service
+@Transactional
+public class MonitorSdoXlServiceImpl implements MonitorSdoXlService{
+
+    @Autowired
+    private DataSource dataSource;
+	
+	@Autowired
+	private MonitorSdoXlDAO monitorSdoXlDAO;
+	
+	@Autowired
+	private ErrorViewDAO errorDAO;
+	
+	@Autowired
+	private MonitorSdoXlFileDAO fileDao;
+	
+	@Autowired
+	private EntityManager entityManager;
+	
+	@Autowired
+	private FlowService flowService;
+	
+	@Autowired
+	private TabgenService tabgenService;
+	
+	@Autowired
+	private FlowExportRequestDAO flowExportRequestDAO;
+	
+	@Autowired
+	private TwoLevelResultsService twoLevelResultsService;
+	
+	@Autowired
+	private ErrorService errorService;
+	
+	@Autowired
+	private TransactionalTwoLevelResultsService transactionalTwoLevelResultsService;
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(MonitorSdoXlServiceImpl.class);
+
+	@Override
+	public Page<MonitorSdoXlDO> findAll(BaseSearchInput searchInput) {
+		int pageSize = searchInput.getValue("pageSize");
+		int pageNo = searchInput.getValue("pageNo");
+		
+		String sortDir = searchInput.getValue("sortDir");
+		String sortField = searchInput.getValue("sortField");
+		Sort.Order order;
+		Sort sort;
+		if(sortDir.equals("asc")) {
+			order =  new Sort.Order(Sort.Direction.ASC, sortField).ignoreCase();
+			sort  =  Sort.by(order);
+		}else if(sortDir.equals("desc")){
+			order = new Sort.Order(Sort.Direction.DESC, sortField).ignoreCase();
+			sort  =  Sort.by(order);
+		}else {
+			order = new  Sort.Order(Sort.Direction.ASC, "id").ignoreCase();
+			sort  =  Sort.by(order);
+		}
+		Pageable paging =  PageRequest.of(pageNo,pageSize,sort);
+		Page<MonitorSdoXlDO> pagedResult = monitorSdoXlDAO.findAllByDeletedOrDeletedIsNull(paging, false);
+		return pagedResult;
+	}
+	
+	@Override
+	public Page<MonitorSdoXlDO> filterAll(BaseSearchInput searchInput) {
+		int pageSize = searchInput.getValue("pageSize");
+		int pageNo = searchInput.getValue("pageNo");		
+		
+		Pageable paging =  PageRequest.of(pageNo,pageSize);
+		List<MonitorSdoXlDO> monitorDataList =  monitorSdoXlDAO.filterData(searchInput);
+		final int start = (int)paging.getOffset();
+		final int end = Math.min((start + paging.getPageSize()), monitorDataList.size());		
+		Page<MonitorSdoXlDO> pageTmp = new PageImpl<MonitorSdoXlDO>(monitorDataList.subList(start, end), paging, monitorDataList.size());
+		
+		return pageTmp;
+	}
+	
+	
+	@Override
+	public Page<MonitorSdoXlErrorDTO> reatriveAllErrorsByFlussoAndNosologico(BaseSearchInput searchInput){
+		String flow = searchInput.getValue("flusso");
+		String nosologico = searchInput.getValue("nosologico");
+		String presidio = searchInput.getValue("presidio");
+		String idEstrazione = searchInput.getValue("idEstrazione");
+		int pageSize = searchInput.getValue("pageSize");
+		int pageNo = searchInput.getValue("pageNo");
+		String nosologicoConditional = searchInput.getValue("nosologicoConditional");
+		List<MonitorSdoXlErrorDTO> reatriveAllErrorsByFlussoAndNosologico = errorDAO.searchErrorsByFlowAndNosologico(flow, nosologico, presidio, idEstrazione, nosologicoConditional);
+		Pageable paging =  PageRequest.of(pageNo,pageSize);
+		if(reatriveAllErrorsByFlussoAndNosologico.size()>0) {			
+			final int start = (int)paging.getOffset();
+			final int end = Math.min((start + paging.getPageSize()), reatriveAllErrorsByFlussoAndNosologico.size());	
+			Page<MonitorSdoXlErrorDTO> pageTmp = 
+					new PageImpl<MonitorSdoXlErrorDTO>(reatriveAllErrorsByFlussoAndNosologico.subList(start, end), paging, reatriveAllErrorsByFlussoAndNosologico.size());		
+			return pageTmp;
+			
+		}
+		return 	new PageImpl<MonitorSdoXlErrorDTO>(reatriveAllErrorsByFlussoAndNosologico, paging, reatriveAllErrorsByFlussoAndNosologico.size());	
+	}
+
+	@Override
+	public Integer xmlStatus(String flussId,String nosologico,String presidio) {
+		Integer count =  fileDao.getStatusXml(flussId,nosologico,presidio);
+		return count;
+	}
+	
+	@Override
+	public byte[] xmlExport(BaseSearchInput searchInput) {
+		byte[] data =  fileDao.getXmlData(searchInput);
+		return data;
+	}
+
+	
+	@Override
+	public void addResults(ResultRequest resultRequest) throws Exception {
+		
+		LOGGER.info("MONITOR WS - ADD RESULTS");
+		
+		String idFlussoRichiesta = resultRequest.getSet().getFIAdtAdtLErroreSDO().get(0).getIdFlusso();
+		
+		TabgenValueFilter filter = new TabgenValueFilter();
+		filter.setTabgenId("FM_ID_FLUSSI_WS_REGIONE");
+		filter.setField1(idFlussoRichiesta);
+		List<TabgenValueDO> tabgenValueFlussi = tabgenService.searchTabgenValueByFilter(filter);
+		
+		if(tabgenValueFlussi == null || tabgenValueFlussi.isEmpty()) {
+			throw new Exception("Flusso non riconosciuto (1): " + idFlussoRichiesta);
+		}
+		
+		FlowDO flow = flowService.retrieveOne(tabgenValueFlussi.get(0).getField2());
+		
+		if(tabgenValueFlussi == null || tabgenValueFlussi.isEmpty()) {
+			throw new Exception("Flusso non riconosciuto (2): " + idFlussoRichiesta);
+		}
+		
+		String errorsTable = flow.getName() + "_REG_SCARTI_REGIONE";
+		
+		LOGGER.info("MONITOR WS - ADD RESULTS - MANAGING ERRORS - DELETE");
+		
+		manageErrors(errorsTable, resultRequest.getSet().getFIAdtAdtLErroreSDO(), true);
+		
+		LOGGER.info("MONITOR WS - ADD RESULTS - MANAGING ERRORS - INSERT");
+		
+		manageErrors(errorsTable, resultRequest.getSet().getFIAdtAdtLErroreSDO(), false);
+		
+	}
+
+    private Connection getConnection() throws SQLException {
+        Connection conn = dataSource.getConnection();
+        conn.setAutoCommit(false);
+        return conn;
+    }
+	private void manageErrors(String errorsTable, List<Error> errors, Boolean delete) throws Exception {
+		
+		String queryDelete =  "delete from " + errorsTable + " where "
+				+ "extraction_id = ? and "
+				+ "CODICEAZIENDA=? and "
+				+ "CODICEPRESIDIO=? and "
+				+ "KPROGRESSIVOSDO=?";
+		
+		String queryInsert = "insert into " + errorsTable + "("
+				+ "TIPOFILE,"
+				+ "CODICEAZIENDA,"
+				+ "CODICEPRESIDIO,"
+				+ "KPROGRESSIVOSDO,"
+				+ "CODICEERRORE,"
+				+ "DESCRIZIONEERRORE,"
+				+ "PROGRESSIVOCAMPO,"
+				+ "EXTRACTION_ID,SEVERITY,RECEIVING_DATE)" + 
+				" values (?,?,?,?,?,?,?,?,?,?)";
+		
+		Connection connectionLocal = getConnection();
+		PreparedStatement statDelete = connectionLocal.prepareStatement(queryDelete);
+		PreparedStatement statInsert = connectionLocal.prepareStatement(queryInsert);
+		
+		Map<String, MonitorSdoXlDO> monitorMap = new HashMap<String, MonitorSdoXlDO>();
+
+		for (Error error : errors) {
+			
+			String monitorkey = error.getNosologico() + "_" + error.getPresidio() + "_" + error.getProtocolloSIO();
+			
+			MonitorSdoXlDO monitorSdo = monitorMap.get(monitorkey);
+			
+			if(monitorSdo == null) {
+				monitorSdo = this.findMonitorSdoXl(error);
+				if(monitorSdo != null) {
+					monitorMap.put(monitorkey, monitorSdo);
+				}				
+			}
+			
+			if(!delete) {
+				Boolean errore = "KO".equals(error.getEsito() + "");
+				if(errore) {
+					statInsert.setString(1, "1");
+					statInsert.setString(2, monitorSdo.getAzienda());
+					statInsert.setString(3, error.getPresidio());
+					statInsert.setString(4, error.getNosologico());
+					statInsert.setString(5, error.getCodiceErrore());
+					statInsert.setString(6, error.getDescrizione());
+					statInsert.setString(7, "001");
+					statInsert.setString(8, monitorSdo.getIdEstrazione());
+					statInsert.setString(9, "SCARTO");
+					statInsert.setDate(10, new java.sql.Date(new Date().getTime()));
+		
+					statInsert.addBatch();
+				}
+			}
+		}
+		
+		if(delete) {
+			for(MonitorSdoXlDO monitorSdo : monitorMap.values()) {
+				statDelete.setString(1, monitorSdo.getIdEstrazione());
+				statDelete.setString(2, monitorSdo.getAzienda());
+				statDelete.setString(3, monitorSdo.getPresidio());
+				statDelete.setString(4, monitorSdo.getNosologico());
+				statDelete.addBatch();
+			}
+			
+			statDelete.executeBatch();
+			statDelete.clearBatch();
+			statDelete.clearParameters();
+		} else {
+			
+			Map<String, FlowExportRequestDO> extractionMap = new HashMap<String, FlowExportRequestDO>();
+			
+			for(MonitorSdoXlDO monitorSdo : monitorMap.values()) {
+				
+				String extrMapKey = monitorSdo.getIdEstrazione();
+				if(!extractionMap.containsKey(extrMapKey)) {
+					FlowExportRequestDO req = flowExportRequestDAO.findById(extrMapKey).get();
+					if(req != null) {
+						extractionMap.put(extrMapKey, req);
+					}
+				}
+				
+			}
+			
+			statInsert.executeBatch();
+			statInsert.clearBatch();
+			statInsert.clearParameters();
+			
+			twoLevelResultsService.updateExtractionsStatus(extractionMap.values());
+		}
+		
+		statDelete.close();
+		statInsert.close();
+		
+		connectionLocal.commit();
+		
+	}
+	
+	private MonitorSdoXlDO findMonitorSdoXl(Error error) {
+		MonitorSdoXlDO res = null;
+		MonitorSdoXlDO monitorSdo = new MonitorSdoXlDO();
+		monitorSdo.setNosologico(error.getNosologico());
+		monitorSdo.setAzienda(error.getAzienda());
+		monitorSdo.setPresidio(error.getPresidio());
+		
+		if(!StringUtils.isEmpty(error.getProtocolloSIO())) {
+			monitorSdo.setProtocolloSio(error.getProtocolloSIO());
+		}
+		
+		List<MonitorSdoXlDO> sdoList = monitorSdoXlDAO.findAll(Example.of(monitorSdo));
+		if(sdoList != null && !sdoList.isEmpty()) {
+			
+			res = sdoList.stream()
+					.filter(s -> s.getDeleted() == null || !s.getDeleted())
+					.max(new Comparator<MonitorSdoXlDO>() {
+
+				@Override
+				public int compare(MonitorSdoXlDO o1, MonitorSdoXlDO o2) {
+					return o1.getDataInvio().compareTo(o2.getDataInvio());
+				}
+			}).orElse(null);
+		}
+		
+		return res;
+	}
+	
+	@Override
+	public void sendResults(List<Error> results) throws Exception {
+		LOGGER.info("CARICAMENTO RISULTATI SDO XL -	risultati = " + results.size());
+		
+		TabgenValueFilter filter = new TabgenValueFilter();
+		filter.setTabgenId("FM_ID_FLUSSI_WS_REGIONE");
+		filter.setField1(results.get(0).getIdFlusso());
+		List<TabgenValueDO> tabgenValueFlussi = tabgenService.searchTabgenValueByFilter(filter);
+		
+		if(tabgenValueFlussi == null || tabgenValueFlussi.isEmpty()) {
+			throw new Exception("Flusso non riconosciuto (1): " + results.get(0).getIdFlusso());
+		}
+		
+		FlowDO flow = flowService.retrieveOne(tabgenValueFlussi.get(0).getField2());
+		
+		String querySelect =  "SELECT EXTRACTION_ID "
+				+ "FROM FM_FLOW_SDO_XL_0 ffsx "
+				+ "WHERE " 
+				+ "CODICEPRESIDIO =? AND CODICEAZIENDA = ? AND PROGRESSIVOSDO = ? ";
+		
+		Connection connectionLocal = getConnection();
+		PreparedStatement statSelect = connectionLocal.prepareStatement(querySelect);
+		
+		results.sort(new Comparator<Error>() {
+			public int compare(Error e1, Error e2) {
+				int c = e1.getPresidio().compareTo(e2.getPresidio());
+				if(c == 0) {
+					c = e1.getAzienda().compareTo(e2.getAzienda());
+				}
+				if(c == 0) {
+					e1.getNosologico().compareTo(e2.getNosologico());
+				}
+				return c;
+			};
+		});
+
+		String nosologico = "";
+		String azienda = "";
+		String presidio = "";
+		ErrorFieldsDTO errorField = null;
+		ErrorModelDTO model = null;
+		List<ErrorModelDTO> models = new ArrayList<ErrorModelDTO>();
+		List<SendDrgDTO> listSendDrg = new ArrayList<SendDrgDTO>();
+		
+		for (Error result : results) {
+			
+			if(!(result.getNosologico().equals(nosologico) && result.getPresidio().equals(presidio) && result.getAzienda().equals(azienda))) {
+				// NUOVA PRATICA
+				// 1. INVIA LA PRECEDENTE
+				// 2. AGGIUNGI LA SUCCESSIVA
+				
+				// 2. CREA LA NUOVA PRATICA
+				statSelect.setString(1, result.getPresidio());
+				statSelect.setString(2, result.getAzienda());
+				statSelect.setString(3, result.getNosologico());
+				ResultSet resultSet = statSelect.executeQuery();
+				resultSet.next();
+				String extractionId = resultSet.getString(1);
+				
+				model = new ErrorModelDTO();
+				model.setIdRequest(extractionId);
+				model.setErrors(new ArrayList<ErrorsDTO>());
+				
+				List<KeysDTO> keys = new ArrayList<KeysDTO>();
+				KeysDTO keyNos = new KeysDTO();
+				keyNos.setKey("progressivosdo");
+				keyNos.setValue(result.getNosologico());
+				keys.add(keyNos);
+				
+				KeysDTO keyAz = new KeysDTO();
+				keyAz.setKey("codiceazienda");
+				keyAz.setValue(result.getAzienda());
+				keys.add(keyAz);
+				
+				KeysDTO keyPre = new KeysDTO();
+				keyPre.setKey("codicepresidio");
+				keyPre.setValue(result.getPresidio());
+				keys.add(keyPre);
+				
+				ErrorsDTO errorsDTO = new ErrorsDTO();
+				errorsDTO.setKeys(keys); // chiave della pratica
+				errorsDTO.setFields(new ArrayList<ErrorFieldsDTO>()); // campi errati della pratica (tutte le sezioni)
+				
+				errorField = new ErrorFieldsDTO();
+				errorField.setField("Riepilogo errori"); // nome del campo
+				errorField.setSection("Riepilogo errori"); // sezione del campo
+				errorField.setFieldErrors(new ArrayList<FieldErrorsDTO>()); // errori segnalati sul campo
+				errorsDTO.getFields().add(errorField);
+				
+				model.getErrors().add(errorsDTO);
+				
+				models.add(model);
+				
+				
+				SendDrgDTO sendDrg = new SendDrgDTO();
+				sendDrg.setType("R");
+				
+				sendDrg.setIdRequest(extractionId);
+				
+				DrgDTO drg = new DrgDTO();
+				drg.setImportoRegionale(Double.parseDouble(result.getImporto()));
+				drg.setDrgRegionale(result.getDrg());
+				drg.setCosto(result.getCosto());
+				drg.setOnereDegenza("");
+				sendDrg.setDrg(drg);
+
+				List<KeysDTO> listNewKeys = new ArrayList<KeysDTO>();
+				listNewKeys.add(new KeysDTO("codiceazienda", result.getAzienda()));
+				listNewKeys.add(new KeysDTO("codicepresidio", result.getPresidio()));
+				listNewKeys.add(new KeysDTO("progressivosdo", result.getNosologico()));
+				sendDrg.setKeys(listNewKeys);
+				listSendDrg.add(sendDrg);
+			}
+			
+			FieldErrorsDTO error = new FieldErrorsDTO();
+			error.setErrorKey(result.getCodiceErrore() + " - " + result.getDescrizione()); // messaggio di errore
+			error.setErrorValue(result.getDescrizione()); // valore del campo errato
+			error.setSeverity("ERROR");
+			errorField.getFieldErrors().add(error);
+			
+			nosologico = result.getNosologico();
+			presidio = result.getPresidio();
+			azienda = result.getAzienda();
+
+		}
+		
+		transactionalTwoLevelResultsService.generateJsonDrg(listSendDrg, "TOT", flow.getName());
+		
+		for (ErrorModelDTO errorModelDTO : models) {
+			LOGGER.info("VALIDAZIONE RECORD : INVIO RISULTATI ESTRAZIONE " + model.getIdRequest() + " - INVOCAZIONE SERVIZIO");
+			errorService.getAndSendErrors(errorModelDTO, flow.getName());			
+		}
+		
+		LOGGER.info("VALIDAZIONE RECORD : FINE INVIO RISULTATI");
+		
+	}
+	
+	@Override
+	public void delete(String codiceazienda, String codicepresidio, String progressivosdo) {
+		MonitorSdoXlDO entity = new MonitorSdoXlDO();
+		entity.setPresidio(codicepresidio);
+		entity.setAzienda(codiceazienda);
+		entity.setNosologico(progressivosdo);
+		List<MonitorSdoXlDO> list = monitorSdoXlDAO.findAll(Example.of(entity));
+		if(list != null && !list.isEmpty()) {
+			for (MonitorSdoXlDO m : list) {
+				m.setDeleted(true);			
+			}
+		}
+	}
+	
+	@Override
+	@PrivacyManagerLog(action = AuditEventActionEnum.READ, category = AuditEventCategoryEnum.ACCESS_LOG, description="Download xml Monitor flussi SDO", converter= MonitorSDODownloadXmlConverter.class, entity= EntityEnum.FLUSSI, entityType= EntityTypeEnum.SCHEDA_MEDICA)
+	public byte[] sendAuditDownMonitorSDOToPM(BaseSearchInput baseSearchInput, byte[] zipbytes) {
+		return zipbytes;
+	}
+	
+	@Override
+	@PrivacyManagerLog(action = AuditEventActionEnum.SEARCH, category = AuditEventCategoryEnum.ACCESS_LOG, description="Monitor flussi SDO", converter= MonitorSDOConverter.class, entity= EntityEnum.FLUSSI, entityType= EntityTypeEnum.SCHEDA_MEDICA)
+	public MonitorSdoPaginDTO sendAuditVisuaMonitorSDOToPM(BaseSearchInput searchInput, MonitorSdoPaginDTO pagination) {
+		return pagination;
+	}
+}

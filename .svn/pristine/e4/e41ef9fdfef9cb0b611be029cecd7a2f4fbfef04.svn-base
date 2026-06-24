@@ -1,0 +1,583 @@
+package org.it.eng.care.domain.flow.tabgen;
+
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+
+import java.io.File;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
+import java.util.UUID;
+
+import jakarta.persistence.EntityManager;
+
+import org.junit.FixMethodOrder;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.MethodSorters;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit4.SpringJUnit4ClassRunner;
+
+import it.eng.care.domain.flow.core.config.C3P0DataSource;
+import it.eng.care.domain.flow.core.dto.DataSourceDTO;
+import it.eng.care.domain.flow.core.dto.DriverDTO;
+import it.eng.care.domain.flow.core.dto.ExtractionFilter.ExtractionFilterDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.OperationTypeEnum;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenField;
+import it.eng.care.domain.flow.tabgen.dto.TabgenFilter;
+import it.eng.care.domain.flow.tabgen.dto.TabgenResultBean;
+import it.eng.care.domain.flow.tabgen.dto.TabgenType;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.exception.InvalidTabgenOperationException;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+import it.eng.care.domain.flow.tabgen.service.impl.ImportTabgenService;
+
+@RunWith(SpringJUnit4ClassRunner.class)
+@ContextConfiguration(classes = {TabgenTestConfig.class })
+@FixMethodOrder(MethodSorters.NAME_ASCENDING)
+public class TabgenTest {
+
+
+	@Autowired
+	private TabgenDelegate delegate;
+
+	@Autowired
+	private EntityManager entityManager;
+
+	@Autowired
+	private ImportTabgenService importService;
+
+	private String testTabgenValueId;
+
+
+
+
+	@Test
+	public void extractionTest (){
+		ExtractionFilterDTO extractionFilterDTO = new ExtractionFilterDTO();
+		FormFlowDTO formFlowDTO = new FormFlowDTO();
+		formFlowDTO.setName("EXTEST");
+		extractionFilterDTO.setFormFlow(formFlowDTO);
+
+	}
+
+
+	@Test
+	public void testInsertDatasource() {
+
+		DriverDTO driverDTO = new DriverDTO();
+		driverDTO.setId("0");
+		driverDTO.setName("oracle");
+		driverDTO.setDescription("Driver Oracle");
+
+		DataSourceDTO dataSourceDTO = new DataSourceDTO();
+		dataSourceDTO.setId("123456");
+		dataSourceDTO.setName("mysql");
+		dataSourceDTO.setDriver(driverDTO);
+		dataSourceDTO.setEnabled(true);
+		dataSourceDTO.setUsername("BDSAV");
+		dataSourceDTO.setPassword("BDSAV");
+		dataSourceDTO.setPort("3306");
+		dataSourceDTO.setHostname("localhost");
+		dataSourceDTO.setServiceName("flow_manager");
+
+		try {
+			Connection con = C3P0DataSource.getInstance(dataSourceDTO).getConnection();
+			con.setAutoCommit(false);
+			String sql1 = "INSERT INTO " + "FM_FLOW_EXTEST_0" +
+							"(ID," +
+							"STATUS," +
+					 		"VERSION," +
+							"STATUS_PROCESS," +
+							"DATE_PROCESSING," +
+							"CMP1," +
+							"CMP2 " +
+							" ) " +
+							"VALUES (?,?,?,?,?,?,?)";
+					String sql2 = "INSERT INTO " + "FM_FLOW_EXTEST_1" +
+					"(ID," +
+					"STATUS," +
+					"VERSION," +
+					"STATUS_PROCESS," +
+					"DATE_PROCESSING," +
+					"CMP1," +
+					"CMP2" +
+					" ) " +
+					"VALUES (?,?,?,?,?,?,?)";
+			PreparedStatement preparedStatement1 = con.prepareStatement(sql1);
+			PreparedStatement preparedStatement2 = con.prepareStatement(sql2);
+			java.sql.Date Date = new java.sql.Date(Calendar.getInstance().getTime().getTime());
+			long start = System.currentTimeMillis();
+			for (int i=0;i<=1000000;i++){
+			preparedStatement1.setObject(1,i);
+			preparedStatement1.setObject(2,"01010101" );
+			preparedStatement1.setObject(3,"0101010101010" );
+			preparedStatement1.setObject(4,"01010");
+			preparedStatement1.setObject(5, Date);
+			preparedStatement1.setObject(6,i + "aqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedw");
+			preparedStatement1.setObject(7,i + "aqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedw");
+
+			preparedStatement2.setObject(1,i);
+			preparedStatement2.setObject(2,"01");
+			preparedStatement2.setObject(3,"01");
+			preparedStatement2.setObject(4,"01");
+			preparedStatement2.setObject(5, Date);
+			preparedStatement2.setObject(6,i + "aqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedw");
+			preparedStatement2.setObject(7,i + "aqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedwaqswdefr123wsedw");
+			preparedStatement1.addBatch();
+			preparedStatement2.addBatch();
+			if(i%5000 == 0){
+				preparedStatement1.executeBatch();
+				long end1 = System.currentTimeMillis();
+				float sec1 = (end1 - start) / 1000F;
+				System.out.println("ExecuteBatch1:" + sec1 + " seconds");
+				preparedStatement2.executeBatch();
+				long end2 = System.currentTimeMillis();
+				float sec2 = (end2 - start) / 1000F;
+				System.out.println("ExecuteBatch2:" + sec2 + " seconds");
+				con.commit();
+				long end3 = System.currentTimeMillis();
+				float sec3 = (end1 - start) / 1000F;
+				System.out.println("ExecuteCommitt:" + sec3 + " seconds");
+
+			}
+		}
+
+		} catch (SQLException e) {
+			e.printStackTrace();
+		}
+
+
+
+
+
+	}
+
+
+	@Test
+	public void createTableAnagrafica() {
+		Tabgen table = new Tabgen();
+		table.setId("TEST");
+		table.setDescription("TEST DESCR 2");
+		table.setFieldNum(1);
+		table.setType(TabgenType.ANAGRAFICHE.name());
+		table.setVisible(1);
+		List<TabgenField> tabgenFields = new ArrayList<TabgenField>();
+		TabgenField field1 = new TabgenField();
+		field1.setDescription("FIELD1");
+		field1.setId("ID");
+		field1.setNullable(false);
+		field1.setPk(false);
+		field1.setProgressive(1);
+		field1.setTabgen(table);
+		field1.setVisible(true);
+		field1.setTabgen(table);
+		field1.setTabgenValueColumn("FIELD1");
+		tabgenFields.add(field1);
+		
+		TabgenField field2 = new TabgenField();
+		field2.setDescription("field2");
+		field2.setId("field2");
+		field2.setNullable(false);
+		field2.setPk(true);
+		field2.setProgressive(2);
+		field2.setTabgen(table);
+		field2.setVisible(true);
+		field2.setTabgen(table);
+		field2.setTabgenValueColumn("FIELD2");
+		tabgenFields.add(field2);
+		
+		table.setTabgenFields(tabgenFields);
+		
+		TabgenResultBean result = delegate.saveTable(table);
+		assertNotNull(result);
+	}
+	
+	@Test
+	public void modifyTableAnagrafica() {
+		Tabgen table = new Tabgen();
+		table.setId("TEST");
+		table.setDescription("TEST DESCR 5");
+		table.setFieldNum(1);
+		table.setType(TabgenType.ANAGRAFICHE.name());
+		table.setVisible(1);
+		TabgenResultBean result = delegate.saveTable(table);
+		assertNotNull(result);
+	}
+	
+	@Test
+	public void createTableCodifica() {
+		Tabgen table = new Tabgen();
+		table.setId("TEST_CODIFICA");
+		table.setDescription("TEST_CODIFICA");
+		table.setFieldNum(1);
+		table.setType(TabgenType.TRANSCODIFICHE.name());
+		TabgenResultBean result = delegate.saveTable(table);
+		assertNotNull(result);
+	}
+	
+	@Test
+	public void dropTable() {
+		dropTable(false, false, false);
+	}
+	
+	@Test
+	public void searchTable() {
+		TabgenFilter filter = new TabgenFilter();
+		filter.setDescription("TEST DESCR 5");
+		filter.setId("TEST");
+		
+		delegate.searchTable(filter);
+	}
+	
+	@Test
+	public void searchFields() {
+		List<TabgenField> result = delegate.searchFieldsByTabgenId("COD_REG_PROV");
+		assertTrue(!result.isEmpty());
+	}
+
+	@Test
+	public void saveValue() {
+		createTableAnagrafica();
+		
+		Tabgen table = new Tabgen();
+		table.setId("TEST");
+		
+		String field2 = UUID.randomUUID().toString();
+		
+		// inserimento
+		TabgenValue value = new TabgenValue();
+		value.setTabgen(table);
+		value.setField1(UUID.randomUUID().toString());
+		value.setField2(field2);
+		value.setEnabledDate(new Date());
+		value.setDisabledDate(new Date());
+		
+		TabgenResultBean result = delegate.saveValue(value);
+		value = result.getValue();
+		
+		assertNotNull(result);
+		assertTrue(result.getError() == null && result.getValue() != null);
+		
+		this.testTabgenValueId = value.getId();
+		
+		// campo not null
+		value.setField2(null);
+		result = delegate.saveValue(value);
+		result.getValue();
+		
+		assertNotNull(result);
+		assertTrue(result.getError() != null && result.getError().isNotNullable());
+		
+		// pk violata
+		TabgenValue value2 = new TabgenValue();
+		value2.setTabgen(table);
+		value2.setField1(UUID.randomUUID().toString());
+		value2.setField2(field2);
+		value2.setEnabledDate(new Date());
+		value2.setDisabledDate(new Date());
+		
+		result = delegate.saveValue(value2);
+		result.getValue();
+		
+		assertNotNull(result);
+		assertTrue(result.getError() != null && result.getError().isViolatedPk());
+		
+		// inserimento altra riga
+		value2.setField2(UUID.randomUUID().toString());
+		result = delegate.saveValue(value2);
+		assertNotNull(result);
+		assertTrue(result.getError() == null && result.getValue() != null);
+		
+	}
+	
+	@Test
+	public void deleteValue() {
+		deleteValue(false);
+	}
+	
+	@Test
+	public void deleteAllValues() {
+		deleteAllValues(false);
+	}
+	
+	@Test
+	public void searchValues() {
+		TabgenValueFilter filter = new TabgenValueFilter();
+		filter.setLimit(50);
+		filter.setOffset(0);
+		filter.setSortDir("ASC");
+		filter.setSortField("field2");
+		filter.setTabgenId("ISTITUTI_PENITENZIARI");
+		
+		/*Map<String, String> fields = new HashMap<String, String>();
+		fields.put("field2", "914c3a56-56a1-4864-9a57-e58f1b6617f8");
+		filter.setFields(fields);
+		
+		filter.setEnabledDate(new Date());
+		filter.setDisabledDate(new Date());*/
+		
+		BasePagingLoadResult<Tabgen> result = delegate.searchValue(filter);
+		List<Tabgen> list = result.getList();
+		Tabgen table = list.get(0);
+		List<TabgenValue> values = table.getTabgenValues();
+		
+		
+		assert(result != null && list != null);
+		
+	}
+	
+	@Test
+	public void exportTable() {
+		TabgenValueFilter filter = new TabgenValueFilter();
+		filter.setLimit(50);
+		filter.setOffset(0);
+		filter.setSortDir("ASC");
+		filter.setSortField("field2");
+		filter.setTabgenId("TEST");
+		
+		String id = delegate.exportTable(filter);
+		
+		while(!delegate.checkExport(id)) {
+			try {
+				Thread.sleep(1000);
+			} catch (Exception ex) {
+				System.out.println("waiting...");
+			}
+		}
+		
+		
+		delegate.downloadExportedTable(id);
+		
+	}
+	
+	@Test
+	public void saveFields() {
+		Tabgen table = new Tabgen();
+		table.setId("TEST");
+		List<TabgenField> fields = new ArrayList<TabgenField>();
+		
+		// update + insert
+		TabgenField field2 = new TabgenField();
+		field2.setDescription("field22");
+		field2.setId("field2");
+		field2.setNullable(false);
+		field2.setPk(true);
+		field2.setProgressive(2);
+		field2.setTabgen(table);
+		field2.setVisible(true);
+		field2.setTabgen(table);
+		field2.setTabgenValueColumn("FIELD2");
+		fields.add(field2);
+		
+		TabgenField field3 = new TabgenField();
+		field3.setDescription("field8");
+		field3.setNullable(true);
+		field3.setPk(false);
+		field3.setProgressive(8);
+		field3.setTabgen(table);
+		field3.setVisible(true);
+		field3.setTabgen(table);
+		field3.setTabgenValueColumn("FIELD8");
+		fields.add(field3);
+		
+		TabgenResultBean result = delegate.saveFields(fields , true);
+		
+		assert(result.getError() != null || result.getFields() != null && !result.getFields().isEmpty());
+		
+	}
+	
+	@Test
+	public void deleteField() {
+		deleteField(false);
+	}
+	
+	@Test
+	public void deleteAllFields() {
+		deleteAllFields(false);
+	}
+	
+	@Test
+	public void uploadFile() {
+		File file = new File("test.xls");
+		String result = importService.handleFileUpload(file, file.getName(), null);
+		System.out.println(result);
+	}
+	
+	
+	
+	public void dropTable(boolean deleteAll, boolean deleteField, boolean deleteValue) {
+		Tabgen table = new Tabgen();
+		table.setId("TEST_DROP");
+		table.setDescription("TEST_DROP");
+		table.setFieldNum(1);
+		table.setType(TabgenType.ANAGRAFICHE.name());
+		table.setVisible(1);
+		List<TabgenField> tabgenFields = new ArrayList<TabgenField>();
+		TabgenField field1 = new TabgenField();
+		field1.setDescription("FIELD1");
+		field1.setId("FIELD1");
+		field1.setNullable(false);
+		field1.setPk(false);
+		field1.setProgressive(1);
+		field1.setTabgen(table);
+		field1.setVisible(true);
+		field1.setTabgen(table);
+		field1.setTabgenValueColumn("FIELD1");
+		tabgenFields.add(field1);
+		table.setTabgenFields(tabgenFields);
+		TabgenResultBean result = delegate.saveTable(table);
+		result = delegate.deleteTable("TEST_DROP", deleteAll, deleteField, deleteValue);
+		assertNotNull(result);	
+	}
+	
+	public void deleteValue(boolean force) {
+		TabgenResultBean result = delegate.deleteValue(this.testTabgenValueId==null ? "40a8d22e-338f-4edb-a5f8-4a819de94319": this.testTabgenValueId, force);
+		assert(result != null && result.isDeletable());
+	}
+	
+	public void deleteAllValues(boolean force) {
+		TabgenResultBean result = delegate.deleteAllValues("TEST", force);
+		assert(result != null && result.isDeletable());
+	}
+	
+	public void deleteField(boolean force) {
+		TabgenResultBean result = delegate.deleteField("ae99f262-4328-4626-b208-f3f9c8643f8f", force);
+		assert(result != null && result.isDeletable());
+	}
+	
+	public void deleteAllFields(boolean force) {
+		TabgenResultBean result = delegate.deleteFields("TEST", force);
+		assert(result != null && result.isDeletable());
+	}
+	
+	
+	private void manageError(InvalidTabgenOperationException error, final Object param) {
+		// if (result.getError() != null) {
+		
+		String errorRow = error.getErrorExcelRowNumber() != null ? " Riga errata : " + error.getErrorExcelRowNumber() : "";
+		String field = " ";
+		if (error.getFields() != null && error.getFields().size() > 0) {
+			for (String f : error.getFields()) {
+				field += f + " ";
+			}
+		}
+		if (error.getOperation().equals(OperationTypeEnum.SAVING_UPDATING_TABLE)) {
+			if (error.isTableAssociatedValues()) {
+				System.out.println("Attenzione - Impossibile salvare la tabella. Ci sono valori ad essa associati" + errorRow);
+			} else if (error.isViolatedPk()) {
+				System.out.println("Attenzione - L'identificativo scelto è già stato assegnato" + errorRow);
+			}
+		} else if (error.getOperation().equals(OperationTypeEnum.SAVING_UPDATING_FIELD)) {
+			if (error.isDuplicatedProgressive()) {
+				System.out.println("Attenzione - Impossibile salvare i campi. Progressivo campo duplicato per " + field + errorRow);
+			} else if (error.isInvalidValueColumnName()) {
+				System.out.println("Attenzione - Impossibile salvare i campi. Nome campo non valido : " + field + errorRow);
+			} else if (error.isDuplicatedValueColumnName()) {
+				System.out.println("Attenzione - Impossibile salvare i campi. Nome campo duplicato : " + error.getFieldTable() + errorRow);
+			} else if (error.isFieldReferencingFields()) {
+				System.out.println("Attenzione - Impossibile salvare i campi. Esistono riferimenti al campo " + field + errorRow);
+			} else if (error.isFieldAssociatedValues()) {
+				System.out.println("Attenzione - Impossibile salvare. Campo " + field + " valorizzato" + errorRow);
+			} else if (error.isNotEnablingNotNullable()) {
+				System.out.println("Attenzione - Impossibile rendere il campo " + field + " obbligatorio" + errorRow);
+			} else if (error.isNotEnablingFk()) {
+				System.out.println("Attenzione - Impossibile abilitare il riferimento ad altro campo per " + field + errorRow);
+			} else if (error.isNotEnablingPk()) {
+				System.out.println("Attenzione - Impossibile abilitare il vincolo su tabella per il campo " + field + errorRow);
+			} else if (error.isNotDisablingPk()) {
+				System.out.println("Attenzione - Impossibile disabilitare il vincolo su tabella per il campo " + field + errorRow);
+			}
+		} else if (error.getOperation().equals(OperationTypeEnum.SAVING_UPDATING_VALUE)) {
+			if (error.getAbsentValueField() != null) {
+				System.out.println("Attenzione - Impossibile salvare. Campo " + error.getAbsentValueField() + " inesistente" + errorRow);
+			} else if (error.isViolatedFk() && error.getViolatedFkRefField() != null) {
+				System.out.println("Attenzione - Impossibile salvare il campo " + error.getViolatedFkField() + ". Chiave esterna " + //
+						error.getValue() + " non trovata in " + error.getViolatedFkRefFieldTable() + " - " + error.getViolatedFkRefField() + errorRow);
+			} else if (error.isViolatedFk()) {
+				System.out.println("Attenzione - Impossibile salvare. Campo " + error.getViolatedFkField() + " referenziato da altri campi" + errorRow);
+			} else if (error.isNotNullable()) {
+				System.out.println("Attenzione - Impossibile salvare. Campo " + error.getNotNullableField() + " obbligatorio" + errorRow);
+			} else if (error.isTableAssociatedValues()) {
+				System.out.println("Errore - Esistono dei campi e dei valori associati alla tabella. Solo la descrizione può essere modificata" + errorRow);
+			} else if (error.isDuplicatedProgressive()) {
+				System.out.println("Errore - Progressivo duplicato per il campo " + field + ". Modificare i campi della tabella" + errorRow);
+			} else if (error.isDuplicatedValueColumnName()) {
+				System.out.println("Errore - Campo duplicato. Modificare i nomi dei campi:" + field + errorRow);
+			} else if (error.getAbsentValueField() != null) {
+				System.out.println("Errore - Il campo " + error.getAbsentValueField() + " non esiste per la tabella selezionata" + errorRow);
+			} else if (error.isViolatedFk()) {
+				System.out.println("Errore - Chiave esterna " + error.getViolatedFkRefField() + "non valida sul campo " + error.getViolatedFkField() + errorRow);
+			} else if (error.isNotNullable()) {
+				System.out.println("Errore - Il campo " + error.getNotNullableField() + " deve essere valorizzato" + errorRow);
+			} else if (error.isViolatedPk()) {
+				System.out.println("Errore - Vincolo pk violato su " + error.getValueTable() + errorRow);
+			}
+		} else if (error.getOperation().equals(OperationTypeEnum.DELETING_TABLE)) {
+			if (error.isTableAssociatedFields() && !error.isTableAssociatedValues()) {
+				System.out.println("Attenzione - Impossibile cancellare la tabella. Ci sono campi ad essa associati." + errorRow + " Continuare?");
+				// SE L'UTENTE CONFERMA INVOCARE IL METODO CON I PARAMETRI INDICATI
+				dropTable(true, true, false);
+			} else if (error.isTableAssociatedValues()) {
+				System.out.println("Attenzione - Impossibile cancellare la tabella. Ci sono valori ad essa associati." + errorRow + " Continuare?");
+				// SE L'UTENTE CONFERMA INVOCARE IL METODO CON I PARAMETRI INDICATI
+				dropTable(true, true, true);
+			}
+		} else if (error.getOperation().equals(OperationTypeEnum.DELETING_FIELD)) {
+			if (error.isFieldAssociatedValues()) {
+				System.out.println("Attenzione - Impossibile cancellare il campo " + field + ". Valore presente." + errorRow + " Continuare?");
+				
+				// SE L'UTENTE CONFERMA INVOCARE IL METODO CON I PARAMETRI INDICATI
+				
+				// INVOCARE SE CLICK SU CANCELLA CAMPO
+				deleteField(true);
+				
+				// INVOCARE SE CLICK SU CANCELLA TUTTI I CAMPI
+				deleteAllFields(true);
+			} else if (error.isFieldReferencingFields()) {
+				System.out.println("Attenzione - Impossibile cancellare il campo" + field + ". Riferimenti esterni presenti:" + error.getReferencingFields() + errorRow + ". Continuare?");
+				
+				// SE L'UTENTE CONFERMA INVOCARE IL METODO CON I PARAMETRI INDICATI
+				
+				// INVOCARE SE CLICK SU CANCELLA CAMPO
+				deleteField(true);
+				
+				// INVOCARE SE CLICK SU CANCELLA TUTTI I CAMPI
+				deleteAllFields(true);
+			} else {
+				System.out.println("Attenzione - Impossibile cancellare il campo" + field + ". Non e' possibile cancellare colonne di una tabella di transcodifica." + errorRow);
+			}
+
+		} else if (error.getOperation().equals(OperationTypeEnum.DELETING_VALUE)) {
+			if (error.isValueReferencingValues()) {
+				System.out.println("Info - Alcune righe hanno un riferimento al campo " + error.getViolatedFkField() + " per il valore " + error.getValue() + errorRow + ". Continuare?");
+				
+				// SE L'UTENTE CONFERMA INVOCARE IL METODO CON I PARAMETRI INDICATI
+				
+				// INVOCARE SE CLICK SU CANCELLA RECORD
+				deleteValue(true);
+				
+				// INVOCARE SE CLICK SU CANCELLA TUTTI I RECORD
+				deleteAllValues(true);
+			}
+		} else if (error.getOperation().equals(OperationTypeEnum.SAVING_TRANSCODE_TABLE)) {
+			if (error.isDuplicatedTable()) {
+				System.out.println("Attenzione - L'identificativo scelto è già stato assegnato" + errorRow);
+			}
+		}
+
+	}
+	
+	
+
+}
+

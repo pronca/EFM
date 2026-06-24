@@ -1,0 +1,83 @@
+package it.eng.care.domain.flow.jobs.config;
+
+import jakarta.annotation.PostConstruct;
+
+import org.quartz.SimpleTrigger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.scheduling.quartz.JobDetailFactoryBean;
+import org.springframework.scheduling.quartz.SimpleTriggerFactoryBean;
+
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.jobs.jobs.secondLevelValidation.CrossValidationJob;
+import it.eng.care.domain.flow.jobs.jobs.secondLevelValidation.ExecuteDrgJob;
+import it.eng.care.domain.flow.jobs.jobs.secondLevelValidation.ExecuteFlowExportRequestJob;
+import it.eng.care.domain.flow.jobs.jobs.secondLevelValidation.SecondLevelValidationJob;
+import it.eng.care.domain.flow.jobs.jobs.secondLevelValidation.ValidateFlowExportRequestJob;
+
+@Configuration
+@EnableCaching
+@Import(value = {})
+public class SecondLevelJobsConfig {
+
+	@Autowired
+	protected ConfigurationDAO configuration;
+
+	protected String exportTime;
+	protected String regionValidationTime;
+
+	@PostConstruct
+	private void loadConfig() {
+		exportTime = configuration.findByKeyId("exporting_request_time").getValue();
+		regionValidationTime = configuration.findByKeyId("region_validation_time").getValue();
+	}
+	
+	@Bean
+	public SecondLevelValidationJob SecondLevelValidationJob() {
+		return new SecondLevelValidationJob();
+	}
+
+	@Bean
+	public ExecuteFlowExportRequestJob ExecuteFlowExportRequestJob() {
+		return new ExecuteFlowExportRequestJob();
+	}
+
+	@Bean
+	public ValidateFlowExportRequestJob ValidateExportedFlowJob() {
+		return new ValidateFlowExportRequestJob();
+	}
+
+	@Bean
+	public CrossValidationJob crossValidationJob() {
+		return new CrossValidationJob();
+	}
+	
+	@Bean
+	public ExecuteDrgJob executeDrgJob() {
+		return new ExecuteDrgJob();
+	}
+	
+	@Bean(name = "SecondLevelJobDetail")
+	public JobDetailFactoryBean SecondLevelValidationJobDetail() {
+		JobDetailFactoryBean jobDetailFactory = new JobDetailFactoryBean();
+		jobDetailFactory.setJobClass(SecondLevelValidationJob.class);
+		jobDetailFactory.setDescription("SecondLevelJobDetail");
+		jobDetailFactory.setDurability(true);
+		return jobDetailFactory;
+	}
+	
+	@Bean
+	public SimpleTriggerFactoryBean eSecondLevelValidationJobTrigger() {
+		SimpleTriggerFactoryBean trigger = new SimpleTriggerFactoryBean();
+		trigger.setJobDetail(SecondLevelValidationJobDetail().getObject());
+		trigger.setRepeatInterval( Integer.valueOf(exportTime));
+		trigger.setRepeatCount(SimpleTrigger.REPEAT_INDEFINITELY);
+		return trigger;
+
+	}
+	
+
+}

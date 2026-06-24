@@ -1,0 +1,498 @@
+/**
+ * FlussiFile.java
+ *
+ * This file was auto-generated from WSDL
+ * by the Apache Axis 1.4 Apr 22, 2006 (06:55:48 PDT) WSDL2Java emitter.
+ */
+
+package it.eng.care.domain.flow.webservice.sis.ws.flussi;
+
+public class FlussiFile  implements java.io.Serializable {
+    private java.lang.String codTipoFile;
+
+    private java.lang.String codTipoGruppo;
+
+    private java.lang.String dataIns;
+
+    private java.lang.String dimensione;
+
+    private it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito esito;
+
+    private byte[] file;
+
+    private java.lang.String formato;
+
+    private java.lang.String nomeFile;
+
+    private java.lang.String nomefileOriginale;
+
+    private java.lang.Integer numRecord;
+
+    private java.lang.String prgFile;
+
+    public FlussiFile() {
+    }
+
+    public FlussiFile(
+           java.lang.String codTipoFile,
+           java.lang.String codTipoGruppo,
+           java.lang.String dataIns,
+           java.lang.String dimensione,
+           it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito esito,
+           byte[] file,
+           java.lang.String formato,
+           java.lang.String nomeFile,
+           java.lang.String nomefileOriginale,
+           java.lang.Integer numRecord,
+           java.lang.String prgFile) {
+           this.codTipoFile = codTipoFile;
+           this.codTipoGruppo = codTipoGruppo;
+           this.dataIns = dataIns;
+           this.dimensione = dimensione;
+           this.esito = esito;
+           this.file = file;
+           this.formato = formato;
+           this.nomeFile = nomeFile;
+           this.nomefileOriginale = nomefileOriginale;
+           this.numRecord = numRecord;
+           this.prgFile = prgFile;
+    }
+
+
+    /**
+     * Gets the codTipoFile value for this FlussiFile.
+     * 
+     * @return codTipoFile
+     */
+    public java.lang.String getCodTipoFile() {
+        return codTipoFile;
+    }
+
+
+    /**
+     * Sets the codTipoFile value for this FlussiFile.
+     * 
+     * @param codTipoFile
+     */
+    public void setCodTipoFile(java.lang.String codTipoFile) {
+        this.codTipoFile = codTipoFile;
+    }
+
+
+    /**
+     * Gets the codTipoGruppo value for this FlussiFile.
+     * 
+     * @return codTipoGruppo
+     */
+    public java.lang.String getCodTipoGruppo() {
+        return codTipoGruppo;
+    }
+
+
+    /**
+     * Sets the codTipoGruppo value for this FlussiFile.
+     * 
+     * @param codTipoGruppo
+     */
+    public void setCodTipoGruppo(java.lang.String codTipoGruppo) {
+        this.codTipoGruppo = codTipoGruppo;
+    }
+
+
+    /**
+     * Gets the dataIns value for this FlussiFile.
+     * 
+     * @return dataIns
+     */
+    public java.lang.String getDataIns() {
+        return dataIns;
+    }
+
+
+    /**
+     * Sets the dataIns value for this FlussiFile.
+     * 
+     * @param dataIns
+     */
+    public void setDataIns(java.lang.String dataIns) {
+        this.dataIns = dataIns;
+    }
+
+
+    /**
+     * Gets the dimensione value for this FlussiFile.
+     * 
+     * @return dimensione
+     */
+    public java.lang.String getDimensione() {
+        return dimensione;
+    }
+
+
+    /**
+     * Sets the dimensione value for this FlussiFile.
+     * 
+     * @param dimensione
+     */
+    public void setDimensione(java.lang.String dimensione) {
+        this.dimensione = dimensione;
+    }
+
+
+    /**
+     * Gets the esito value for this FlussiFile.
+     * 
+     * @return esito
+     */
+    public it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito getEsito() {
+        return esito;
+    }
+
+
+    /**
+     * Sets the esito value for this FlussiFile.
+     * 
+     * @param esito
+     */
+    public void setEsito(it.eng.care.domain.flow.webservice.sis.ws.flussi.Esito esito) {
+        this.esito = esito;
+    }
+
+
+    /**
+     * Gets the file value for this FlussiFile.
+     * 
+     * @return file
+     */
+    public byte[] getFile() {
+        return file;
+    }
+
+
+    /**
+     * Sets the file value for this FlussiFile.
+     * 
+     * @param file
+     */
+    public void setFile(byte[] file) {
+        this.file = file;
+    }
+
+
+    /**
+     * Gets the formato value for this FlussiFile.
+     * 
+     * @return formato
+     */
+    public java.lang.String getFormato() {
+        return formato;
+    }
+
+
+    /**
+     * Sets the formato value for this FlussiFile.
+     * 
+     * @param formato
+     */
+    public void setFormato(java.lang.String formato) {
+        this.formato = formato;
+    }
+
+
+    /**
+     * Gets the nomeFile value for this FlussiFile.
+     * 
+     * @return nomeFile
+     */
+    public java.lang.String getNomeFile() {
+        return nomeFile;
+    }
+
+
+    /**
+     * Sets the nomeFile value for this FlussiFile.
+     * 
+     * @param nomeFile
+     */
+    public void setNomeFile(java.lang.String nomeFile) {
+        this.nomeFile = nomeFile;
+    }
+
+
+    /**
+     * Gets the nomefileOriginale value for this FlussiFile.
+     * 
+     * @return nomefileOriginale
+     */
+    public java.lang.String getNomefileOriginale() {
+        return nomefileOriginale;
+    }
+
+
+    /**
+     * Sets the nomefileOriginale value for this FlussiFile.
+     * 
+     * @param nomefileOriginale
+     */
+    public void setNomefileOriginale(java.lang.String nomefileOriginale) {
+        this.nomefileOriginale = nomefileOriginale;
+    }
+
+
+    /**
+     * Gets the numRecord value for this FlussiFile.
+     * 
+     * @return numRecord
+     */
+    public java.lang.Integer getNumRecord() {
+        return numRecord;
+    }
+
+
+    /**
+     * Sets the numRecord value for this FlussiFile.
+     * 
+     * @param numRecord
+     */
+    public void setNumRecord(java.lang.Integer numRecord) {
+        this.numRecord = numRecord;
+    }
+
+
+    /**
+     * Gets the prgFile value for this FlussiFile.
+     * 
+     * @return prgFile
+     */
+    public java.lang.String getPrgFile() {
+        return prgFile;
+    }
+
+
+    /**
+     * Sets the prgFile value for this FlussiFile.
+     * 
+     * @param prgFile
+     */
+    public void setPrgFile(java.lang.String prgFile) {
+        this.prgFile = prgFile;
+    }
+
+    private java.lang.Object __equalsCalc = null;
+    public synchronized boolean equals(java.lang.Object obj) {
+        if (!(obj instanceof FlussiFile)) return false;
+        FlussiFile other = (FlussiFile) obj;
+        if (obj == null) return false;
+        if (this == obj) return true;
+        if (__equalsCalc != null) {
+            return (__equalsCalc == obj);
+        }
+        __equalsCalc = obj;
+        boolean _equals;
+        _equals = true && 
+            ((this.codTipoFile==null && other.getCodTipoFile()==null) || 
+             (this.codTipoFile!=null &&
+              this.codTipoFile.equals(other.getCodTipoFile()))) &&
+            ((this.codTipoGruppo==null && other.getCodTipoGruppo()==null) || 
+             (this.codTipoGruppo!=null &&
+              this.codTipoGruppo.equals(other.getCodTipoGruppo()))) &&
+            ((this.dataIns==null && other.getDataIns()==null) || 
+             (this.dataIns!=null &&
+              this.dataIns.equals(other.getDataIns()))) &&
+            ((this.dimensione==null && other.getDimensione()==null) || 
+             (this.dimensione!=null &&
+              this.dimensione.equals(other.getDimensione()))) &&
+            ((this.esito==null && other.getEsito()==null) || 
+             (this.esito!=null &&
+              this.esito.equals(other.getEsito()))) &&
+            ((this.file==null && other.getFile()==null) || 
+             (this.file!=null &&
+              java.util.Arrays.equals(this.file, other.getFile()))) &&
+            ((this.formato==null && other.getFormato()==null) || 
+             (this.formato!=null &&
+              this.formato.equals(other.getFormato()))) &&
+            ((this.nomeFile==null && other.getNomeFile()==null) || 
+             (this.nomeFile!=null &&
+              this.nomeFile.equals(other.getNomeFile()))) &&
+            ((this.nomefileOriginale==null && other.getNomefileOriginale()==null) || 
+             (this.nomefileOriginale!=null &&
+              this.nomefileOriginale.equals(other.getNomefileOriginale()))) &&
+            ((this.numRecord==null && other.getNumRecord()==null) || 
+             (this.numRecord!=null &&
+              this.numRecord.equals(other.getNumRecord()))) &&
+            ((this.prgFile==null && other.getPrgFile()==null) || 
+             (this.prgFile!=null &&
+              this.prgFile.equals(other.getPrgFile())));
+        __equalsCalc = null;
+        return _equals;
+    }
+
+    private boolean __hashCodeCalc = false;
+    public synchronized int hashCode() {
+        if (__hashCodeCalc) {
+            return 0;
+        }
+        __hashCodeCalc = true;
+        int _hashCode = 1;
+        if (getCodTipoFile() != null) {
+            _hashCode += getCodTipoFile().hashCode();
+        }
+        if (getCodTipoGruppo() != null) {
+            _hashCode += getCodTipoGruppo().hashCode();
+        }
+        if (getDataIns() != null) {
+            _hashCode += getDataIns().hashCode();
+        }
+        if (getDimensione() != null) {
+            _hashCode += getDimensione().hashCode();
+        }
+        if (getEsito() != null) {
+            _hashCode += getEsito().hashCode();
+        }
+        if (getFile() != null) {
+            for (int i=0;
+                 i<java.lang.reflect.Array.getLength(getFile());
+                 i++) {
+                java.lang.Object obj = java.lang.reflect.Array.get(getFile(), i);
+                if (obj != null &&
+                    !obj.getClass().isArray()) {
+                    _hashCode += obj.hashCode();
+                }
+            }
+        }
+        if (getFormato() != null) {
+            _hashCode += getFormato().hashCode();
+        }
+        if (getNomeFile() != null) {
+            _hashCode += getNomeFile().hashCode();
+        }
+        if (getNomefileOriginale() != null) {
+            _hashCode += getNomefileOriginale().hashCode();
+        }
+        if (getNumRecord() != null) {
+            _hashCode += getNumRecord().hashCode();
+        }
+        if (getPrgFile() != null) {
+            _hashCode += getPrgFile().hashCode();
+        }
+        __hashCodeCalc = false;
+        return _hashCode;
+    }
+
+    // Type metadata
+    private static org.apache.axis.description.TypeDesc typeDesc =
+        new org.apache.axis.description.TypeDesc(FlussiFile.class, true);
+
+    static {
+        typeDesc.setXmlType(new javax.xml.namespace.QName("http://ws.sis.eng.it/", "flussiFile"));
+        org.apache.axis.description.ElementDesc elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("codTipoFile");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "codTipoFile"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("codTipoGruppo");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "codTipoGruppo"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("dataIns");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "dataIns"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("dimensione");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "dimensione"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("esito");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "esito"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://ws.sis.eng.it/", "esito"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("file");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "file"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "base64Binary"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("formato");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "formato"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("nomeFile");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "nomeFile"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("nomefileOriginale");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "nomefileOriginale"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("numRecord");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "numRecord"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "int"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("prgFile");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "prgFile"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+    }
+
+    /**
+     * Return type metadata object
+     */
+    public static org.apache.axis.description.TypeDesc getTypeDesc() {
+        return typeDesc;
+    }
+
+    /**
+     * Get Custom Serializer
+     */
+    public static org.apache.axis.encoding.Serializer getSerializer(
+           java.lang.String mechType, 
+           java.lang.Class _javaType,  
+           javax.xml.namespace.QName _xmlType) {
+        return 
+          new  org.apache.axis.encoding.ser.BeanSerializer(
+            _javaType, _xmlType, typeDesc);
+    }
+
+    /**
+     * Get Custom Deserializer
+     */
+    public static org.apache.axis.encoding.Deserializer getDeserializer(
+           java.lang.String mechType, 
+           java.lang.Class _javaType,  
+           javax.xml.namespace.QName _xmlType) {
+        return 
+          new  org.apache.axis.encoding.ser.BeanDeserializer(
+            _javaType, _xmlType, typeDesc);
+    }
+
+}

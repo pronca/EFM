@@ -1,0 +1,5 @@
+#datasource.username=ENC(DMlVCIXYIDMFD5QT0lA74BvmKBuv0EpJ)
+#datasource.password=ENC(sUEHkyCuvzmQd4kGJXm7h1gWAsJaa2UW)
+
+datasource.username=order_entry
+datasource.password=order_entry

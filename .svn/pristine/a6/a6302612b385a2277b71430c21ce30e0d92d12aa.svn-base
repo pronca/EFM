@@ -1,0 +1,141 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.hibernate.Hibernate;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+
+import it.eng.care.domain.flow.core.dao.FlowTableDAOCustom;
+import it.eng.care.domain.flow.core.dao.FlowVersionDAO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.entity.FlowTableDO;
+import it.eng.care.domain.flow.core.entity.FlowVersionDO;
+import it.eng.care.domain.flow.core.entity.FlowVersionPrimaryKeyDO;
+import it.eng.care.domain.flow.core.service.FlowCacheService;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+
+public class FlowCacheServiceImpl implements FlowCacheService {
+
+	@Autowired
+	FlowVersionDAO flowVersionDAO;
+
+	@Autowired
+	FormFlowService formFlowService;
+
+	@Autowired
+	FlowTableDAOCustom flowTableDAO;
+
+	@Override
+	@Cacheable(value = { "formFlowCache" }, unless = "#result == null")
+	public FormFlowDTO getCachedFormFlow(String flow, String version) {
+		FlowVersionDO flowVersion = flowVersionDAO.findByFlowNameAndVersionVersion(flow, version);
+		FormFlowDTO result = formFlowService.retrieveOne(flowVersion.getId().getFlow(),
+				flowVersion.getId().getVersion());
+		return result;
+
+	}
+
+	@Override
+	@Cacheable(value = { "flowTableCache" }, unless = "#result == null")
+	public FlowTableDO getRootTable(String flowName, String versionName) {
+		BaseSearchInput poInput = new BaseSearchInput();
+		poInput.setValue("flowNameEqual", flowName);
+		poInput.setValue("versionNameEqual", versionName);
+		// poInput.setSortBy(Arrays.asList(new SortBy("section", "asc")));
+
+		List<FlowTableDO> tables = flowTableDAO.cerca(poInput);
+		// ordino le sezioni del flusso 0,1,2,3...
+
+		tables.sort(Comparator.comparing(FlowTableDO::getSection));
+
+		if (tables != null && tables.size() > 0) {
+			FlowTableDO result = (FlowTableDO) Hibernate.unproxy(tables.get(0));
+			try {
+				this.fetchAll(result, new ArrayList<>());
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+
+			return result;
+		}
+		return null;
+	}
+
+	@Override
+	@CacheEvict(allEntries = true, cacheNames = { "flowTableCache", "formFlowCache" })
+	public void evictCaches() {
+	}
+
+	
+	
+	
+	/*
+	 * Utilizziamo questo metodo per fetchare tutti gli oggetti della configurazione(FlowTableDO) in maniera ricorsiva.
+	 * CosÃ¬ facendo in cache sarÃ  presente un oggetto completo che non genererÃ  eccezioni "lazyException" a causa di qualche config non caricata
+	 * 
+	 * 
+	 * Ti sfido a far meglio!
+	 * 
+	 */
+	public void fetchAll(Object o, List<String> ss) throws Exception {
+
+		if (o != null) {
+			Method[] methodsA = o.getClass().getDeclaredMethods();
+			List<Object> methods = Arrays.asList(methodsA);
+			if (o.getClass().getCanonicalName().startsWith("it.eng.care.domain.flow")) {
+
+				/*String s = "";
+				
+				if(o.getClass().getDeclaredMethod("getId").invoke(o)  instanceof FlowVersionPrimaryKeyDO) {
+				Object@132345
+				}else {
+				*/
+				
+				 String s = Integer.toString(System.identityHashCode(o));// o.getClass().getDeclaredMethod("getId").invoke(o);
+				 
+				//}
+				if (ss.contains(s)) {
+					return;
+				} else {
+					ss.add(s);
+				}
+
+				methods = methods.stream().filter(m -> ((Method) m).getName().startsWith("get"))
+						.collect(Collectors.toList());
+
+				if (methods != null && !methods.isEmpty()) {
+					for (Object m : methods) {
+						Object o2 = new Object();
+						try {
+							o2 = ((Method) m).invoke(o);
+						} catch (Exception e) {
+							System.out.println(e.getMessage());
+						}
+						if (o2 instanceof Collection) {
+							Iterator iterator = ((Collection) o2).iterator();
+							while (iterator.hasNext()) {
+								Object oi = iterator.next();
+								fetchAll(oi,  ss);
+							}
+						} else {
+							fetchAll(o2,  ss);
+						}
+					}
+				}
+			}
+
+		}
+	}
+
+}

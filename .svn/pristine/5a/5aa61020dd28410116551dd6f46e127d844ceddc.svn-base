@@ -1,0 +1,2309 @@
+package it.eng.care.domain.flow.tabgen.utility;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.Reader;
+import java.lang.reflect.Method;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import javax.xml.parsers.SAXParser;
+import javax.xml.parsers.SAXParserFactory;
+
+import org.apache.poi.openxml4j.opc.OPCPackage;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.DateUtil;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.xssf.eventusermodel.ReadOnlySharedStringsTable;
+import org.apache.poi.xssf.eventusermodel.XSSFReader;
+import org.apache.poi.xssf.eventusermodel.XSSFReader.SheetIterator;
+import org.apache.poi.xssf.model.StylesTable;
+import org.apache.poi.xssf.usermodel.XSSFCell;
+import org.apache.poi.xssf.usermodel.XSSFCellStyle;
+import org.apache.poi.xssf.usermodel.XSSFRichTextString;
+import org.apache.poi.xssf.usermodel.XSSFRow;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.xml.sax.Attributes;
+import org.xml.sax.InputSource;
+import org.xml.sax.XMLReader;
+import org.xml.sax.helpers.DefaultHandler;
+
+import com.univocity.parsers.common.ParsingContext;
+import com.univocity.parsers.common.processor.AbstractRowProcessor;
+import com.univocity.parsers.common.processor.RowProcessor;
+import com.univocity.parsers.csv.CsvParser;
+import com.univocity.parsers.csv.CsvParserSettings;
+
+import it.eng.care.domain.flow.core.dto.FlowView.FlowViewFilterError;
+import it.eng.care.domain.flow.core.utility.FileUtility;
+import it.eng.care.domain.flow.tabgen.dto.OperationTypeEnum;
+import it.eng.care.domain.flow.tabgen.entity.TabgenDO;
+import it.eng.care.domain.flow.tabgen.entity.TabgenFieldDO;
+import it.eng.care.domain.flow.tabgen.entity.TabgenValueDO;
+import it.eng.care.domain.flow.tabgen.exception.InvalidTabgenOperationException;
+import it.eng.care.platform.common.lang.StringUtils;
+import jxl.CellType;
+import jxl.DateCell;
+import jxl.Sheet;
+import jxl.Workbook;
+import jxl.WorkbookSettings;
+
+
+public class TabgenUtility {
+
+	private static final Logger logger = LoggerFactory.getLogger(TabgenUtility.class);
+	
+	private static final DateFormat sdf = new SimpleDateFormat("dd/MM/yyyy");
+    
+	/**
+	 * Crea un tabgen con i relativi fields e values
+	 * 
+	 * @param sheet
+	 * @param inputFilename
+	 * @param enabledDte
+	 * @return
+	 * @throws Exception
+	 */
+	// NON USATO PIU'
+	public static TabgenDO createTabgenFromSheet(Sheet sheet, String inputFilename, Date enabledDte) throws Exception {
+		if (sheet != null) {
+			String sheetName = TabgenUtility.getCleanSheetName(sheet.getName());
+			Integer columnNum = getSheetColumns(sheet);
+			Integer rowNum = sheet.getRows();
+			logger.info("sheet name= " + sheetName);
+			logger.info("sheet columnNum= " + columnNum);
+			logger.info("sheet rowNum= " + rowNum);
+
+			TabgenDO tabgen = new TabgenDO();
+			tabgen.setId(sheetName);
+			// ottengo la descrizione della tabella dal nome del file
+			int pointIndex = inputFilename.lastIndexOf(".");
+			int slashIndex = inputFilename.lastIndexOf("/");
+			String tabDescription = null;
+			if ((pointIndex != -1) && (slashIndex != -1))
+				tabDescription = inputFilename.substring(slashIndex + 1, pointIndex);
+			tabgen.setDescription(tabDescription);
+			tabgen.setFieldNum(columnNum);
+			tabgen.setVisible(1);
+			return updateTabgenFromSheet(tabgen, sheet, enabledDte);
+		} else
+			return null;
+	}
+
+	/**
+	 * Controlla se Ã¨ un valore del campo dt_disable
+	 * 
+	 * @return
+	 */
+	public static Date getEnableDate(Sheet sheet, jxl.Cell cell) {
+		Date date = null;
+		Date enableDate = null;
+		try {
+			date = sdf.parse(cell.getContents());
+		} catch (ParseException e) {
+
+		}
+		if (cell.getType() == jxl.CellType.DATE || date != null) { // se il tipo della cella Ã¨ DATE e la
+																// colonna Ã¨ dt_enable
+			jxl.Cell headerCell = sheet.getCell(cell.getColumn(), 0);
+			logger.info("headerCell= " + headerCell.getContents());
+			if (headerCell.getContents().toUpperCase().equals("DT_ENABLE")) {
+				if (date != null)
+					return date;
+				DateCell dc = (DateCell) cell;
+				enableDate = dc.getDate();
+			}
+		}
+		return enableDate;
+	}
+
+	/**
+	 * Controlla se Ã¨ un valore del campo dt_disable
+	 * 
+	 * @return
+	 */
+	public static Date getDisableDate(jxl.Sheet sheet, jxl.Cell cell) {
+		Date date = null;
+		Date disableDate = null;
+		try {
+			date = sdf.parse(cell.getContents());
+		} catch (ParseException e) {
+
+		}
+		if (cell.getType() == jxl.CellType.DATE || date != null) { // se il tipo della cella Ã¨ DATE e la
+																// colonna Ã¨ dt_disable
+			jxl.Cell headerCell = sheet.getCell(cell.getColumn(), 0);
+			logger.info("headerCell= " + headerCell.getContents());
+			if (headerCell.getContents().toUpperCase().equals("DT_DISABLE")) {
+				if (date != null)
+					return date;
+				DateCell dc = (DateCell) cell;
+				disableDate = dc.getDate();
+			}
+		}
+		return disableDate;
+	}
+	
+	public static Date getEnableDateXlsx(org.apache.poi.ss.usermodel.Sheet sheet, org.apache.poi.ss.usermodel.Cell cell) {
+        Date date = null;
+        Date enableDate = null;
+        
+        try {
+	        try {
+	            date = sdf.parse(cell.getStringCellValue().trim());
+	        } catch (ParseException e) {
+	            // parsing fallito, ignoro
+	        }
+	        
+	        try {
+		        if (DateUtil.isCellDateFormatted(cell)) {
+		        	enableDate = cell.getDateCellValue();
+		        } else {
+		        	enableDate = date;
+		        }
+	        } catch (Exception e) {
+	        	enableDate = date;
+	        }
+	        
+	        // Controllo intestazione colonna
+	        Row headerRow = sheet.getRow(0);
+	        if (headerRow != null) {
+	            org.apache.poi.ss.usermodel.Cell headerCell = headerRow.getCell(cell.getColumnIndex());
+	            if (headerCell != null && "DT_ENABLE".equalsIgnoreCase(headerCell.getStringCellValue())) {
+	                return enableDate;
+	            }
+	        }
+        } catch (Exception e) {
+            // parsing fallito, ignoro
+        }
+        
+        return null;
+    }
+
+    public static Date getDisableDateXlsx(org.apache.poi.ss.usermodel.Sheet sheet, org.apache.poi.ss.usermodel.Cell cell) {
+        Date date = null;
+        Date disableDate = null;
+        
+        try {
+	        try {
+	            date = sdf.parse(cell.getStringCellValue().trim());
+	        } catch (ParseException e) {
+	            // parsing fallito, ignoro
+	        }
+	        
+	        try {
+		        if (DateUtil.isCellDateFormatted(cell)) {
+		        	disableDate = cell.getDateCellValue();
+		        } else {
+		        	disableDate = date;
+		        }
+	        } catch (Exception e) {
+	        	disableDate = date;
+	        }
+	        
+	        // Controllo intestazione colonna
+	        Row headerRow = sheet.getRow(0);
+	        if (headerRow != null) {
+	            org.apache.poi.ss.usermodel.Cell headerCell = headerRow.getCell(cell.getColumnIndex());
+	            if (headerCell != null && "DT_DISABLE".equalsIgnoreCase(headerCell.getStringCellValue())) {
+	                return disableDate;
+	            }
+	        }
+        } catch (Exception e) {
+            // parsing fallito, ignoro
+        }
+        
+        return null;
+    }
+    
+	/**
+	 * Aggiorna i fields e i values di un tabgen
+	 * 
+	 * @param tabgen
+	 * @param sheet
+	 * @param enabledDte
+	 * @return
+	 * @throws Exception
+	 */
+	// NON USATO PIU'
+	public static TabgenDO updateTabgenFromSheet(TabgenDO tabgen, Sheet sheet, Date enabledDte) throws Exception {
+		Integer columnNum = sheet.getColumns();
+		Integer rowNum = sheet.getRows();
+		tabgen.setFieldNum(getSheetColumns(sheet));
+		// creo i campi della tabella
+		Set<TabgenFieldDO> fields = null;
+		if (tabgen.getTabgenFields() == null)
+			fields = new HashSet<TabgenFieldDO>();
+		else
+			fields = tabgen.getTabgenFields();
+		// creo i valori della tabella
+		Set<TabgenValueDO> values = null;
+		if (tabgen.getTabgenValues() == null)
+			values = new HashSet<TabgenValueDO>();
+		else
+			values = tabgen.getTabgenValues();
+
+		// carico la prima riga che individua le colonne della tabella
+		for (int j = 0; j < columnNum; j++) {
+			jxl.Cell cell = sheet.getCell(j, 0);
+			logger.info("cell header= " + cell.getContents());
+			if (cell.getContents().toUpperCase().equals("DT_ENABLE") || cell.getContents().toUpperCase().equals("DT_DISABLE")) {
+				// non inserico il campo
+				continue;
+			}
+			TabgenFieldDO field = new TabgenFieldDO();
+			field.setId(UUID.randomUUID().toString());
+			field.setDescription(cell.getContents());
+			field.setProgressive(j + 1);
+			// setto il campo tabgenValueColumn
+			field.setTabgenValueColumn("FIELD" + field.getProgressive());
+			field.setVisible(1);
+			field.setTabgen(tabgen);
+			fields.add(field);
+
+		}
+		// setto i campi della tabella
+		tabgen.setTabgenFields(fields);
+
+		// parto dalla seconda riga per prendere i valori della tabella
+		for (int j = 1; j < rowNum; j++) {
+			// tutti i valori della riga vanno in un TabgenValue
+			TabgenValueDO value = new TabgenValueDO();
+			value.setId(UUID.randomUUID().toString());
+			value.setTabgen(tabgen);
+			if (enabledDte != null)
+				value.setEnabledDate(enabledDte);
+			for (int i = 0; i < columnNum; i++) {
+				jxl.Cell cell = sheet.getCell(i, j);
+				boolean isDate = false;
+				if (enabledDte == null && !StringUtils.isEmpty(cell.getContents())) {
+					Date enableDate = null;
+					Date disableDate = null;
+					// se Ã¨ un valore del campo dt_enable o dt_disable, devo valorizzare tali campi
+					// del tabgen_value
+					if ((enableDate = getEnableDate(sheet, cell)) != null) {
+						value.setEnabledDate(enableDate);
+						isDate = true;
+					} else if ((disableDate = getDisableDate(sheet, cell)) != null) {
+						value.setDisabledDate(disableDate);
+						isDate = true;
+					}
+				}
+				if (isDate) // se Ã¨ una data non setto il valore del Field
+					continue;
+				// Class<?> entityClass = Class.forName(value.getClass().getName());
+				// Method[] methods = entityClass.getDeclaredMethods();
+				// Method setMethod = null;
+				String methodName = "setField" + (i + 1);
+				Method setMethod = getMethod(TabgenValueDO.class, methodName);
+				// for (Method method : methods) {
+				// if (method.getName().equals(methodName)) {
+				// logger.info("method= " + method.getName());
+				// setMethod = method;
+				// break;
+				// }
+				// }
+				if (setMethod != null) {
+					String contents = cell.getContents();
+					logger.info("cell contents= " + contents);
+					// eseguo il metodo set su TabgenValueDO
+					Object retObj = setMethod.invoke(value, contents);
+				}
+			}
+			values.add(value);
+		}
+		// setto i valori della tabella
+		tabgen.setTabgenValues(values);
+		return tabgen;
+	}
+	
+	public static Map<Integer, TabgenValueDO> getTabgenValuesFromSheetXls(
+	        TabgenDO tabgen,
+	        File excelFile,
+	        Date enabledDte,
+	        int offset,
+	        int max,
+	        boolean skipColumnName
+	        
+	) throws InvalidTabgenOperationException, Exception {
+		
+		Workbook workbook = Workbook.getWorkbook(excelFile);
+        // prendo solo il primo foglio
+        Sheet sheet = workbook.getSheet(0);
+        
+	    Map<Integer, TabgenValueDO> valuesMap = new HashMap<>();
+	    Integer columnNum = sheet.getColumns();
+	    Integer rowNum = sheet.getRows();
+
+	    // Pre-mappatura campi tabella per velocizzare
+	    List<TabgenFieldDO> fields = new ArrayList<>(tabgen.getTabgenFields());
+	    fields.sort(Comparator.comparingInt(TabgenFieldDO::getProgressive)); // per sequenziale
+
+	    // ciclo righe (dati partono da riga 1 se header, da riga 0 se progressive)
+	    int startRow = skipColumnName ? 0 : 1;
+
+	    for (int j = startRow; j < rowNum; j++) {
+	        if (offset != -1 && (j - startRow) < offset) {
+	            continue;
+	        }
+	        if (offset != -1 && max == 0) {
+	            break;
+	        }
+	        max--;
+
+	        TabgenValueDO value = new TabgenValueDO();
+	        value.setTabgen(tabgen);
+	        if (enabledDte != null)
+	            value.setEnabledDate(enabledDte);
+
+	        // mapping per modalità
+	        if (!skipColumnName) {
+	            // -----------------------
+	            // Modalità HEADER BY NAME
+	            // -----------------------
+	            for (int i = 0; i < columnNum; i++) {
+	                String importColumnName = sheet.getCell(i, 0).getContents();
+	                String valueColumn = "";
+
+	                for (TabgenFieldDO field : fields) {
+	                    if (field.getDescription().equals(importColumnName)) {
+	                        valueColumn = field.getTabgenValueColumn().toLowerCase();
+	                        break;
+	                    }
+	                }
+
+	                jxl.Cell cell = sheet.getCell(i, j);
+	                handleCellValue(value, valueColumn, cell, sheet, j, enabledDte);
+	            }
+	        } else {
+	            // -----------------------
+	            // Modalità PROGRESSIVE
+	            // -----------------------
+	            int colIndex = 0;
+	            for (TabgenFieldDO field : fields) {
+	                if (colIndex >= columnNum) break;
+
+	                String valueColumn = field.getTabgenValueColumn().toLowerCase();
+	                jxl.Cell cell = sheet.getCell(colIndex, j);
+	                handleCellValue(value, valueColumn, cell, sheet, j, enabledDte);
+	                colIndex++;
+	            }
+
+	            // Dopo i campi sequenziali, gestisco DT_ENABLE e DT_DISABLE come ultimi 2 campi
+	            if (colIndex < columnNum) {
+	                jxl.Cell cell = sheet.getCell(colIndex, j);
+	                Date enableDate = getEnableDate(sheet, cell);
+	                if (enableDate != null && enabledDte == null) {
+	                    value.setEnabledDate(enableDate);
+	                }
+	                colIndex++;
+	            }
+	            if (colIndex < columnNum) {
+	                jxl.Cell cell = sheet.getCell(colIndex, j);
+	                Date disableDate = getDisableDate(sheet, cell);
+	                if (disableDate != null) {
+	                    value.setDisabledDate(disableDate);
+	                }
+	            }
+	        }
+
+	        valuesMap.put(j, value);
+	    }
+	    return valuesMap;
+	}
+	
+	/**
+	 * Metodo di supporto per gestire il set dei campi (tranne dt_enable/disable).
+	 */
+	private static void handleCellValue(
+	        TabgenValueDO value,
+	        String valueColumn,
+	        jxl.Cell cell,
+	        Sheet sheet,
+	        int rowIndex,
+	        Date enabledDte
+	) throws Exception {
+
+	    if (cell == null || cell.getContents() == null) {
+	        return;
+	    }
+
+	    // Verifica codifica UTF-8
+	    try {
+	        Charset.availableCharsets().get("UTF-8").newDecoder()
+	                .decode(ByteBuffer.wrap(cell.getContents().getBytes()));
+	    } catch (Exception e) {
+	        InvalidTabgenOperationException ex =
+	                new InvalidTabgenOperationException("Data coding is not valid: must be UTF-8");
+	        ex.setOperation(OperationTypeEnum.LOADING_DATA_CODING_ERROR);
+	        ex.setErrorExcelRowNumber(rowIndex + 1);
+	        ex.setValue(cell.getContents());
+	        jxl.Cell headerCell = sheet.getCell(cell.getColumn(), 0);
+	        ex.setFieldTable(headerCell.getContents());
+	        throw ex;
+	    }
+
+	    // Controllo se è una data di abilitazione/disabilitazione
+	    Date enableDate = getEnableDate(sheet, cell);
+	    Date disableDate = getDisableDate(sheet, cell);
+
+	    if (enableDate != null) {
+	        if (enabledDte == null) {
+	            value.setEnabledDate(enableDate);
+	        }
+	        return;
+	    } else if (disableDate != null) {
+	        if (enabledDte == null) {
+	            value.setDisabledDate(disableDate);
+	        }
+	        return;
+	    }
+
+	    // Set generico tramite reflection
+	    String methodName = "set" + valueColumn.replaceFirst("f", "F");
+	    Method setMethod = getMethod(TabgenValueDO.class, methodName);
+	    if (setMethod != null) {
+	        String contents;
+	        if (cell.getType() == jxl.CellType.NUMBER) {
+	            contents = cell.getContents().replace(".", ",");
+	        } else {
+	            contents = cell.getContents();
+	        }
+	        setMethod.invoke(value, contents);
+	    }
+	}
+	
+	public static Map<Integer, TabgenValueDO> getTabgenValuesFromSheetXlsOptimized(
+	        TabgenDO tabgen,
+	        File excelFile,
+	        Date enabledDte,
+	        int offset,
+	        int max,
+	        boolean skipColumnName
+	) throws InvalidTabgenOperationException, Exception {
+		Workbook workbook = Workbook.getWorkbook(excelFile);
+        // prendo solo il primo foglio
+        Sheet sheet = workbook.getSheet(0);
+        
+	    Map<Integer, TabgenValueDO> valuesMap = new HashMap<>();
+	    int columnNum = sheet.getColumns();
+	    int rowNum = sheet.getRows();
+	    Map<Integer, Method> columnSetters = new HashMap<>();
+
+	    if (!skipColumnName) {
+	        // === Modalità HEADER BY NAME ===
+	        for (int i = 0; i < columnNum; i++) {
+	            String importColumnName = sheet.getCell(i, 0).getContents();
+
+	            if ("DT_ENABLE".equalsIgnoreCase(importColumnName)) {
+	                Method setMethod = getMethod(TabgenValueDO.class, "setEnabledDate");
+	                if (setMethod != null) {
+	                    setMethod.setAccessible(true);
+	                    columnSetters.put(i, setMethod);
+	                }
+	                continue;
+	            }
+	            if ("DT_DISABLE".equalsIgnoreCase(importColumnName)) {
+	                Method setMethod = getMethod(TabgenValueDO.class, "setDisabledDate");
+	                if (setMethod != null) {
+	                    setMethod.setAccessible(true);
+	                    columnSetters.put(i, setMethod);
+	                }
+	                continue;
+	            }
+
+	            for (TabgenFieldDO field : tabgen.getTabgenFields()) {
+	                if (field.getDescription().equals(importColumnName)) {
+	                    String valueColumn = field.getTabgenValueColumn().toLowerCase();
+	                    String methodName = "set" + valueColumn.replaceFirst("f", "F");
+	                    Method setMethod = getMethod(TabgenValueDO.class, methodName);
+	                    if (setMethod != null) {
+	                        setMethod.setAccessible(true);
+	                        columnSetters.put(i, setMethod);
+	                    }
+	                    break;
+	                }
+	            }
+	        }
+	    } else {
+	    	// === Modalità PROGRESSIVE ===
+	    	for (TabgenFieldDO field : tabgen.getTabgenFields()) {
+	    	    Integer colIndex = field.getProgressive();
+	    	    if (colIndex == null) continue;
+
+	    	    // normalizzo a base 0 (Excel parte da colonna 0)
+	    	    int normalizedIndex = colIndex - 1;
+	    	    if (normalizedIndex < 0) continue;
+
+	    	    String valueColumn = field.getTabgenValueColumn().toLowerCase();
+	    	    String methodName = "set" + valueColumn.replaceFirst("f", "F");
+	    	    Method setMethod = getMethod(TabgenValueDO.class, methodName);
+	    	    if (setMethod != null) {
+	    	        setMethod.setAccessible(true);
+	    	        columnSetters.put(normalizedIndex, setMethod);
+	    	    }
+	    	}
+
+	    	// Aggiungo DT_ENABLE e DT_DISABLE come ultimi due campi
+	    	int lastIndex = columnSetters.keySet().stream()
+	    	                    .max(Integer::compareTo)
+	    	                    .orElse(0) + 1;
+
+	    	Method setEnable = getMethod(TabgenValueDO.class, "setEnabledDate");
+	    	Method setDisable = getMethod(TabgenValueDO.class, "setDisabledDate");
+	    	if (setEnable != null) {
+	    	    setEnable.setAccessible(true);
+	    	    columnSetters.put(lastIndex++, setEnable);
+	    	}
+	    	if (setDisable != null) {
+	    	    setDisable.setAccessible(true);
+	    	    columnSetters.put(lastIndex, setDisable);
+	    	}
+	    }
+
+	    // === Lettura righe ===
+	    for (int j = (skipColumnName ? 0 : 1); j < rowNum; j++) {
+	        if (offset != -1 && (j - (skipColumnName ? 0 : 1)) < offset) continue;
+	        if (offset != -1 && max == 0) break;
+	        max--;
+
+	        TabgenValueDO value = new TabgenValueDO();
+	        value.setTabgen(tabgen);
+	        if (enabledDte != null) value.setEnabledDate(enabledDte);
+
+	        for (int i = 0; i < columnNum; i++) {
+	            Method setMethod = columnSetters.get(i);
+	            if (setMethod == null) continue;
+
+	            jxl.Cell cell = sheet.getCell(i, j);
+	            String contents = cell.getContents();
+	            if (contents == null || contents.trim().isEmpty()) continue;
+
+	            if (!skipColumnName) {
+	                // --- modalità HEADER: gestisco nomi colonne ---
+	                String header = sheet.getCell(i, 0).getContents();
+	                if ("DT_ENABLE".equalsIgnoreCase(header)) {
+	                    Date d = getEnableDate(sheet, cell);
+	                    if (d != null && enabledDte == null) {
+	                        setMethod.invoke(value, d);
+	                    }
+	                    continue;
+	                }
+	                if ("DT_DISABLE".equalsIgnoreCase(header)) {
+	                    Date d = getDisableDate(sheet, cell);
+	                    if (d != null) {
+	                        setMethod.invoke(value, d);
+	                    }
+	                    continue;
+	                }
+	            } else {
+	                // --- modalità PROGRESSIVE: DT_ENABLE / DT_DISABLE sempre ultimi ---
+	                if (setMethod.getName().equals("setEnabledDate")) {
+	                    Date d = getEnableDate(sheet, cell);
+	                    if (d != null && enabledDte == null) {
+	                        setMethod.invoke(value, d);
+	                    }
+	                    continue;
+	                }
+	                if (setMethod.getName().equals("setDisabledDate")) {
+	                    Date d = getDisableDate(sheet, cell);
+	                    if (d != null) {
+	                        setMethod.invoke(value, d);
+	                    }
+	                    continue;
+	                }
+	            }
+
+	            if (cell.getType() == CellType.NUMBER) {
+	                contents = contents.replace(".", ",");
+	            } else if (cell.getType() == CellType.DATE) {
+	            	contents = FileUtility.tryParseDateToString(cell);
+	            }
+	            setMethod.invoke(value, contents);
+	        }
+	        valuesMap.put(j, value);
+	    }
+	    return valuesMap;
+	}
+		
+	public static Map<Integer, TabgenValueDO> getTabgenValuesFromSheetXlsxOptimized(
+	        TabgenDO tabgen,
+	        File excelFile,
+	        Date enabledDte,
+	        int offset,
+	        int max,
+	        boolean skipColumnName
+	) throws InvalidTabgenOperationException, Exception {
+
+	    Map<Integer, TabgenValueDO> valuesMap = new HashMap<>();
+	    
+	    FileInputStream fis = new FileInputStream(excelFile);
+        XSSFWorkbook workbook = new XSSFWorkbook(fis);
+        XSSFSheet sheet = workbook.getSheetAt(0);
+        
+	    if (sheet == null) return valuesMap;
+
+	    DataFormatter formatter = new DataFormatter();
+	    int rowNum = sheet.getPhysicalNumberOfRows();
+	    if (rowNum == 0) return valuesMap;
+
+	    // ======================================================
+	    // 1) Prepara mapping colonne -> setter
+	    // ======================================================
+	    Map<Integer, Method> setterMapping = new HashMap<>();
+	    Map<Integer, String> columnNames = new HashMap<>();
+
+	    if (!skipColumnName) {
+	        // 🔹 Modalità con header
+	        XSSFRow headerRow = sheet.getRow(0);
+	        if (headerRow == null) return valuesMap;
+
+	        int columnNum = headerRow.getPhysicalNumberOfCells();
+
+	        for (int i = 0; i < columnNum; i++) {
+	            XSSFCell headerCell = headerRow.getCell(i);
+	            String headerName = headerCell != null ? headerCell.getStringCellValue() : "";
+
+	            // Match con campi tabgen
+	            for (TabgenFieldDO field : tabgen.getTabgenFields()) {
+	                if (field.getDescription().equals(headerName)) {
+	                    String valueColumn = field.getTabgenValueColumn().toLowerCase();
+	                    String methodName = "set" + valueColumn.replaceFirst("f", "F");
+	                    Method setMethod = getMethod(TabgenValueDO.class, methodName);
+	                    if (setMethod != null) {
+	                        setterMapping.put(i, setMethod);
+	                        columnNames.put(i, headerName);
+	                    }
+	                    break;
+	                }
+	            }
+
+	            // Gestione manuale DT_ENABLE e DT_DISABLE
+	            if ("DT_ENABLE".equalsIgnoreCase(headerName)) {
+	                Method setMethod = getMethod(TabgenValueDO.class, "setEnabledDate");
+	                if (setMethod != null) {
+	                    setterMapping.put(i, setMethod);
+	                    columnNames.put(i, headerName);
+	                }
+	            } else if ("DT_DISABLE".equalsIgnoreCase(headerName)) {
+	                Method setMethod = getMethod(TabgenValueDO.class, "setDisabledDate");
+	                if (setMethod != null) {
+	                    setterMapping.put(i, setMethod);
+	                    columnNames.put(i, headerName);
+	                }
+	            }
+	        }
+	    } else {
+	        // 🔹 Modalità sequenziale (progressive)
+	        int maxProgressive = 0;
+	        for (TabgenFieldDO field : tabgen.getTabgenFields()) {
+	            int colIdx = field.getProgressive() - 1; // progressivo parte da 1
+	            maxProgressive = Math.max(maxProgressive, colIdx);
+
+	            String valueColumn = field.getTabgenValueColumn().toLowerCase();
+	            String methodName = "set" + valueColumn.replaceFirst("f", "F");
+	            Method setMethod = getMethod(TabgenValueDO.class, methodName);
+	            if (setMethod != null) {
+	                setterMapping.put(colIdx, setMethod);
+	                columnNames.put(colIdx, field.getDescription());
+	            }
+	        }
+
+	        // Aggiungo DT_ENABLE e DT_DISABLE come ultimi due campi
+	        int dtEnableIdx = maxProgressive + 1;
+	        int dtDisableIdx = maxProgressive + 2;
+
+	        Method setEnable = getMethod(TabgenValueDO.class, "setEnabledDate");
+	        if (setEnable != null) {
+	            setterMapping.put(dtEnableIdx, setEnable);
+	            columnNames.put(dtEnableIdx, "DT_ENABLE");
+	        }
+
+	        Method setDisable = getMethod(TabgenValueDO.class, "setDisabledDate");
+	        if (setDisable != null) {
+	            setterMapping.put(dtDisableIdx, setDisable);
+	            columnNames.put(dtDisableIdx, "DT_DISABLE");
+	        }
+	    }
+
+	    // ======================================================
+	    // 2) Itera sulle righe dati
+	    // ======================================================
+	    int startRow = skipColumnName ? 0 : 1;
+
+	    for (int j = startRow; j < rowNum; j++) {
+	        if (offset != -1 && (j - startRow) < offset) continue;
+	        if (offset != -1 && max == 0) break;
+	        max--;
+
+	        XSSFRow row = sheet.getRow(j);
+	        if (row == null) continue;
+
+	        TabgenValueDO value = new TabgenValueDO();
+	        value.setTabgen(tabgen);
+	        if (enabledDte != null) value.setEnabledDate(enabledDte);
+
+	        for (Map.Entry<Integer, Method> entry : setterMapping.entrySet()) {
+	            int colIdx = entry.getKey();
+	            Method setter = entry.getValue();
+	            String importColumnName = columnNames.get(colIdx);
+
+	            XSSFCell cell = row.getCell(colIdx);
+	            if (cell == null) continue;
+
+	            String cellValue = formatter.formatCellValue(cell);
+
+	            // Validazione UTF-8
+	            try {
+	                StandardCharsets.UTF_8.newDecoder()
+	                        .decode(ByteBuffer.wrap(cellValue.getBytes(StandardCharsets.UTF_8)));
+	            } catch (Exception e) {
+	                InvalidTabgenOperationException ex = new InvalidTabgenOperationException(
+	                        "Data coding is not valid: must be UTF-8");
+	                ex.setOperation(OperationTypeEnum.LOADING_DATA_CODING_ERROR);
+	                ex.setErrorExcelRowNumber(j + 1);
+	                ex.setValue(cellValue);
+	                ex.setFieldTable(importColumnName);
+	                throw ex;
+	            }
+
+	            // Gestione DT_ENABLE / DT_DISABLE
+	            if ("DT_ENABLE".equalsIgnoreCase(importColumnName)) {
+	                Date enableDate = getEnableDateXlsx(sheet, cell);
+	                if (enableDate != null && enabledDte == null) {
+	                    setter.invoke(value, enableDate);
+	                }
+	            } else if ("DT_DISABLE".equalsIgnoreCase(importColumnName)) {
+	                Date disableDate = getDisableDateXlsx(sheet, cell);
+	                if (disableDate != null && enabledDte == null) {
+	                    setter.invoke(value, disableDate);
+	                }
+	            } else {
+	                // Campi generici tabgen
+	                setter.invoke(value, cellValue);
+	            }
+	        }
+
+	        valuesMap.put(j, value);
+	    }
+
+	    return valuesMap;
+	}
+	
+	public static Map<Integer, TabgenValueDO> getTabgenValuesFromSheetXlsx(
+	        TabgenDO tabgen,
+	        File excelFile,
+	        Date enabledDte,
+	        int offset,
+	        int max,
+	        boolean skipColumnName
+	) throws InvalidTabgenOperationException, Exception {
+
+	    Map<Integer, TabgenValueDO> valuesMap = new HashMap<>();
+	    
+	    FileInputStream fis = new FileInputStream(excelFile);
+        XSSFWorkbook workbook = new XSSFWorkbook(fis);
+        XSSFSheet sheet = workbook.getSheetAt(0);
+	    
+	    int rowNum = sheet.getPhysicalNumberOfRows();
+	    Row headerRow = sheet.getRow(0);
+	    if (headerRow == null) {
+	        throw new InvalidTabgenOperationException("Header row missing in sheet");
+	    }
+	    int columnNum = headerRow.getPhysicalNumberOfCells();
+
+	    // Ordino i campi in base al progressivo
+	    List<TabgenFieldDO> orderedFields = tabgen.getTabgenFields().stream()
+	            .sorted(Comparator.comparingInt(TabgenFieldDO::getProgressive))
+	            .collect(Collectors.toList());
+
+	    // parto dalla seconda riga (indice 1)
+	    for (int j = 1; j < rowNum; j++) {
+	        if (offset != -1 && (j - 1) < offset) {
+	            continue;
+	        }
+	        if (offset != -1 && max == 0) {
+	            break;
+	        }
+	        max--;
+
+	        TabgenValueDO value = new TabgenValueDO();
+	        value.setTabgen(tabgen);
+	        if (enabledDte != null) {
+	            value.setEnabledDate(enabledDte);
+	        }
+
+	        Row row = sheet.getRow(j);
+	        if (row == null) continue;
+
+	        if (skipColumnName) {
+	            // --- Modalità SEQUENZIALE ---
+	            int normalFieldsCount = orderedFields.size();
+	            int dtEnableIndex = normalFieldsCount;     // penultima colonna logica
+	            int dtDisableIndex = normalFieldsCount + 1; // ultima colonna logica
+
+	            for (int i = 0; i < columnNum; i++) {
+	                org.apache.poi.ss.usermodel.Cell cell = row.getCell(i);
+	                if (cell == null) continue;
+
+	                String cellValue = getCellValueAsString(cell);
+
+	                // validazione UTF-8
+	                try {
+	                    Charset.availableCharsets().get("UTF-8").newDecoder()
+	                           .decode(ByteBuffer.wrap(cellValue.getBytes()));
+	                } catch (Exception e) {
+	                    InvalidTabgenOperationException ex =
+	                            new InvalidTabgenOperationException("Data coding is not valid: must be UTF-8");
+	                    ex.setOperation(OperationTypeEnum.LOADING_DATA_CODING_ERROR);
+	                    ex.setErrorExcelRowNumber(j + 1);
+	                    ex.setValue(cellValue);
+	                    ex.setFieldTable("progressive-col-" + i);
+	                    throw ex;
+	                }
+
+	                if (i < normalFieldsCount) {
+	                    // campi normali in ordine progressive
+	                    TabgenFieldDO field = orderedFields.get(i);
+	                    String valueColumn = field.getTabgenValueColumn().toLowerCase();
+
+	                    if (!valueColumn.isEmpty()) {
+	                        String methodName = "set" + valueColumn.replaceFirst("f", "F");
+	                        Method setMethod = getMethod(TabgenValueDO.class, methodName);
+	                        if (setMethod != null) {
+	                            logger.info("cell contents= " + cellValue);
+	                            setMethod.invoke(value, cellValue);
+	                        }
+	                    }
+	                } else if (i == dtEnableIndex) {
+	                    // DT_ENABLE come penultimo campo
+	                    Date enableDate = getEnableDateXlsx(sheet, cell);
+	                    if (enableDate != null) {
+	                        value.setEnabledDate(enableDate);
+	                    }
+	                } else if (i == dtDisableIndex) {
+	                    // DT_DISABLE come ultimo campo
+	                    Date disableDate = getDisableDateXlsx(sheet, cell);
+	                    if (disableDate != null) {
+	                        value.setDisabledDate(disableDate);
+	                    }
+	                }
+	            }
+
+	        } else {
+	            // --- Modalità HEADER (vecchia logica) ---
+	            for (int i = 0; i < columnNum; i++) {
+	                org.apache.poi.ss.usermodel.Cell headerCell = headerRow.getCell(i);
+	                String importColumnName = headerCell != null ? headerCell.getStringCellValue() : "";
+	                String valueColumn = "";
+
+	                for (TabgenFieldDO field : tabgen.getTabgenFields()) {
+	                    if (field.getDescription().equals(importColumnName)) {
+	                        valueColumn = field.getTabgenValueColumn().toLowerCase();
+	                        break;
+	                    }
+	                }
+
+	                org.apache.poi.ss.usermodel.Cell cell = row.getCell(i);
+	                if (cell == null) continue;
+
+	                String cellValue = getCellValueAsString(cell);
+
+	                // validazione UTF-8
+	                try {
+	                    Charset.availableCharsets().get("UTF-8").newDecoder()
+	                           .decode(ByteBuffer.wrap(cellValue.getBytes()));
+	                } catch (Exception e) {
+	                    InvalidTabgenOperationException ex =
+	                            new InvalidTabgenOperationException("Data coding is not valid: must be UTF-8");
+	                    ex.setOperation(OperationTypeEnum.LOADING_DATA_CODING_ERROR);
+	                    ex.setErrorExcelRowNumber(j + 1);
+	                    ex.setValue(cellValue);
+	                    ex.setFieldTable(importColumnName);
+	                    throw ex;
+	                }
+
+	                if ("DT_ENABLE".equalsIgnoreCase(importColumnName)) {
+	                    Date enableDate = getEnableDateXlsx(sheet, cell);
+	                    if (enableDate != null) {
+	                        value.setEnabledDate(enableDate);
+	                    }
+	                } else if ("DT_DISABLE".equalsIgnoreCase(importColumnName)) {
+	                    Date disableDate = getDisableDateXlsx(sheet, cell);
+	                    if (disableDate != null) {
+	                        value.setDisabledDate(disableDate);
+	                    }
+	                } else {
+	                    if (!valueColumn.isEmpty()) {
+	                        String methodName = "set" + valueColumn.replaceFirst("f", "F");
+	                        Method setMethod = getMethod(TabgenValueDO.class, methodName);
+	                        if (setMethod != null) {
+	                            logger.info("cell contents= " + cellValue);
+	                            setMethod.invoke(value, cellValue);
+	                        }
+	                    }
+	                }
+	            }
+	        }
+
+	        valuesMap.put(j, value);
+	    }
+
+	    return valuesMap;
+	}
+	
+	public static Map<Integer, TabgenValueDO> getTabgenValuesFromSheetXlsxStreaming(
+	        TabgenDO tabgen,
+	        File excelFile,
+	        Date enabledDte,
+	        int offset,
+	        int max,
+	        boolean skipColumnName
+	) throws Exception {
+
+		Map<Integer, TabgenValueDO> valuesMap = new HashMap<>();
+
+	    OPCPackage pkg = OPCPackage.open(excelFile);
+	    XSSFReader reader = new XSSFReader(pkg);
+	    StylesTable styles = reader.getStylesTable();
+	    ReadOnlySharedStringsTable strings = new ReadOnlySharedStringsTable(pkg);
+
+	    XSSFReader.SheetIterator iter = (XSSFReader.SheetIterator) reader.getSheetsData();
+	    if (!iter.hasNext()) {
+	        return valuesMap; // nessun foglio
+	    }
+
+	    // prendi il primo foglio
+	    try (InputStream sheetStream = iter.next()) {
+	        SAXParserFactory saxFactory = SAXParserFactory.newInstance();
+	        saxFactory.setNamespaceAware(true);
+	        SAXParser saxParser = saxFactory.newSAXParser();
+	        XMLReader sheetParser = saxParser.getXMLReader();
+
+	        SheetHandler handler = new SheetHandler(
+	                tabgen, enabledDte, offset, max, skipColumnName, valuesMap, strings, styles
+	        );
+	        sheetParser.setContentHandler(handler);
+
+	        InputSource sheetSource = new InputSource(sheetStream);
+	        sheetParser.parse(sheetSource);
+	    }
+
+	    pkg.close();
+	    return valuesMap;
+	}
+	
+	static class SheetHandler extends DefaultHandler {
+
+	    private final TabgenDO tabgen;
+	    private final Date enabledDte;
+	    private int offset;
+	    private int max;
+	    private final boolean skipColumnName;
+	    private final Map<Integer, TabgenValueDO> valuesMap;
+
+	    private final ReadOnlySharedStringsTable strings;
+	    private final StylesTable styles;
+
+	    private Map<Integer, Method> setterMapping = new HashMap<>();
+	    private Map<Integer, String> columnNames = new HashMap<>();
+
+	    private int currentRow = -1;
+	    private int currentCol = -1;
+	    private String lastContents;
+	    private boolean isString;
+	    private boolean currentCellIsDate;
+
+	    private TabgenValueDO currentValue;
+
+	    SheetHandler(TabgenDO tabgen, Date enabledDte, int offset, int max,
+	                 boolean skipColumnName, Map<Integer, TabgenValueDO> valuesMap,
+	                 ReadOnlySharedStringsTable strings, StylesTable styles) {
+	        this.tabgen = tabgen;
+	        this.enabledDte = enabledDte;
+	        this.offset = offset;
+	        this.max = max;
+	        this.skipColumnName = skipColumnName;
+	        this.valuesMap = valuesMap;
+	        this.strings = strings;
+	        this.styles = styles;
+
+	        // ⚡ Se devo saltare l'header, costruisco subito il mapping sequenziale
+	        if (skipColumnName) {
+	            List<TabgenFieldDO> fields = new ArrayList<>(tabgen.getTabgenFields());
+	            fields.sort(Comparator.comparingInt(TabgenFieldDO::getProgressive));
+	            int colIndex = 0;
+	            for (TabgenFieldDO field : fields) {
+	                String col = field.getTabgenValueColumn().toLowerCase();
+	                String methodName = "set" + col.replaceFirst("f", "F");
+	                Method m = getMethod(TabgenValueDO.class, methodName);
+	                if (m != null) {
+	                    setterMapping.put(colIndex, m);
+	                    columnNames.put(colIndex, field.getDescription());
+	                }
+	                colIndex++;
+	            }
+	        }
+	    }
+
+	    @Override
+	    public void startElement(String uri, String localName, String qName, Attributes attributes) {
+	        if ("row".equals(qName)) {
+	            currentRow++;
+	            currentCol = -1;
+
+	            if ((skipColumnName && currentRow >= 0) || (!skipColumnName && currentRow > 0)) {
+	                if (offset != -1 && (currentRow - (skipColumnName ? 0 : 1)) < offset) return;
+	                if (offset != -1 && max == 0) return;
+	                max--;
+
+	                try {
+	                    currentValue = new TabgenValueDO();
+	                } catch (ParseException e) {
+	                }
+	                currentValue.setTabgen(tabgen);
+	                if (enabledDte != null) {
+	                    try { currentValue.setEnabledDate(enabledDte); } catch (ParseException e) {}
+	                }
+	            }
+	        } else if ("c".equals(qName)) {
+	            String cellRef = attributes.getValue("r");
+	            currentCol = convertCellRefToIndex(cellRef);
+
+	            String cellType = attributes.getValue("t");
+	            isString = "s".equals(cellType);
+
+	            String styleStr = attributes.getValue("s");
+	            if (styleStr != null) {
+	                int styleIndex = Integer.parseInt(styleStr);
+	                XSSFCellStyle style = styles.getStyleAt(styleIndex);
+	                currentCellIsDate = DateUtil.isADateFormat(style.getDataFormat(), style.getDataFormatString());
+	            } else {
+	                currentCellIsDate = false;
+	            }
+
+	            lastContents = "";
+	        }
+	    }
+
+	    @Override
+	    public void characters(char[] ch, int start, int length) {
+	        lastContents += new String(ch, start, length);
+	    }
+
+	    @Override
+	    public void endElement(String uri, String localName, String qName) {
+	        if ("v".equals(qName)) {
+	            String value = lastContents.isEmpty() ? null : lastContents;
+	            if (isString && value != null) {
+	                int idx = Integer.parseInt(value);
+	                value = new XSSFRichTextString(strings.getEntryAt(idx)).toString();
+	            } else if (currentCellIsDate && value != null) {
+	                double numericValue = Double.parseDouble(value);
+	                Date date = DateUtil.getJavaDate(numericValue);
+	            	value = FileUtility.tryParseDateToString(date);
+	            }
+
+	            if (!skipColumnName && currentRow == 0) {
+	                // Riga header → mapping setter
+	                for (TabgenFieldDO field : tabgen.getTabgenFields()) {
+	                    if (field.getDescription().equalsIgnoreCase(value)) {
+	                        String col = field.getTabgenValueColumn().toLowerCase();
+	                        String methodName = "set" + col.replaceFirst("f", "F");
+	                        Method m = getMethod(TabgenValueDO.class, methodName);
+	                        if (m != null) {
+	                            setterMapping.put(currentCol, m);
+	                            columnNames.put(currentCol, value);
+	                        }
+	                    }
+	                }
+	                if ("DT_ENABLE".equalsIgnoreCase(value)) {
+	                    Method m = getMethod(TabgenValueDO.class, "setEnabledDate");
+	                    setterMapping.put(currentCol, m);
+	                    columnNames.put(currentCol, "DT_ENABLE");
+	                } else if ("DT_DISABLE".equalsIgnoreCase(value)) {
+	                    Method m = getMethod(TabgenValueDO.class, "setDisabledDate");
+	                    setterMapping.put(currentCol, m);
+	                    columnNames.put(currentCol, "DT_DISABLE");
+	                }
+	            } else if (currentValue != null) {
+	                // Riga dati
+	                Method setter = setterMapping.get(currentCol);
+	                String importColumnName = columnNames.get(currentCol);
+	                if (setter != null) {
+	                    try {
+	                        if (value != null) {
+	                            Date d = null;
+
+	                            if ("DT_ENABLE".equalsIgnoreCase(importColumnName) || "DT_DISABLE".equalsIgnoreCase(importColumnName)) {
+	                                if (!isString && currentCellIsDate) {
+	                                    double numericValue = Double.parseDouble(value);
+	                                    d = DateUtil.getJavaDate(numericValue);
+	                                } else {
+	                                	d = FileUtility.tryParseDateToDate(value);
+	                                }
+	                                setter.invoke(currentValue, d);
+	                            } else {
+	                                setter.invoke(currentValue, value);
+	                            }
+	                        } else {
+	                            setter.invoke(currentValue, (Object) null);
+	                        }
+	                    } catch (Exception ex) {
+	                        throw new RuntimeException("Errore parsing cella row=" + (currentRow + 1)
+	                                + " col=" + importColumnName + " val=" + value, ex);
+	                    }
+	                }
+	            }
+	        } else if ("row".equals(qName)) {
+	            if (currentValue != null) {
+	                valuesMap.put(currentRow, currentValue);
+	                currentValue = null;
+	            }
+	        }
+	    }
+
+	    private int convertCellRefToIndex(String cellRef) {
+	        if (cellRef == null) return currentCol + 1;
+	        int col = 0;
+	        for (int i = 0; i < cellRef.length(); i++) {
+	            char c = cellRef.charAt(i);
+	            if (Character.isLetter(c)) {
+	                col = col * 26 + (c - 'A' + 1);
+	            } else break;
+	        }
+	        return col - 1; // zero-based
+	    }
+	}
+	
+	public static Map<Integer, TabgenValueDO> getTabgenValuesFromCsv(
+	        TabgenDO tabgen, File csvFile, Date enabledDte, int offset, int max, boolean skipColumnName) 
+	        throws InvalidTabgenOperationException, Exception {
+
+	    Map<Integer, TabgenValueDO> valuesMap = new HashMap<>();
+
+	    // Lista campi tabgen ordinata per progressive
+	    List<TabgenFieldDO> fieldsList = new ArrayList<>(tabgen.getTabgenFields());
+	    fieldsList.sort(Comparator.comparingInt(TabgenFieldDO::getProgressive));
+
+	    // Cache setter
+	    Map<String, Method> setterMap = new HashMap<>();
+	    for (Method m : TabgenValueDO.class.getMethods()) {
+	        if (m.getName().startsWith("set") && m.getParameterCount() == 1) {
+	            setterMap.put(m.getName().toLowerCase(), m);
+	        }
+	    }
+
+	    try (BufferedReader br = new BufferedReader(new InputStreamReader(new FileInputStream(csvFile), StandardCharsets.UTF_8))) {
+	        String headerLine = null;
+	        if (!skipColumnName) {
+	            headerLine = br.readLine();
+	            if (headerLine == null) return valuesMap;
+	        }
+
+	        String[] headers = headerLine != null ? headerLine.split(";", -1) : null;
+	        int j = 0;
+	        String line;
+	        while ((line = br.readLine()) != null) {
+	            j++;
+	            if (offset != -1 && (j - 1) < offset) continue;
+	            if (offset != -1 && max == 0) break;
+	            max--;
+
+	            TabgenValueDO value = new TabgenValueDO();
+	            value.setTabgen(tabgen);
+	            if (enabledDte != null) value.setEnabledDate(enabledDte);
+
+	            String[] cells = line.split(";", -1);
+
+	            if (!skipColumnName) {
+	                // Header by name
+	                for (int i = 0; i < headers.length && i < cells.length; i++) {
+	                    String importColumnName = headers[i].trim().toLowerCase();
+	                    String cellValue = cells[i].trim();
+	                    if (cellValue.isEmpty()) continue;
+
+	                    try {
+	                        if (importColumnName.equalsIgnoreCase("DT_ENABLE")) {
+	                        	value.setEnabledDate(FileUtility.tryParseDateToDate(cellValue)); 
+	                            continue;
+	                        }
+	                        if (importColumnName.equalsIgnoreCase("DT_DISABLE")) {
+	                        	value.setDisabledDate(FileUtility.tryParseDateToDate(cellValue)); 
+	                            continue;
+	                        }
+	                    } catch (Exception e) {
+	                        logger.error(e.getMessage());
+	                    }
+
+	                    // Trova setter dinamicamente
+	                    for (TabgenFieldDO field : fieldsList) {
+	                        if (field.getDescription().equalsIgnoreCase(importColumnName)) {
+	                            String methodName = ("set" + field.getTabgenValueColumn().replaceFirst("f", "F")).toLowerCase();
+	                            Method setMethod = setterMap.get(methodName);
+	                            if (setMethod != null) {
+	                                setMethod.invoke(value, cellValue);
+	                            }
+	                            break;
+	                        }
+	                    }
+	                }
+	            } else {
+	                // Modalità progressive
+	                int fieldCount = fieldsList.size();
+	                for (int i = 0; i < fieldCount && i < cells.length; i++) {
+	                    String cellValue = cells[i].trim();
+	                    if (cellValue.isEmpty()) continue;
+
+	                    TabgenFieldDO field = fieldsList.get(i);
+	                    String valueColumn = field.getTabgenValueColumn();
+	                    if (valueColumn != null) {
+	                        String methodName = ("set" + valueColumn.replaceFirst("f", "F")).toLowerCase();
+	                        Method setMethod = setterMap.get(methodName);
+	                        if (setMethod != null) {
+	                            setMethod.invoke(value, cellValue);
+	                        }
+	                    }
+	                }
+
+	                // DT_ENABLE / DT_DISABLE come ultimi due campi
+	                int dtEnableIndex = cells.length - 2;
+	                if (dtEnableIndex >= 0) {
+	                    String dtEnableVal = cells[dtEnableIndex].trim();
+	                    if (!dtEnableVal.isEmpty()) {
+	                    	value.setEnabledDate(FileUtility.tryParseDateToDate(dtEnableVal)); 
+	                    }
+	                }
+	                int dtDisableIndex = cells.length - 1;
+	                if (dtDisableIndex >= 0) {
+	                    String dtDisableVal = cells[dtDisableIndex].trim();
+	                    if (!dtDisableVal.isEmpty()) {
+	                    	value.setDisabledDate(FileUtility.tryParseDateToDate(dtDisableVal)); 
+	                    }
+	                }
+	            }
+
+	            valuesMap.put(j, value);
+	        }
+	    }
+
+	    return valuesMap;
+	}
+	
+	public static Map<Integer, TabgenValueDO> getTabgenValuesFromCsvParser(
+	        TabgenDO tabgen,
+	        File csvFile,
+	        Date enabledDte,
+	        int offset,
+	        int max,
+	        boolean skipColumnName)
+	        throws InvalidTabgenOperationException, Exception {
+
+	    Map<Integer, TabgenValueDO> valuesMap = new HashMap<>(max > 0 ? max : 1024);
+
+	    // Cache dei setter con nome colonna normalizzato
+	    Map<String, Method> setterMap = new HashMap<>();
+	    for (Method m : TabgenValueDO.class.getMethods()) {
+	        if (m.getName().startsWith("set") && m.getParameterCount() == 1) {
+	            setterMap.put(m.getName().toLowerCase(), m);
+	        }
+	    }
+
+	    // Prepara mapping in base a modalità
+	    List<TabgenFieldDO> progressiveFields = null;
+	    Map<String, Method> headerToSetter = null;
+
+	    if (skipColumnName) {
+	        // Preordina i campi per progressive e prepara setter
+	        progressiveFields = tabgen.getTabgenFields().stream()
+	                .sorted(Comparator.comparingInt(TabgenFieldDO::getProgressive))
+	                .collect(Collectors.toList());
+	    } else {
+	        // Mappa description → setter
+	        headerToSetter = new HashMap<>();
+	        for (TabgenFieldDO field : tabgen.getTabgenFields()) {
+	            String methodName = ("set" + field.getTabgenValueColumn()).toLowerCase();
+	            Method m = setterMap.get(methodName);
+	            if (m != null) {
+	                headerToSetter.put(field.getDescription().toLowerCase(), m);
+	            }
+	        }
+	    }
+
+	    // Configurazione parser univocity
+	    CsvParserSettings settings = new CsvParserSettings();
+	    settings.getFormat().setDelimiter(';');
+	    settings.setIgnoreLeadingWhitespaces(true);
+	    settings.setIgnoreTrailingWhitespaces(true);
+	    settings.setSkipEmptyLines(true);
+
+	    if (!skipColumnName) {
+	        settings.setHeaderExtractionEnabled(true);
+	    }
+
+	    CsvParser parser = new CsvParser(settings);
+
+	    try (Reader reader = new InputStreamReader(new FileInputStream(csvFile), StandardCharsets.UTF_8)) {
+	        parser.beginParsing(reader);
+
+	        String[] headers = skipColumnName ? null : parser.getContext().headers();
+	        int rowIndex = 0;
+
+	        String[] row;
+	        while ((row = parser.parseNext()) != null) {
+	            rowIndex++;
+	            if (offset != -1 && (rowIndex - 1) < offset) continue;
+	            if (offset != -1 && max == 0) break;
+	            max--;
+
+	            TabgenValueDO value = new TabgenValueDO();
+	            value.setTabgen(tabgen);
+	            if (enabledDte != null) {
+	                value.setEnabledDate(enabledDte);
+	            }
+
+	            if (skipColumnName) {
+	                // modalità progressive
+	                for (int idx = 0; idx < progressiveFields.size() && idx < row.length; idx++) {
+	                    TabgenFieldDO field = progressiveFields.get(idx);
+	                    String cellValue = row[idx] != null ? row[idx].trim() : "";
+	                    if (cellValue.isEmpty()) continue;
+
+	                    Method setMethod = setterMap.get(("set" + field.getTabgenValueColumn()).toLowerCase());
+	                    if (setMethod != null) {
+	                        invokeSetter(setMethod, value, cellValue);
+	                    }
+	                }
+	            } else {
+	                // modalità con header
+	                for (int idx = 0; idx < headers.length && idx < row.length; idx++) {
+	                    String header = headers[idx];
+	                    String normalized = header.toLowerCase();
+	                    String cellValue = row[idx] != null ? row[idx].trim() : "";
+	                    if (cellValue.isEmpty()) continue;
+
+	                    Method setMethod;
+	                    if (normalized.equals("dt_enable")) {
+	                        setMethod = setterMap.get("setenableddate");
+	                    } else if (normalized.equals("dt_disable")) {
+	                        setMethod = setterMap.get("setdisableddate");
+	                    } else {
+	                        setMethod = headerToSetter.get(normalized);
+	                    }
+
+	                    if (setMethod != null) {
+	                        invokeSetter(setMethod, value, cellValue);
+	                    }
+	                }
+	            }
+
+	            valuesMap.put(rowIndex, value);
+	        }
+	    }
+
+	    return valuesMap;
+	}
+	
+	public static Map<Integer, TabgenValueDO> getTabgenValuesFromCsvParserStreaming(
+	        TabgenDO tabgen,
+	        File csvFile,
+	        Date enabledDte,
+	        int offset,
+	        int max,
+	        boolean skipColumnName
+	) throws InvalidTabgenOperationException, Exception {
+
+	    Map<Integer, TabgenValueDO> valuesMap = new HashMap<>(max > 0 ? max : 1024);
+
+	    // Cache setter methods
+	    final Map<String, Method> setterMap = new HashMap<>();
+	    for (Method m : TabgenValueDO.class.getMethods()) {
+	        if (m.getName().startsWith("set") && m.getParameterCount() == 1) {
+	            setterMap.put(m.getName().toLowerCase(), m);
+	        }
+	    }
+
+	    // Prepare field mappings
+	    final List<TabgenFieldDO> progressiveFields;
+	    final Map<String, Method> headerToSetter;
+
+	    if (skipColumnName) {
+	        progressiveFields = tabgen.getTabgenFields().stream()
+	                .sorted(Comparator.comparingInt(TabgenFieldDO::getProgressive))
+	                .collect(Collectors.toList());
+	        headerToSetter = null;
+	    } else {
+	        progressiveFields = null;
+	        Map<String, Method> tmpMap = new HashMap<>();
+	        for (TabgenFieldDO field : tabgen.getTabgenFields()) {
+	            String methodName = ("set" + field.getTabgenValueColumn()).toLowerCase();
+	            Method m = setterMap.get(methodName);
+	            if (m != null) {
+	                tmpMap.put(field.getDescription().toLowerCase(), m);
+	            }
+	        }
+	        headerToSetter = tmpMap;
+	    }
+
+	    // CSV settings
+	    CsvParserSettings settings = new CsvParserSettings();
+	    settings.getFormat().setDelimiter(';');
+	    settings.setIgnoreLeadingWhitespaces(true);
+	    settings.setIgnoreTrailingWhitespaces(true);
+	    settings.setSkipEmptyLines(true);
+	    if (!skipColumnName) {
+	        settings.setHeaderExtractionEnabled(true);
+	    }
+
+	    // Processor in streaming
+	    RowProcessor rowProcessor = new AbstractRowProcessor() {
+	        int rowIndex = 0;
+	        int remaining = max;
+
+	        @Override
+	        public void rowProcessed(String[] row, ParsingContext context) {
+	            rowIndex++;
+	            if (offset != -1 && (rowIndex - 1) < offset) return;
+	            if (offset != -1 && remaining == 0) return;
+	            remaining--;
+
+	            TabgenValueDO value = null;
+				try {
+					value = new TabgenValueDO();
+				} catch (ParseException ignore) {}
+	            value.setTabgen(tabgen);
+	            if (enabledDte != null) {
+	                try {
+						value.setEnabledDate(enabledDte);
+	                } catch (ParseException ignore) {}
+	            }
+
+	            if (skipColumnName) {
+	                // Progressive mode
+	                for (int idx = 0; idx < progressiveFields.size() && idx < row.length; idx++) {
+	                    TabgenFieldDO field = progressiveFields.get(idx);
+	                    String cellValue = row[idx] != null ? row[idx].trim() : "";
+	                    if (cellValue.isEmpty()) continue;
+
+	                    Method setMethod = setterMap.get(("set" + field.getTabgenValueColumn()).toLowerCase());
+	                    if (setMethod != null) {
+	                        invokeSetter(setMethod, value, cellValue);
+	                    }
+	                }
+	            } else {
+	                // Header mode
+	                String[] headers = context.headers();
+	                for (int idx = 0; idx < headers.length && idx < row.length; idx++) {
+	                    String header = headers[idx].toLowerCase();
+	                    String cellValue = row[idx] != null ? row[idx].trim() : "";
+	                    if (cellValue.isEmpty()) continue;
+
+	                    Method setMethod;
+	                    if (header.equals("dt_enable")) {
+	                        setMethod = setterMap.get("setenableddate");
+	                    } else if (header.equals("dt_disable")) {
+	                        setMethod = setterMap.get("setdisableddate");
+	                    } else {
+	                        setMethod = headerToSetter.get(header);
+	                    }
+
+	                    if (setMethod != null) {
+	                        invokeSetter(setMethod, value, cellValue);
+	                    }
+	                }
+	            }
+
+	            valuesMap.put(rowIndex, value);
+	        }
+	    };
+
+	    settings.setProcessor(rowProcessor);
+
+	    try (Reader reader = new InputStreamReader(new FileInputStream(csvFile), StandardCharsets.UTF_8)) {
+	        CsvParser parser = new CsvParser(settings);
+	        parser.parse(reader);
+	    }
+
+	    return valuesMap;
+	}
+	
+	/**
+	 * Invoca un setter con conversione automatica Date/String.
+	 */
+	private static void invokeSetter(Method setMethod, TabgenValueDO target, String cellValue) {
+	    try {
+	        Class<?> paramType = setMethod.getParameterTypes()[0];
+	        if (paramType.equals(Date.class)) {
+	            setMethod.invoke(target, FileUtility.tryParseDateToDate(cellValue));
+	        } else {
+	            setMethod.invoke(target, cellValue);
+	        }
+	    } catch (Exception ignored) {
+	    }
+	}
+	
+	private static String getCellValueAsString(org.apache.poi.ss.usermodel.Cell cell) {
+	    if (cell == null) return "";
+	    
+//		switch (cell.getCellType()) {
+//	        case STRING:
+//	            return cell.getStringCellValue();
+//	        case NUMERIC:
+//	            if (DateUtil.isCellDateFormatted(cell)) {
+//	                return new SimpleDateFormat("dd/MM/yyyy HH:mm:ss").format(cell.getDateCellValue());
+//	            } else {
+//	                return String.valueOf(cell.getNumericCellValue()).replace(".", ",");
+//	            }
+//	        case BOOLEAN:
+//	            return String.valueOf(cell.getBooleanCellValue());
+//	        case FORMULA:
+//	            return cell.getCellFormula();
+//	        case BLANK:
+//	        default:
+//	            return "";
+//		}
+		
+		if (cell != null) {
+        	try {
+        		return cell.getStringCellValue();
+        	} catch (Exception e) {
+        		try {
+            		if (DateUtil.isCellDateFormatted(cell)) {
+            			return new SimpleDateFormat("dd/MM/yyyy HH:mm:ss").format(cell.getDateCellValue());
+    	            } else {
+    	            	return String.valueOf(cell.getNumericCellValue()).replace(".", ",");
+    	            }
+        		} catch (Exception e1) {
+        			try {
+        				return String.valueOf(cell.getBooleanCellValue());
+        			} catch (Exception e2) {
+        				try {
+        					return cell.getCellFormula();
+        				} catch (Exception e3) {
+        					return "";
+        				}
+        			}
+        		}
+        	}
+    	}
+		return "";
+	    
+	}
+	
+	/**
+	 * Ottiene i valori del tabgen dallo sheet
+	 * 
+	 * @param tabgen
+	 * @param sheet
+	 * @param enabledDte
+	 * @return
+	 * @throws Exception
+	 */
+	public static Map<Integer, TabgenValueDO> getTabgenValuesFromSheet(TabgenDO tabgen, Sheet sheet, Date enabledDte) throws Exception {
+		Map<Integer, TabgenValueDO> valuesMap = new HashMap<Integer, TabgenValueDO>();
+		Integer columnNum = sheet.getColumns();
+		Integer rowNum = sheet.getRows();
+		// parto dalla seconda riga per prendere i valori della tabella
+		for (int j = 1; j < rowNum; j++) {
+			// tutti i valori della riga vanno in un TabgenValue
+			TabgenValueDO value = new TabgenValueDO();
+			// lego il value alla tabella
+			value.setTabgen(tabgen);
+			if (enabledDte != null)
+				value.setEnabledDate(enabledDte);
+			int k = 0;
+			for (int i = 0; i < columnNum; i++) {
+				jxl.Cell cell = sheet.getCell(i, j);
+				boolean isDate = false;
+				if (cell.getContents() != null) {
+					Date enableDate = null;
+					Date disableDate = null;
+					logger.info("cell= " + cell.getContents());
+					// se Ã¨ un valore del campo dt_enable o dt_disable, devo valorizzare tali campi
+					// del tabgen_value
+					if ((enableDate = getEnableDate(sheet, cell)) != null) {
+						isDate = true;
+						if (enabledDte == null) // se non ho giÃ  settato la data vince quella
+												// dell'excel
+							value.setEnabledDate(enableDate);
+					} else if ((disableDate = getDisableDate(sheet, cell)) != null) {
+						isDate = true;
+						if (enabledDte == null) // se non ho giÃ  settato la data vince quella
+												// dell'excel
+							value.setDisabledDate(disableDate);
+					} else if (sheet.getCell(cell.getColumn(), 0).getContents().toUpperCase().equals("DT_ENABLE") || sheet.getCell(cell.getColumn(), 0).getContents().toUpperCase().equals("DT_DISABLE")) {
+						isDate = true;
+					}
+				}
+				if (isDate) // se Ã¨ una data non setto il valore del Field
+					continue;
+				// String methodName = "setField" + (i + 1);
+				String methodName = "setField" + (k + 1);
+				Method setMethod = getMethod(TabgenValueDO.class, methodName);
+				if (setMethod != null) {
+					String contents = cell.getContents();
+					logger.info("cell contents= " + contents);
+					// eseguo il metodo set su TabgenValueDO
+					Object retObj = setMethod.invoke(value, contents);
+				}
+				k = k + 1;
+			}
+			valuesMap.put(j, value);
+		}
+		return valuesMap;
+	}
+
+	/**
+	 * Controlla se un range di date si interseca con un altro
+	 * 
+	 * @param start1
+	 * @param end1
+	 * @param start2
+	 * @param end2
+	 * @return
+	 */
+	public static boolean isOverlap(Date start1, Date end1, Date start2, Date end2) {
+		boolean overlap = false;
+		/*
+		 * (enabledDate<=start and disabledDate>start) or (enabledDate<end and disabledDate>=end) or
+		 * (enabledDate>=start and disabledDate<=end)
+		 */
+		if (((start1.before(start2) || start1.equals(start2)) && end1.after(start2)) || (start1.before(end2) && (end1.after(end2) || end1.equals(end2))) || ((start1.after(start2) || start1.equals(start2)) && (end1.before(end2) || end1.equals(end2))))
+			return true;
+
+		return overlap;
+	}
+
+	/**
+	 * Controlla se un range di date Ã¨ contenuto in un altro
+	 * 
+	 * @param start1
+	 * @param end1
+	 * @param start2
+	 * @param end2
+	 * @return
+	 */
+	public static boolean isInclusion(Date inStart, Date inEnd, Date start, Date end) {
+		boolean included = false;
+		// start1 <= start2 <= end2 <= end1
+		if ((inStart.before(start) || inStart.equals(start)) && (start.before(end) || start.equals(end)) && (end.before(inEnd) || end.equals(inEnd)))
+			return true;
+
+		return included;
+	}
+
+	/**
+	 * Restituisce il numero di colonne dell'excel a meno delle colonne delle date
+	 * 
+	 * @return
+	 */
+	public static Integer getSheetColumns(Sheet sheet) {
+		Integer realNum = sheet.getColumns();
+		Integer num = 0;
+		for (int j = 0; j < realNum; j++) {
+			jxl.Cell cell = sheet.getCell(j, 0);
+			if (!cell.getContents().toUpperCase().equals("DT_ENABLE") && !cell.getContents().toUpperCase().equals("DT_DISABLE")) {
+				num++;
+			}
+		}
+		return num;
+	}
+
+	/**
+	 * Controlla che le colonne dello sheet coincidano con i campi del tabgen (numero, posizione e
+	 * descrizione)
+	 * 
+	 * @param tabgen
+	 * @param sheet
+	 * @return
+	 * @throws InvalidTabgenOperationException
+	 */
+	public static boolean checkSheetHeaderXls(TabgenDO tabgen, File excelFile) throws InvalidTabgenOperationException {
+	    boolean result = false;
+	    Set<TabgenFieldDO> fields = tabgen.getTabgenFields();
+
+	    Sheet sheet = null;
+	    try {
+	        Workbook workbook = Workbook.getWorkbook(excelFile);
+	        // prendo solo il primo foglio
+	        sheet = workbook.getSheet(0);
+
+	        // mi carico in una lista i nomi di tutte le colonne
+	        List<String> nomiColonne = readColumnXls(sheet);
+
+	        // Rimuovo le colonne DT_ENABLE e DT_DISABLE dal conteggio se sono indicate nel file
+	        long columnNum = nomiColonne.stream()
+	                .map(String::trim)
+	                .filter(col -> !col.equalsIgnoreCase("DT_ENABLE") && !col.equalsIgnoreCase("DT_DISABLE"))
+	                .count();
+
+	        int realColumnNum = sheet.getColumns();
+	        long fieldsSize = fields.size();
+
+	        // controllo il numero di colonne della tabella che coincide con il numero di colonne dello sheet
+	        if (columnNum != fieldsSize) {
+	            InvalidTabgenOperationException ex = new InvalidTabgenOperationException(
+	                    "Loading data is not valid: the schemas of excel and table are not equals");
+	            ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL);
+	            ex.setSheetName(tabgen.getId());
+	            ex.setSheetColumnNum((int) columnNum);
+	            ex.setTableColumnNum(fields.size());
+	            ex.setDifferentSchemas(true);
+	            throw ex;
+	        }
+
+	        // carico la prima riga che individua le colonne della tabella
+	        int progressive = 0;
+	        int k = 0;
+	        for (int j = 0; j < realColumnNum; j++) {
+	            jxl.Cell cell = sheet.getCell(j, 0);
+	            logger.info("cell header= " + cell.getContents());
+	            String columnName = getCleanColumnName(cell.getContents());
+
+	            if (columnName.equalsIgnoreCase("DT_ENABLE") || columnName.equalsIgnoreCase("DT_DISABLE")) {
+	                continue;
+	            }
+
+	            progressive = k + 1;
+
+	            // cerco la colonna dello sheet tra i campi della tabella, alla stessa posizione
+	            boolean founded = false;
+	            for (TabgenFieldDO tabgenFieldDO : fields) {
+	                if (tabgenFieldDO.getDescription().equals(columnName.toUpperCase())) {
+	                    founded = true;
+	                    break;
+	                }
+	            }
+
+	            if (!founded) {
+	                InvalidTabgenOperationException ex = new InvalidTabgenOperationException(
+	                        "Loading data is not valid: the schemas of excel and table are not equals");
+	                ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL);
+	                ex.setAbsentSheetColumn(columnName);
+	                throw ex;
+	            }
+
+	            k++;
+	        }
+
+	        result = true;
+
+	    } catch (Exception e) {
+	        throw new InvalidTabgenOperationException("Error reading Excel file: " + e.getMessage());
+	    }
+
+	    return result;
+	}
+	
+	public static boolean checkSheetHeaderXlsx(TabgenDO tabgen, File excelFile)
+	        throws Exception {
+
+	    if (excelFile == null || !excelFile.exists()) {
+	        throw new InvalidTabgenOperationException("Excel file is null or does not exist");
+	    }
+
+	    Set<TabgenFieldDO> fields = tabgen.getTabgenFields();
+
+	    try (OPCPackage pkg = OPCPackage.open(excelFile)) {
+	        XSSFReader reader = new XSSFReader(pkg);
+	        ReadOnlySharedStringsTable strings = new ReadOnlySharedStringsTable(pkg);
+
+	        // Prendo il primo foglio
+	        Iterator<InputStream> sheets = reader.getSheetsData();
+	        if (!sheets.hasNext()) {
+	            throw new InvalidTabgenOperationException("Loading data is not valid: sheet is empty");
+	        }
+
+	        try (InputStream sheetStream = sheets.next()) {
+	            HeaderHandler handler = new HeaderHandler(strings);
+	            SAXParserFactory saxFactory = SAXParserFactory.newInstance();
+	            XMLReader parser = saxFactory.newSAXParser().getXMLReader();
+	            parser.setContentHandler(handler);
+	            parser.parse(new InputSource(sheetStream));
+
+	            List<String> nomiColonne = handler.getHeaderColumns();
+
+	            // Rimuovo colonne DT_ENABLE e DT_DISABLE dal conteggio
+	            long columnNum = nomiColonne.stream()
+	                    .filter(col -> !col.equalsIgnoreCase("DT_ENABLE") && !col.equalsIgnoreCase("DT_DISABLE"))
+	                    .count();
+
+	            if (columnNum != fields.size()) {
+	                InvalidTabgenOperationException ex = new InvalidTabgenOperationException(
+	                        "Loading data is not valid: the schemas of excel and table are not equals"
+	                );
+	                ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL);
+	                ex.setSheetName(tabgen.getId());
+	                ex.setSheetColumnNum((int) columnNum);
+	                ex.setTableColumnNum(fields.size());
+	                ex.setDifferentSchemas(true);
+	                throw ex;
+	            }
+
+	            // Controllo che tutte le colonne esistano nella tabella
+	            for (String col : nomiColonne) {
+	                if (col.equalsIgnoreCase("DT_ENABLE") || col.equalsIgnoreCase("DT_DISABLE")) continue;
+	                boolean found = fields.stream()
+	                        .anyMatch(f -> f.getDescription().equalsIgnoreCase(col));
+	                if (!found) {
+	                    InvalidTabgenOperationException ex = new InvalidTabgenOperationException(
+	                            "Loading data is not valid: the schemas of excel and table are not equals"
+	                    );
+	                    ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL);
+	                    ex.setAbsentSheetColumn(col);
+	                    throw ex;
+	                }
+	            }
+
+	            return true;
+	        }
+	    }
+	}
+
+	// Handler SAX che legge solo la prima riga del foglio
+	static class HeaderHandler extends DefaultHandler {
+	    private final ReadOnlySharedStringsTable strings;
+	    private final List<String> headerColumns = new ArrayList<>();
+	    private boolean inFirstRow = true;
+	    private boolean inCell = false;
+	    private String cellType;
+	    private StringBuilder contents = new StringBuilder();
+	    private int currentRow = 0;
+
+	    public HeaderHandler(ReadOnlySharedStringsTable strings) {
+	        this.strings = strings;
+	    }
+
+	    public List<String> getHeaderColumns() {
+	        return headerColumns;
+	    }
+
+	    @Override
+	    public void startElement(String uri, String localName, String qName, Attributes attributes) {
+	        if ("row".equals(qName)) {
+	            currentRow = Integer.parseInt(attributes.getValue("r")) - 1;
+	            if (currentRow > 0) inFirstRow = false; // stop dopo la prima riga
+	        }
+	        if (inFirstRow && "c".equals(qName)) {
+	            inCell = true;
+	            cellType = attributes.getValue("t"); // tipo cella
+	            contents.setLength(0);
+	        }
+	    }
+
+	    @Override
+	    public void characters(char[] ch, int start, int length) {
+	        if (inCell) contents.append(ch, start, length);
+	    }
+
+	    @Override
+	    public void endElement(String uri, String localName, String qName) {
+	        if (inFirstRow && "c".equals(qName)) {
+	            String value = contents.toString();
+	            if ("s".equals(cellType)) {
+	                int idx = Integer.parseInt(value);
+	                try {
+	                    value = new XSSFRichTextString(strings.getEntryAt(idx)).toString();
+	                } catch (Exception e) {
+	                    value = "";
+	                }
+	            }
+	            headerColumns.add(value.trim());
+	            inCell = false;
+	        }
+	    }
+	}
+	
+	public static boolean checkCsvHeader(TabgenDO tabgen, File csvFile) throws InvalidTabgenOperationException, Exception {
+	    boolean result = false;
+	    Set<TabgenFieldDO> fields = tabgen.getTabgenFields();
+	    
+    	try (BufferedReader br = new BufferedReader(new FileReader(csvFile))) {
+	        // Leggo la prima riga (header)
+	        String headerLine = br.readLine();
+	        if (headerLine == null || headerLine.trim().isEmpty()) {
+	            throw new InvalidTabgenOperationException("Loading data is not valid: CSV file is empty");
+	        }
+
+	        // Split delle colonne
+	        String[] headerColumns = headerLine.split(";", -1); // -1 per includere colonne vuote
+	        int realColumnNum = headerColumns.length;
+	        long fieldsSize = fields.size();
+	        // Rimuovo le colonne DT_ENABLE e DT_DISABLE dal conteggio se sono indicate nel file
+	        long countValidCols = Arrays.stream(headerColumns)
+	                .map(String::trim)
+	                .filter(col -> !col.equalsIgnoreCase("DT_ENABLE") && !col.equalsIgnoreCase("DT_DISABLE"))
+	                .count();
+	        
+	        // Controllo numero colonne
+	        if (countValidCols != fieldsSize) {
+	            InvalidTabgenOperationException ex = new InvalidTabgenOperationException(
+	                    "Loading data is not valid: the schemas of CSV and table are not equals"
+	            );
+	            ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL); // puoi creare un enum per CSV
+	            ex.setSheetName(tabgen.getId());
+	            ex.setSheetColumnNum((int) countValidCols);
+	            ex.setTableColumnNum(fields.size());
+	            ex.setDifferentSchemas(true);
+	            throw ex;
+	        }
+
+	        // Controllo corrispondenza dei nomi colonna
+	        int k = 0;
+	        for (String col : headerColumns) {
+	            String columnName = getCleanColumnName(col);
+	            if (columnName.equalsIgnoreCase("DT_ENABLE") || columnName.equalsIgnoreCase("DT_DISABLE")) {
+	                continue; // ignoro
+	            }
+
+	            logger.info("CSV header column = " + columnName);
+
+	            boolean founded = false;
+	            for (TabgenFieldDO tabgenFieldDO : fields) {
+	                if (tabgenFieldDO.getDescription().equalsIgnoreCase(columnName)) {
+	                    founded = true;
+	                    break;
+	                }
+	            }
+
+	            if (!founded) {
+	                InvalidTabgenOperationException ex = new InvalidTabgenOperationException(
+	                        "Loading data is not valid: the schemas of CSV and table are not equals"
+	                );
+	                ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL); // idem sopra
+	                ex.setAbsentSheetColumn(columnName);
+	                throw ex;
+	            }
+	            k++;
+	        }
+	    }	    
+
+	    return result = true;
+	}
+	
+	/**
+	 * Controlla il nome dello sheet
+	 * 
+	 * @param inputFilename
+	 * @return
+	 * @throws InvalidTabgenOperationException
+	 * @throws Exception
+	 */
+	public static String checkSheetNameXls(File inputWorkbook) throws InvalidTabgenOperationException, Exception {
+	    if (inputWorkbook == null) {
+	        return null;
+	    }
+
+	    WorkbookSettings ws = new WorkbookSettings();
+	    ws.setLocale(new Locale("en", "EN"));
+
+	    Workbook workbook = Workbook.getWorkbook(inputWorkbook, ws);
+
+	    if (workbook.getNumberOfSheets() > 0) {
+	        String sheetName = workbook.getSheet(0).getName();
+
+	        if (sheetName.toLowerCase().contains("foglio") || sheetName.toLowerCase().contains("sheet")) {
+	            InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Loading data is not valid");
+	            ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL);
+	            ex.setSheetName(sheetName);
+	            ex.setInputFilename(inputWorkbook.getName());
+	            throw ex;
+	        }
+
+	        return sheetName;
+	    }
+
+	    return null; // Nessun foglio presente
+	}
+	
+	public static String checkSheetNameXlsx(File inputWorkbook)
+            throws InvalidTabgenOperationException, Exception {
+
+        if (inputWorkbook == null) {
+            return null;
+        }
+
+        try (OPCPackage pkg = OPCPackage.open(inputWorkbook)) {
+
+            XSSFReader reader = new XSSFReader(pkg);
+            SheetIterator sheets = (SheetIterator) reader.getSheetsData();
+
+            if (sheets.hasNext()) {
+                try (InputStream sheetStream = sheets.next()) {
+                    String sheetName = sheets.getSheetName();
+
+                    // Controllo sul nome del foglio
+                    if (sheetName.toLowerCase(Locale.ENGLISH).contains("foglio")
+                            || sheetName.toLowerCase(Locale.ENGLISH).contains("sheet")) {
+
+                        InvalidTabgenOperationException ex =
+                                new InvalidTabgenOperationException("Loading data is not valid");
+                        ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL);
+                        ex.setSheetName(sheetName);
+                        ex.setInputFilename(inputWorkbook.getName());
+                        throw ex;
+                    }
+
+                    // Restituisco il nome del primo foglio
+                    return sheetName;
+                }
+            }
+
+        } catch (Exception e) {
+            throw new Exception("Errore nella lettura del file XLSX: " + e.getMessage(), e);
+        }
+
+        return null;
+    }
+	
+	public static List<String[]> checkCsvFile(File inputCsv) throws InvalidTabgenOperationException, Exception {
+	    List<String[]> rows = new ArrayList<>();
+
+	    if (inputCsv != null) {
+	        try (BufferedReader br = new BufferedReader(new FileReader(inputCsv))) {
+	            
+	            // Controllo sul "nome foglio" equivalente: in un CSV è il nome del file
+	            String fileName = inputCsv.getName();
+	            if (fileName.toLowerCase(Locale.ENGLISH).contains("foglio") ||
+	                fileName.toLowerCase(Locale.ENGLISH).contains("sheet")) {
+
+	                InvalidTabgenOperationException ex = new InvalidTabgenOperationException("Loading data is not valid");
+	                ex.setOperation(OperationTypeEnum.LOADING_DATA_TO_SHEET_EXCEL);
+	                ex.setSheetName(fileName); // Non c’è un foglio, salvo il nome file
+	                ex.setInputFilename(fileName);
+	                throw ex;
+	            }
+
+	            String line;
+	            while ((line = br.readLine()) != null) {
+	                // Splitta riga per virgole (adatta se serve ; o tab)
+	                String[] values = line.split(";");
+	                rows.add(values);
+	            }
+
+	        } catch (IOException e) {
+	            throw new Exception("Errore nella lettura del file CSV: " + e.getMessage(), e);
+	        }
+	    }
+
+	    return rows;
+	}
+	
+	public static String getCleanSheetName(String sheetName) {
+		sheetName = sheetName.trim();
+		sheetName = sheetName.replace(" ", "_");
+		sheetName = sheetName.replace("Ã ", "a'");
+		sheetName = sheetName.replace("Ã¨", "e'");
+		sheetName = sheetName.replace("Ã¬", "i'");
+		sheetName = sheetName.replace("Ã²", "o'");
+		sheetName = sheetName.replace("Ã¹", "u'");
+		sheetName = sheetName.replace("Ã€", "A'");
+		sheetName = sheetName.replace("Ãˆ", "E'");
+		sheetName = sheetName.replace("ÃŒ", "I'");
+		sheetName = sheetName.replace("Ã’", "O'");
+		sheetName = sheetName.replace("Ã™", "U'");
+		sheetName = sheetName.replace(".", "");
+		sheetName = sheetName.replace(",", "");
+		sheetName = sheetName.replace("'", "");
+		sheetName = sheetName.toUpperCase();
+		return sheetName;
+	}
+
+	public static String getCleanColumnName(String columnName) {
+		// elimino eventuali punti, virgole e apicetti
+		columnName = columnName.replace(".", "");
+		columnName = columnName.replace(",", "");
+		columnName = columnName.replace("'", "");
+		// elimino eventuali spazi all'inizio e alla fine del nome e quelli in mezzo li sostituisco
+		// con _
+		columnName = columnName.trim().replace(" ", "_").toUpperCase();
+		return columnName;
+	}
+
+	/**
+	 * Restituisce il metodo dell'oggetto di nome methodName
+	 * 
+	 * @param obj
+	 * @param methodName
+	 * @return
+	 * @throws Exception
+	 */
+	public static Method getMethod(Class<?> entityClass, String methodName) {
+	    for (Method m : entityClass.getMethods()) {
+	        if (m.getName().equals(methodName) && m.getParameterCount() == 0) {
+	            return m;
+	        }
+	    }
+	    logger.warn("⚠️ Nessun metodo trovato: {} su classe {}", methodName, entityClass.getName());
+	    return null;
+	}
+	
+	public static List<String> readColumnXlsx(XSSFSheet sheet) {
+	    List<String> columnValues = new ArrayList<>();
+
+	    Row row = sheet.getRow(0); // Prima riga (indice 0)
+	    if (row != null) {
+	        Iterator<Cell> cellIterator = row.cellIterator();
+	        while (cellIterator.hasNext()) {
+	            Cell cell = cellIterator.next();
+	            columnValues.add(getCellValueAsString(cell));
+	        }
+	    }
+
+	    return columnValues;
+	}
+	
+	public static List<String> readColumnXls(Sheet sheet) {
+        List<String> columnValues = new ArrayList<>();
+        
+       // Numero di colonne nella prima riga
+        int columns = sheet.getColumns();
+        
+        // Leggi tutte le celle della riga 0
+        for (int col = 0; col < columns; col++) {
+            jxl.Cell cell = sheet.getCell(col, 0); // colonna, riga
+            columnValues.add(cell.getContents());
+        }
+
+        return columnValues;
+    }
+	
+	public static void initMonthFilter(FlowViewFilterError flowViewFilterError) {
+    	List<String> monthList = new ArrayList<String>();
+		
+		Integer monthTo = flowViewFilterError.getExtraMonthTo();
+		Integer monthFrom = flowViewFilterError.getExtraMonthFrom();
+		String month = flowViewFilterError.getMonth();
+		
+		if (Boolean.TRUE.equals(flowViewFilterError.isCanViewMonthFromToFilters()) 
+				&& flowViewFilterError.getExtraMonthFrom() != null && flowViewFilterError.getExtraMonthTo() != null) {
+			for (int i = monthFrom; i <= monthTo; i++) {
+				if ( i < 10) {
+					monthList.add("0" +i);
+				} else {
+					monthList.add(""+i);
+				}
+			}
+		} else {
+			if (month != null) {
+				if (month.length() < 2) {
+					monthList.add("0" + month);
+				} else {
+					monthList.add(month);
+				}
+			}
+		}
+		
+		String monthQuery = "";
+		boolean multiple = false;
+		for(String m : monthList) {
+			if (multiple) {
+				monthQuery = monthQuery +",";
+			}
+			monthQuery = monthQuery + m;
+			multiple = true;
+		};
+		
+		if (monthQuery.isEmpty()) {
+			monthQuery = null;
+		}
+		flowViewFilterError.setMonth(monthQuery);
+		
+	}
+	
+	public static String getFieldForParameter(String sql, String parameter) {
+	    if (sql == null || parameter == null) {
+	        return null;
+	    }
+
+	    // Normalizza la query: rimuove newline e riduce spazi
+	    String normalized = sql.replaceAll("[\\n\\r]+", " ").replaceAll("\\s+", " ");
+
+	    // Normalizza anche il parametro (in minuscolo)
+	    String paramLower = parameter.toLowerCase();
+
+	    // Regex che cattura il nome del campo prima di =, IN, LIKE ecc.
+	    // esempio: m.codiceerrore = :MESSAGE  oppure  m.codiceerrore in (:message)
+	    String regex = "([A-Za-z0-9_\\.]+)\\s*(=|IN|LIKE)\\s*\\(?\\s*" + paramLower + "\\b";
+
+	    java.util.regex.Pattern pattern = java.util.regex.Pattern.compile(regex, java.util.regex.Pattern.CASE_INSENSITIVE);
+	    java.util.regex.Matcher matcher = pattern.matcher(normalized);
+
+	    if (matcher.find()) {
+	        return matcher.group(1); // restituisce il nome del campo (es. m.codiceerrore)
+	    }
+
+	    return null; // non trovato
+	}
+	
+	public static String normalizeParamToLowerCase(String query, String paramName) {
+		if (query == null || paramName == null) {
+	        return query;
+	    }
+
+	    // Rimuove eventuale ":" iniziale da paramName
+	    String cleanParam = paramName.startsWith(":") ? paramName.substring(1) : paramName;
+
+	    // Regex case-insensitive che cattura qualunque variante di :paramName
+	    Pattern pattern = Pattern.compile("(?i):" + Pattern.quote(cleanParam));
+	    Matcher matcher = pattern.matcher(query);
+
+	    // Sostituisce ogni match con la forma minuscola (":paramname")
+	    StringBuffer sb = new StringBuffer();
+	    while (matcher.find()) {
+	        matcher.appendReplacement(sb, ":" + cleanParam.toLowerCase());
+	    }
+	    matcher.appendTail(sb);
+
+	    return sb.toString();
+	}
+	
+	public static String normalizeAllParamsToLowerCase(String query) {
+	    if (query == null) {
+	        return null;
+	    }
+
+	    // Regex che cattura tutti i parametri che iniziano con ":" seguiti da lettere, numeri o underscore
+	    Pattern pattern = Pattern.compile(":(\\w+)");
+	    Matcher matcher = pattern.matcher(query);
+
+	    StringBuffer sb = new StringBuffer();
+	    while (matcher.find()) {
+	        // matcher.group(1) è il nome del parametro senza i due punti
+	        String param = matcher.group(1);
+	        matcher.appendReplacement(sb, ":" + param.toLowerCase());
+	    }
+	    matcher.appendTail(sb);
+
+	    return sb.toString();
+	}
+	
+}

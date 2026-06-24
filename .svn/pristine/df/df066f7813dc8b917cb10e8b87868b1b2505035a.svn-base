@@ -1,0 +1,23 @@
+package it.eng.care.domain.flow.core.enumeration;
+
+
+public enum ErrorServiceStatusEnum {
+
+    PENDING("IN_ATTESA"),
+    SENT("INVIATA"),
+    ERROR("ERROR"),
+    PROCESSED("PROCESSATA"),
+    ;
+
+    private String status;
+
+    ErrorServiceStatusEnum(String status) {
+        this.status = status;
+    }
+
+    public String getStatus() {
+        return status;
+    }
+
+	
+}

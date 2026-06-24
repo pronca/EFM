@@ -1,0 +1,201 @@
+package it.eng.care.domain.flow.core.entity;
+
+import org.hibernate.annotations.GenericGenerator;
+
+import it.eng.care.platform.persistence.api.IBaseEntity;
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+
+@Entity
+@Table(name = "FM_DASHBOARD_CONFIG")
+public class DashboardConfigDO implements IBaseEntity {
+
+    @Id
+    @GeneratedValue(
+            generator = "care-uuid"
+    )
+    @GenericGenerator(
+            name = "care-uuid",
+            strategy = "it.eng.care.platform.persistence.impl.jpa.idgenerator.CareIdGenerator"
+    )
+    @Column(name = "ID")
+    private String id;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "FLOW")
+    private FlowDO flow;
+    @Column(name = "NAME")
+    private String name;
+    @Column(name = "QUERY")
+    private String query;
+    @Column(name = "LABEL")
+    private String label;
+    @Column(name = "ICON")
+    private String icon;
+    @Column(name = "COLOR")
+    private String color;	
+    @Column(name = "BADGE")
+    private String badge;    
+    @Column(name = "FOOTER")
+    private String footer;
+    @Column(name = "TIPO")
+    private String tipo;
+    @Column(name = "ACTIVITY")
+    private String activity;
+    @Column(name = "TOOLTIP")
+    private String tooltip;
+    @Column(name = "QUERY_DETAIL")
+    private String queryDetail;
+    @Column(name = "CODICEAZIENDA")
+    private String codiceAzienda;
+    @Column(name = "QUERY_DETAIL_EXP")
+    private String queryDetailExp;
+    @Column(name = "FIELD_ACCEPTED_QUERY_DETAIL")
+    private String fieldAcceptedQueryDetail;
+    @Column(name = "QUERY_DETAIL_HEADER")
+    private String queryDetailHeader;
+    
+    @Override
+    public String getId() {
+        return id;
+    }
+
+    @Override
+    public void setId(String id) {
+        this.id = id;
+    }
+
+    public FlowDO getFlow() {
+        return flow;
+    }
+
+    public void setFlow(FlowDO flow) {
+        this.flow = flow;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getQuery() {
+        return query;
+    }
+
+    public void setQuery(String query) {
+        this.query = query;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public void setLabel(String label) {
+        this.label = label;
+    }
+
+	public String getIcon() {
+		return icon;
+	}
+
+	public void setIcon(String icon) {
+		this.icon = icon;
+	}
+
+	public String getColor() {
+		return color;
+	}
+
+	public void setColor(String color) {
+		this.color = color;
+	}
+
+	public String getBadge() {
+		return badge;
+	}
+
+	public void setBadge(String badge) {
+		this.badge = badge;
+	}
+
+	public String getFooter() {
+		return footer;
+	}
+
+	public void setFooter(String footer) {
+		this.footer = footer;
+	}
+
+	public String getTipo() {
+		return tipo;
+	}
+
+	public void setTipo(String tipo) {
+		this.tipo = tipo;
+	}
+
+	public String getActivity() {
+		return activity;
+	}
+
+	public void setActivity(String activity) {
+		this.activity = activity;
+	}
+	
+	public String getTooltip() {
+		return tooltip;
+	}
+
+	public void setTooltip(String tooltip) {
+		this.tooltip = tooltip;
+	}
+	
+	public String getQueryDetail() {
+		return queryDetail;
+	}
+
+	public void setQueryDetail(String queryDetail) {
+		this.queryDetail = queryDetail;
+	}
+
+	public String getCodiceAzienda() {
+		return codiceAzienda;
+	}
+
+	public void setCodiceAzienda(String codiceAzienda) {
+		this.codiceAzienda = codiceAzienda;
+	}
+
+	public String getQueryDetailExp() {
+		return queryDetailExp;
+	}
+
+	public void setQueryDetailExp(String queryDetailExp) {
+		this.queryDetailExp = queryDetailExp;
+	}
+
+	public String getFieldAcceptedQueryDetail() {
+		return fieldAcceptedQueryDetail;
+	}
+
+	public void setFieldAcceptedQueryDetail(String fieldAcceptedQueryDetail) {
+		this.fieldAcceptedQueryDetail = fieldAcceptedQueryDetail;
+	}
+
+	public String getQueryDetailHeader() {
+		return queryDetailHeader;
+	}
+
+	public void setQueryDetailHeader(String queryDetailHeader) {
+		this.queryDetailHeader = queryDetailHeader;
+	}
+	
+}

@@ -1,0 +1,9716 @@
+package it.eng.care.domain.flow.core.dao.querySearch;
+
+import java.math.BigDecimal;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+import org.hibernate.query.NativeQuery;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.b2b.exception.ValidationFlowException;
+import it.eng.care.domain.flow.core.converter.FormFlow.FormFlowDTOtoFlowDO;
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.DashboardConfigDAO;
+import it.eng.care.domain.flow.core.dao.PraticaViewDAO;
+import it.eng.care.domain.flow.core.dto.PaginatedPraticaDTO;
+import it.eng.care.domain.flow.core.dto.ReferenceDateFieldDTO;
+import it.eng.care.domain.flow.core.dto.FlowView.FlowViewFilterError;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.entity.ConfigurationDO;
+import it.eng.care.domain.flow.core.entity.DashboardConfigDO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.enumeration.StateSendRegionEnum;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.service.FlowService;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.crypt.CryptoManager;
+import it.eng.care.domain.flow.tabgen.dto.TabgenField;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.entity.TabgenValueDO;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+import it.eng.care.domain.flow.tabgen.service.TabgenService;
+import it.eng.care.domain.flow.tabgen.utility.TabgenUtility;
+import it.eng.care.platform.tool.transport.conversion.ConversionContext;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+
+public class PraticaViewDAOQueryByBaseSearchInput implements PraticaViewDAO {
+
+	@Autowired
+	private EntityManager entityManager;
+
+	private StateSendRegionEnum stateSendRegionEnum;
+	
+	@Autowired(required = false)
+	private CryptoManager cryptoManager;
+	
+	@Autowired
+	private TabgenDelegate tabgenDelegate;
+	
+	@Autowired
+    private ConfigurationDAO configuration;
+	
+	@Autowired
+    private FlowManagerProfileService flowManagerProfileService;
+	
+	@Autowired
+	private TabgenService tabgenService;
+	
+	@Autowired
+    private ConversionService conversionService;
+	
+	@Autowired
+	private DashboardConfigDAO dashboardConfigDAO;
+	
+	@Autowired
+    private FormFlowDTOtoFlowDO formFlowDTOtoFlowDO;
+	
+	@Autowired
+	private FlowService flowService;
+	
+	private static Logger logger = LoggerFactory.getLogger(PraticaViewDAOQueryByBaseSearchInput.class);
+
+	public PaginatedPraticaDTO search(FlowViewFilterError flowViewFilterError) throws ValidationFlowException {
+		
+//		Query query = null;
+		NativeQuery<?> query = null;
+		
+		PaginatedPraticaDTO pratiche = new PaginatedPraticaDTO();
+		pratiche.setErrors(new ArrayList<>());
+		try {
+			List<Object> resultList = null;
+			pratiche.setErrors(new ArrayList<>());
+			String region = flowViewFilterError.getRegion();
+			String anni = flowViewFilterError.getYear();
+			String mesi = flowViewFilterError.getMonth();
+			Date extraDateFrom = flowViewFilterError.getExtraDateFrom();
+			Date extraDateTo = flowViewFilterError.getExtraDateTo();
+			String extractionId = flowViewFilterError.getExtractionId();
+			String extractionIdFromGrid = flowViewFilterError.getExtractionIdFromGrid();
+
+			String message = flowViewFilterError.getMessage();
+			String errorCode = flowViewFilterError.getErrorCode();
+			String tipoImportazione = flowViewFilterError.getTipoImportazione();
+			if (tipoImportazione == null) {
+				flowViewFilterError.setTipoImportazione("Tutte");
+			}
+			String codicePresidio = flowViewFilterError.getCodicePresidio();
+			if (codicePresidio == null) {
+				flowViewFilterError.setCodicePresidio("Tutte");
+			}
+			String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+			if (codiceAzienda == null) {
+				flowViewFilterError.setCodiceAzienda("Tutte");
+			}
+			
+			//caricamento lista aziende visibili dall'utente
+			List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+			//caricamento aziende configurate per il flusso e widget di riferimento visualizzando solo i dettagli delle aziende configurate rispetto al profilo flussi dell'utente
+			if (flowViewFilterError.getRegion()!=null) {
+				TabgenValueFilter filter = new TabgenValueFilter();
+				filter.setTabgenId("FM_DASHBOARD_CONFIG");
+				filter.setField2(flowViewFilterError.getFlow().getId());
+				filter.setField3(flowViewFilterError.getRegion());
+				List<TabgenValueDO> tabgenValueFlussi = tabgenService.searchTabgenValueByFilter(filter);
+				List<String> aziendeDashConfig = tabgenValueFlussi.stream().map(TabgenValueDO::getField14).distinct().filter(Objects::nonNull).collect(Collectors.toList());
+				if(!aziendeDashConfig.isEmpty()) {
+					List<String> aziendeNew = new ArrayList<>();
+					for (String az : aziende) {
+					    for (String azdash : aziendeDashConfig) {
+					        if (az.contains(azdash))
+					        	aziendeNew.add(az);
+					    }
+					}
+					aziende.clear();
+					aziende = aziendeNew;
+				}	
+			}
+			
+			if (flowViewFilterError.getQueryDetail() != null && !flowViewFilterError.getDetailErr()) {
+				//imposto i parametri in minuscolo per non avere problemi nel setting
+				String queryDetail = TabgenUtility.normalizeAllParamsToLowerCase(flowViewFilterError.getQueryDetail());
+				
+				//elimino eventuali parametri non obbligatori e non settabili per azienda tipoImportazione codicePresidio
+				if (aziende.isEmpty() && queryDetail.contains(":aziendeprofilate")) {
+					queryDetail = queryDetail.replace(":aziendeprofilate", TabgenUtility.getFieldForParameter(queryDetail, ":aziendeprofilate"));
+				}
+				if ((tipoImportazione == null || tipoImportazione.equals("Tutte")) && queryDetail.contains(":tipoimportazione")) {
+					queryDetail = queryDetail.replace(":tipoimportazione", TabgenUtility.getFieldForParameter(queryDetail, ":tipoimportazione"));
+				}
+				if ((codicePresidio == null || codicePresidio.equals("Tutte")) && queryDetail.contains(":codicepresidio")) {
+					queryDetail = queryDetail.replace(":codicepresidio", TabgenUtility.getFieldForParameter(queryDetail, ":codicepresidio"));
+				}
+				if ((codiceAzienda == null || codiceAzienda.equals("Tutte")) && queryDetail.contains(":codiceazienda")) {
+					queryDetail = queryDetail.replace(":codiceazienda", TabgenUtility.getFieldForParameter(queryDetail, ":codiceazienda"));
+				}
+				if ((message == null || message.equals("Tutte")) && queryDetail.contains(":message")) {
+					queryDetail = queryDetail.replace(":message", TabgenUtility.getFieldForParameter(queryDetail, ":message"));
+				}
+				if ((errorCode == null || errorCode.equals("Tutte")) && queryDetail.contains(":codiceerrore")) {
+					queryDetail = queryDetail.replace(":codiceerrore", TabgenUtility.getFieldForParameter(queryDetail, ":codiceerrore"));
+				}
+				if (anni == null && queryDetail.contains(":anni")) {
+					queryDetail = queryDetail.replace(":anni", TabgenUtility.getFieldForParameter(queryDetail, ":anni"));
+				}
+				if (mesi == null && queryDetail.contains(":mesi")) {
+					queryDetail = queryDetail.replace(":mesi", TabgenUtility.getFieldForParameter(queryDetail, ":mesi"));
+				}
+				if (extraDateFrom == null && queryDetail.contains(":datada")) {
+					queryDetail = queryDetail.replace(":datada", TabgenUtility.getFieldForParameter(queryDetail, ":datada"));
+				}
+				if (extraDateTo == null && queryDetail.contains(":dataa")) {
+					queryDetail = queryDetail.replace(":dataa", TabgenUtility.getFieldForParameter(queryDetail, ":dataa"));
+				}
+				
+				flowViewFilterError.setQueryDetail(queryDetail);
+				resultList = createQueryDetail(flowViewFilterError);
+				List<String> errors = (List<String>) resultList.get(6);
+				
+				if (!errors.isEmpty()) {
+					//restituisco la lista errori per visualizzarlo a FE
+		            pratiche.setErrors(errors);
+				} else {
+//					query = entityManager.createNativeQuery((String) resultList.get(0));
+					query = entityManager.createNativeQuery((String) resultList.get(0)).unwrap(NativeQuery.class);
+					
+					if (extractionIdFromGrid!=null) {
+						if (queryDetail.contains(":extractionId")) {
+							query.setParameter("extractionId", extractionIdFromGrid);
+						}
+					} else {
+						if (extractionId!=null && queryDetail.contains(":extractionId")) {
+							query.setParameter("extractionId", extractionId);
+						} else {
+							if (anni!=null && queryDetail.contains(":anni")) {
+								query.setParameter("anni", anni);
+							}
+							if (mesi!=null && queryDetail.contains(":mesi")) {
+								query.setParameterList("mesi", getMonthForQuery(mesi));
+							}
+							if (extraDateFrom!=null && queryDetail.contains(":datada")) {
+								query.setParameter("datada", extraDateFrom);
+							}
+							if (extraDateTo!=null && queryDetail.contains(":dataa")) {
+								query.setParameter("dataa", extraDateTo);
+							}
+							if (!aziende.isEmpty() && queryDetail.contains(":aziendeprofilate")) {
+								query.setParameterList("aziendeprofilate", aziende);
+							}
+							if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && queryDetail.contains(":tipoimportazione")) {
+								query.setParameter("tipoimportazione", tipoImportazione);
+							}
+							if (codicePresidio != null && !codicePresidio.equals("Tutte") && queryDetail.contains(":codicepresidio")) {
+								query.setParameter("codicepresidio", codicePresidio);
+							}
+							if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && queryDetail.contains(":codiceazienda")) {
+								query.setParameter("codiceazienda", codiceAzienda);
+							}
+							if (errorCode != null && !errorCode.equals("Tutte") && queryDetail.contains(":codiceerrore")) {
+								query.setParameter("codiceerrore", errorCode);
+							}
+							if (message != null && !message.equals("Tutte") && queryDetail.contains(":message")) {
+								query.setParameter("message", message);
+							}
+							
+						}
+					}
+					
+//					query.setFirstResult(flowViewFilterError.getFirstResultAcc());
+//					query.setMaxResults(flowViewFilterError.getMaxResultAcc());
+					int max;
+					int first;
+
+				    first = flowViewFilterError.getFirstResultAcc();
+				    max   = flowViewFilterError.getMaxResultAcc();
+
+					query.setFirstResult(Math.max(0, first));
+
+					if (max > 0) {
+					    query.setMaxResults(max);
+					}
+				}
+				
+				
+			} else {
+				if (flowViewFilterError.getMessage() != null) {
+	
+					resultList = createQueryPratiche(flowViewFilterError, aziende);
+					
+					String sqlString = (String) resultList.get(0);
+//					query = entityManager.createNativeQuery(sqlString);
+					query = entityManager.createNativeQuery(sqlString).unwrap(NativeQuery.class);
+					
+					if (extractionIdFromGrid!=null) {
+						query.setParameter("extractionId", extractionIdFromGrid);
+					} else {
+						if (extractionId!=null) {
+							query.setParameter("extractionId", extractionId);
+						} else {
+							if (flowViewFilterError.getCanViewDateFromToFilters()) {
+								query.setParameter("datada", extraDateFrom);
+								query.setParameter("dataa", extraDateTo);
+							} else {
+								query.setParameter("anni", anni);
+								query.setParameterList("mesi", getMonthForQuery(mesi));
+							}
+							
+							if (!aziende.isEmpty() && sqlString.contains(":aziendeprofilate")) {
+								query.setParameterList("aziendeprofilate", aziende);
+							}
+						}
+					}
+					if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && sqlString.contains(":tipoimportazione")) {
+						query.setParameter("tipoimportazione", tipoImportazione);
+					}
+					if (codicePresidio != null && !codicePresidio.equals("Tutte") && sqlString.contains(":codicepresidio")) {
+						query.setParameter("codicepresidio", codicePresidio);
+					}
+					if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && sqlString.contains(":codiceazienda")) {
+						query.setParameter("codiceazienda", codiceAzienda);
+					}
+					if (message != null && !message.equals("Tutte") && sqlString.contains(":message")) {
+						query.setParameter("message", message);
+					}
+					if (errorCode != null && !errorCode.equals("Tutte") && sqlString.contains(":codiceerrore")) {
+						query.setParameter("codiceerrore", errorCode);
+					}
+//					query.setFirstResult(flowViewFilterError.getFirstResultAcc());
+//					query.setMaxResults(flowViewFilterError.getMaxResultAcc());
+					int max;
+					int first;
+
+				    first = flowViewFilterError.getFirstResultAcc();
+				    max   = flowViewFilterError.getMaxResultAcc();
+
+					query.setFirstResult(Math.max(0, first));
+
+					if (max > 0) {
+					    query.setMaxResults(max);
+					}
+	
+				} else {
+	
+					resultList = createQuery(flowViewFilterError, aziende);
+					
+					String sqlString = (String) resultList.get(0);
+//					query = entityManager.createNativeQuery(sqlString);
+					query = entityManager.createNativeQuery(sqlString).unwrap(NativeQuery.class);
+					
+					if (extractionIdFromGrid!=null) {
+						query.setParameter("extractionId", extractionIdFromGrid);
+					} else {
+						if (extractionId!=null) {
+							query.setParameter("extractionId", extractionId);
+						} else {
+							if (flowViewFilterError.getCanViewDateFromToFilters()) {
+								query.setParameter("datada", extraDateFrom);
+								query.setParameter("dataa", extraDateTo);
+							} else {
+								query.setParameter("anni", anni);
+								query.setParameterList("mesi", getMonthForQuery(mesi));
+							}
+							if (!aziende.isEmpty() && sqlString.contains(":aziendeprofilate")) {
+								query.setParameterList("aziendeprofilate", aziende);
+							}
+						}
+					}
+					if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && sqlString.contains(":tipoimportazione")) {
+						query.setParameter("tipoimportazione", tipoImportazione);
+					}
+					if (codicePresidio != null && !codicePresidio.equals("Tutte") && sqlString.contains(":codicepresidio")) {
+						query.setParameter("codicepresidio", codicePresidio);
+					}
+					if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && sqlString.contains(":codiceazienda")) {
+						query.setParameter("codiceazienda", codiceAzienda);
+					}
+					if (message != null && !message.equals("Tutte") && sqlString.contains(":message")) {
+						query.setParameter("message", message);
+					}
+					if (errorCode != null && !errorCode.equals("Tutte") && sqlString.contains(":codiceerrore")) {
+						query.setParameter("codiceerrore", errorCode);
+					}
+					
+					//CONTROLLO REGIONALE PER APPLICARE I PARAMETER
+					if ("PRATICHE_NOT_SEND_REG".equals(region)) {
+						query.setParameter("state", stateSendRegionEnum.INVIATA.toString());
+						query.setParameter("state2", stateSendRegionEnum.ACCETTATA.toString());
+				    }else if("PRATICHE_REG".equals(region)) {
+				    	query.setParameter("state", stateSendRegionEnum.INVIATA.toString());
+						query.setParameter("state2", stateSendRegionEnum.ACCETTATA.toString());
+				    }else if("PRATICHE_RIC_REG".equals(region)) {
+				    	query.setParameter("state", stateSendRegionEnum.ACCETTATA.toString());
+				    	query.setParameter("state2", "VALIDO");
+				    	query.setParameter("state3", "SEGNALAZIONE");
+				    }
+//					if (flowViewFilterError.isAccordionPag()) {
+//						query.setFirstResult(flowViewFilterError.getFirstResultAcc());
+//						query.setMaxResults(flowViewFilterError.getMaxResultAcc());
+//					} else {
+//						query.setFirstResult(flowViewFilterError.getFirstResult());
+//						query.setMaxResults(flowViewFilterError.getMaxResult());
+//					}
+					int max;
+					int first;
+
+					if (flowViewFilterError.isAccordionPag()) {
+					    first = flowViewFilterError.getFirstResultAcc();
+					    max   = flowViewFilterError.getMaxResultAcc();
+					} else {
+					    first = flowViewFilterError.getFirstResult();
+					    max   = flowViewFilterError.getMaxResult();
+					}
+
+					query.setFirstResult(Math.max(0, first));
+
+					if (flowViewFilterError.isTopFive()) {
+					    query.setMaxResults(5);
+					} else {
+					    if (max <= 0) {
+					        max = 1000; // limite di sicurezza
+					    }
+					    query.setMaxResults(max);
+					}
+				}
+			}
+			
+			if (query != null) {
+//				List<Object[]> praticaViewResult = query.getResultList();
+				List<Object[]> praticaViewResult = (List<Object[]>) query.getResultList();
+				HashMap<Integer,String> selectFields = new HashMap<Integer,String>();
+				if(flowViewFilterError.getPkList()!=null && flowViewFilterError.getQueryDetail()==null) {
+					
+					pratiche = generateSelectFieldsPraticheAccordion(praticaViewResult, flowViewFilterError);
+					
+					HashMap<Integer,String> selectFieldsDescription = (HashMap<Integer,String>) resultList.get(2);
+					pratiche.setPraticaViewFieldsDescription(selectFieldsDescription);
+		
+					return pratiche;
+				}else {
+					selectFields = (HashMap<Integer,String>) resultList.get(1);
+				}
+				pratiche.setPraticaViewFields(selectFields);
+				HashMap<Integer,String> selectFieldsDescription = (HashMap<Integer,String>) resultList.get(2);
+				pratiche.setPraticaViewFieldsDescription(selectFieldsDescription);
+				pratiche.setFilters((List<FormFlowTableFieldDTO>) resultList.get(3));
+				pratiche.setPkList((List<String>) resultList.get(4));
+				if (resultList.get(5) != null) {
+					pratiche.setQueryDetail((boolean) resultList.get(5));
+				}
+				
+		//		GESTIONE VALORI CRIPTATI DA DECRIPTARE
+				for(int i=0; i<selectFields.size(); i++) {
+					boolean founded = false;
+					for(FormFlowTableDTO table : flowViewFilterError.getFlow().getFlowTableList()) {
+						for(FormFlowTableFieldDTO field: table.getFlowTableFieldList()) {
+							if(selectFields.get(i).equalsIgnoreCase(field.getName()) && field.isCrypto()) {
+								for(int k=0; k<praticaViewResult.size(); k++) {
+									if("Date".equals(field.getFieldType())) {
+										try {
+											praticaViewResult.get(k)[i] = cryptoManager.decryptDate((String)praticaViewResult.get(k)[i]);
+										} catch (ParseException e) {
+											LogUtil.logException(logger, "", e);
+//											e.printStackTrace();
+										}
+									}else {
+										praticaViewResult.get(k)[i] = cryptoManager.decryptString((String)praticaViewResult.get(k)[i]);
+									}
+								}
+								founded = true;
+							}
+							if(founded) break;
+						}
+						if(founded) break;
+					}
+				}
+				
+				pratiche.setObjectList(praticaViewResult);
+			}
+		} catch (Exception e) {
+			//restituisco la lista errori per visualizzarlo a FE
+			List<String> errors = new ArrayList<>();
+			errors.add("Errore nel metodo PraticaViewDAOQueryByBaseSearchInput.search : "+e);
+            pratiche.setErrors(errors);
+            LogUtil.logException(logger, "", e);
+//			e.printStackTrace();
+		}
+		
+		return pratiche;
+		
+	}
+
+
+	@Override
+	public List<Object> createQueryPraticheXLS(FlowViewFilterError flowViewFilterError, List<String> aziende) {
+
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+
+	    String selectSQL = "SELECT ";
+	    String fromSQL = " FROM ";
+	    String whereSQL = " WHERE ";
+	    String querySQL = "";
+	    String onSQL = "";
+	    String campiSelect = "";
+
+	    List<FormFlowTableFieldDTO> filters = new ArrayList<>();
+	    List<String> pkNameList = new ArrayList<>();
+
+	    HashMap<Integer, String> selectFields = new HashMap<>();
+	    HashMap<Integer, String> selectDescriptions = new HashMap<>();
+
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) {
+	                pks.add(f.getName());
+	            }
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    List<String> pk0tmp = new ArrayList<>(pkBySection.getOrDefault(0, Collections.emptyList()));
+	    if (pk0tmp.isEmpty()) {
+	        for (List<String> pks : pkBySection.values()) {
+	            if (pks != null && !pks.isEmpty()) {
+	                pk0tmp = new ArrayList<>(pks);
+	                break;
+	            }
+	        }
+	    }
+	    final List<String> pk0 = Collections.unmodifiableList(pk0tmp);
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+
+	    java.util.function.BiFunction<String, Integer, JoinChain> buildChainFrom0 =
+	            (startAlias, targetSection) -> {
+	                if (targetSection == null || targetSection <= 0) {
+	                    return new JoinChain("", startAlias);
+	                }
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = startAlias;
+
+	                for (int s = 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + s;
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    for (String pk : pk0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                          .append(" = ")
+	                          .append(curAlias).append(".").append(pk)
+	                          .append(" AND ");
+	                    }
+
+	                    if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+	                        sb.setLength(sb.length() - 5);
+	                    }
+
+	                    sb.append(" ");
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+	    java.util.function.Function<String, String> truncIfNeeded =
+	            (qualifiedField) -> "TRUNC(" + qualifiedField + ")";
+	    java.util.function.Function<String, String> dateBetween =
+	            (qualifiedField) -> truncIfNeeded.apply(qualifiedField) + " BETWEEN :datada AND :dataa ";
+
+	    try {
+
+	        List<String> campi = new ArrayList<>();
+	        List<String> campiDesc = new ArrayList<>();
+	        String campiDescStr = "";
+
+	        String tableNameNative = "FM_FLOW_" + formFlowDTO.getName() + "_";
+	        String name = flowViewFilterError.getName();
+
+	        boolean joinRefAlreadyAdded = false;
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	            String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection();
+
+	            if (table.getSection() == 0) {
+
+	                fromSQL += tableName;
+
+	                if (useDateFromTo && refDate != null) {
+
+	                    if (refDate.section() != null && refDate.section() > 1) {
+	                        if (!joinRefAlreadyAdded) {
+	                            JoinChain chain = buildChainFrom0.apply(tableName, refDate.section());
+	                            String chainSql = chain.joinSql;
+	                            if (chainSql != null && !chainSql.isEmpty()) {
+	                                fromSQL += chainSql;
+	                                joinRefAlreadyAdded = true;
+	                            }
+	                        }
+	                    }
+
+	                    String dateAlias;
+	                    if (refDate.section() == null || refDate.section() == 0) {
+	                        dateAlias = tableName;
+	                    } else if (refDate.section() == 1) {
+	                        dateAlias = tableNameNative + "1";
+	                    } else {
+	                        dateAlias = "REF" + refDate.section();
+	                    }
+
+	                    whereSQL += dateBetween.apply(dateAlias + "." + refDate.fieldName());
+
+	                    if (!aziende.isEmpty()) {
+	                        whereSQL += " AND " + tableName + ".CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                    }
+
+	                } else {
+
+	                    if (!aziende.isEmpty()) {
+	                        whereSQL += tableName + ".MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError)
+	                                + " AND " + tableName + ".YEAR_RIF = :anni AND "
+	                                + tableName + ".CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                    } else {
+	                        whereSQL += tableName + ".MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError)
+	                                + " AND " + tableName + ".YEAR_RIF = :anni ";
+	                    }
+	                }
+
+	                if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                    for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                        if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                            whereSQL += " AND " + tableName + "." + filter.get("campo") + "='" + filter.get("selected") + "' ";
+	                        }
+	                    }
+	                }
+
+	                if (name != null) {
+	                    if ("PRATICHE_NOT_SEND_REG".equals(name)) {
+	                        whereSQL += " and(" + tableName + ".STATE_SEND_REGION != :state ) and(" + tableName + ".STATE_SEND_REGION != :state2 )";
+	                    } else if ("PRATICHE_REG".equals(name)) {
+	                        whereSQL += " and(" + tableName + ".STATE_SEND_REGION = :state  or " + tableName + ".STATE_SEND_REGION = :state2 )";
+	                    } else if ("PRATICHE_RIC_REG".equals(name)) {
+	                        whereSQL += " and(" + tableName + ".STATE_SEND_REGION = :state ) and(" + tableName + ".status_region = :state2 or " + tableName + ".status_region = :state3 )";
+	                    }
+	                }
+	            }
+
+	            else if (table.getSection() == 1) {
+	                fromSQL += " LEFT JOIN " + tableName + " ON (";
+	            }
+
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                if (table.getSection() == 0) {
+
+	                    if (field.getGroups()) {
+	                        campi.add(field.getName());
+	                        campiDesc.add(field.getDescriptionsm());
+	                    }
+
+	                    if (field.isPk()) {
+	                        pkNameList.add(field.getName());
+	                        filters.add(field);
+
+	                        if (flowViewFilterError.getFilters() != null
+	                                && flowViewFilterError.getFilters().get(field.getName()) != null
+	                                && !flowViewFilterError.getFilters().get(field.getName()).isEmpty()) {
+
+	                            whereSQL += " and " + tableName + "." + field.getName() + "= '"
+	                                    + flowViewFilterError.getFilters().get(field.getName()) + "'";
+	                        }
+	                    }
+	                }
+
+	                if (table.getSection() == 1) {
+
+	                    if (field.getGroups()) {
+	                        if (campi.contains(field.getName())) {
+	                            campiSelect += tableNameNative + "0." + field.getName() + " , ";
+	                            campiDescStr += field.getDescriptionsm() + " , ";
+	                            campi.remove(field.getName());
+	                            campiDesc.remove(field.getDescriptionsm());
+	                        } else {
+	                            campiSelect += tableName + "." + field.getName() + " , ";
+	                            campiDescStr += field.getDescriptionsm() + " , ";
+	                        }
+	                    }
+	                }
+
+	                if (field.isReferenceDate() && !field.isPk()) {
+
+	                    filters.add(field);
+
+	                    if (flowViewFilterError.getFilters() != null
+	                            && flowViewFilterError.getFilters().get(field.getName()) != null
+	                            && !flowViewFilterError.getFilters().get(field.getName()).isEmpty()) {
+
+	                        SimpleDateFormat df = new SimpleDateFormat("dd-MMM-yyyy");
+	                        String data = df.format(flowViewFilterError.getFilters().get(field.getName()));
+
+	                        whereSQL += " and " + tableName + "." + field.getName()
+	                                + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS') "
+	                                + "and " + tableName + "." + field.getName()
+	                                + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                    }
+	                }
+	            }
+
+	            if (table.getSection() == 1) {
+	                onSQL = "";
+	                for (String pk : pk0) {
+	                    onSQL += tableNameNative + "0." + pk + " = " + tableName + "." + pk + " AND ";
+	                }
+	                if (onSQL.toUpperCase().endsWith(" AND ")) {
+	                    onSQL = onSQL.substring(0, onSQL.length() - 4) + " )";
+	                }
+	                fromSQL += onSQL;
+	                break;
+	            }
+	        }
+
+	        for (int i = 0; i < campi.size(); i++) {
+	            campiSelect += tableNameNative + "0." + campi.get(i) + " , ";
+	            campiDescStr += campiDesc.get(i) + " , ";
+	        }
+
+	        campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+	        campiDescStr = campiDescStr.substring(0, campiDescStr.length() - 2);
+
+	        String[] arrCampi = campiSelect.split(",");
+	        String[] arrDesc = campiDescStr.split(",");
+
+	        List<String> campiNew = new ArrayList<>();
+	        List<String> descrNew = new ArrayList<>();
+
+	        for (int i = 0; i < arrCampi.length; i++) {
+	            campiNew.add(arrCampi[i].trim());
+	            descrNew.add(arrDesc[i].trim());
+	        }
+
+	        campiNew.sort((o1, o2) -> o1.split("\\.")[1].compareTo(o2.split("\\.")[1]));
+	        descrNew.sort(String::compareToIgnoreCase);
+
+	        campiSelect = String.join(",", campiNew);
+	        String campiSelectFinal = "," + tableNameNative + "0.IMPORT_TYPE," + tableNameNative + "0.MONTH_RIF," + tableNameNative + "0.YEAR_RIF ";
+
+	        querySQL = selectSQL + campiSelect + campiSelectFinal + fromSQL + whereSQL;
+
+	        selectFields.clear();
+	        selectDescriptions.clear();
+
+	        for (int pos = 0; pos < campiNew.size(); pos++) {
+
+	            String campo = campiNew.get(pos);
+	            String[] parts = campo.split("\\.");
+
+	            String col = parts[parts.length - 1].trim();
+	            if (col.contains(" ")) {
+	                col = col.substring(0, col.indexOf(" "));
+	            }
+
+	            selectFields.put(pos, col);
+	            selectDescriptions.put(pos, descrNew.get(pos));
+	        }
+
+	    } catch (Exception e) {
+	        LogUtil.logException(logger, "", e);
+	    }
+
+	    List<Object> result = new ArrayList<>();
+	    result.add(querySQL);
+	    result.add(selectFields);
+	    result.add(selectDescriptions);
+	    result.add(filters);
+	    result.add(pkNameList);
+	    result.add(false);
+
+	    return result;
+	}
+	
+	@Override
+	public List<Object> createQuery(FlowViewFilterError flowViewFilterError, List<String> aziende) {
+
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+	    String[] pkList = flowViewFilterError.getPkList();
+	    String[] pkListName = flowViewFilterError.getPkNameList();
+	    String praticheTotali = flowViewFilterError.getPraticheTot();
+	    String selectSQL = "SELECT ";
+	    String fromSQl = " FROM ";
+	    String whereSQL = " WHERE ";
+	    String campiSelect = "";
+	    String joinSQL = "JOIN ";
+	    String leftJoinSQL = "LEFT JOIN ";
+	    String whereConcat = "";
+	    String tableMessage = "FM_ERROR_MESSAGE ";
+	    String querySQL = "";
+	    String unionAllSQL = " UNION ALL ";
+	    String groupBy = "GROUP BY ";
+	    String fieldPk = "";
+	    String fieldPkFilter = "";
+	    String join2SQL = "";
+	    String onSQL = "";
+	    String region = flowViewFilterError.getRegion();
+	    String innerOnScarti = "";
+	    HashMap<Integer, String> selectFields = new HashMap<Integer, String>();
+	    HashMap<Integer, String> selectDescriptions = new HashMap<Integer, String>();
+	    List<FormFlowTableFieldDTO> filters = new ArrayList<FormFlowTableFieldDTO>();
+	    List<String> pkNameList = new ArrayList<String>();
+	    String flussoInterno = "";
+	    boolean extTable = false;
+	    List<Object[]> resultTabgen = null;
+	    String nomeFlusso = formFlowDTO.getName();
+	    boolean sez0and1are1toN = false;
+	    String tipoImportazione = flowViewFilterError.getTipoImportazione();
+	    String codicePresidio = flowViewFilterError.getCodicePresidio();
+
+	    if (tipoImportazione == null) {
+	        flowViewFilterError.setTipoImportazione("Tutte");
+	        tipoImportazione = "Tutte";
+	    }
+	    if (codicePresidio == null) {
+	        flowViewFilterError.setCodicePresidio("Tutte");
+	        codicePresidio = "Tutte";
+	    }
+	    String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+	    if (codiceAzienda == null) {
+	        flowViewFilterError.setCodiceAzienda("Tutte");
+	        codiceAzienda = "Tutte";
+	    }
+
+	    int contaSezioni = (formFlowDTO.getFlowTableList() != null) ? formFlowDTO.getFlowTableList().size() : 0;
+
+	    // =========================
+	    // reference date per filtro datada/dataa
+	    // =========================
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    // =========================
+	    // PK map by section + pk0 definitiva
+	    // =========================
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) {
+	                pks.add(f.getName());
+	            }
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    List<String> pk0tmp = new ArrayList<>(pkBySection.getOrDefault(0, Collections.emptyList()));
+	    if (pk0tmp.isEmpty()) {
+	        for (List<String> pks : pkBySection.values()) {
+	            if (pks != null && !pks.isEmpty()) {
+	                pk0tmp = new ArrayList<>(pks);
+	                break;
+	            }
+	        }
+	    }
+	    final List<String> pk0 = Collections.unmodifiableList(pk0tmp);
+	    final boolean giaConsolidataInviataDetail = isGiaConsolidataInviataDetail(flowViewFilterError);
+	    final List<String> pkSection0 = getPkFieldsSectionZero(formFlowDTO);
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+
+	    java.util.function.BiFunction<String, Integer, String> tableNameBySectionNormal =
+	            (flowName, section) -> "FM_FLOW_" + flowName + "_" + section;
+
+	    java.util.function.Function<String, String> truncIfNeeded =
+	            (qualifiedField) -> "TRUNC(" + qualifiedField + ")";
+	    java.util.function.Function<String, String> dateBetween =
+	            (qualifiedField) -> truncIfNeeded.apply(qualifiedField) + " BETWEEN :datada AND :dataa ";
+
+	    // JOIN chain da alias section0 -> targetSection usando SEMPRE pk0
+	    java.util.function.BiFunction<String, Integer, JoinChain> buildChainFrom0 =
+	            (alias0, targetSection) -> {
+	                if (targetSection == null || targetSection <= 0) {
+	                    return new JoinChain("", alias0);
+	                }
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = alias0;
+
+	                for (int s = 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = tableNameBySectionNormal.apply(formFlowDTO.getName(), s);
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    for (String pk : pk0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                          .append(" = ")
+	                          .append(curAlias).append(".").append(pk)
+	                          .append(" AND ");
+	                    }
+
+	                    if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+	                        sb.setLength(sb.length() - 5);
+	                    }
+
+	                    sb.append(" ");
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+	    // Se la tabella corrente non è section0, creo join verso section0 usando SEMPRE pk0
+	    java.util.function.BiFunction<Integer, String, JoinChain> ensureAlias0 =
+	            (currentSection, currentAlias) -> {
+	                if (currentSection == null || currentSection == 0) {
+	                    return new JoinChain("", currentAlias);
+	                }
+
+	                String alias0 = currentAlias + "0";
+	                StringBuilder j0 = new StringBuilder();
+	                String table0 = tableNameBySectionNormal.apply(formFlowDTO.getName(), 0);
+
+	                j0.append(" JOIN ").append(table0).append(" ").append(alias0).append(" ON ");
+
+	                for (String pk : pk0) {
+	                    j0.append(currentAlias).append(".").append(pk)
+	                      .append(" = ")
+	                      .append(alias0).append(".").append(pk)
+	                      .append(" AND ");
+	                }
+
+	                if (j0.length() >= 5 && j0.substring(j0.length() - 5).equals(" AND ")) {
+	                    j0.setLength(j0.length() - 5);
+	                }
+
+	                j0.append(" ");
+
+	                return new JoinChain(j0.toString(), alias0);
+	            };
+
+	    java.util.function.Function<Boolean, String> getWhereConditionMonthRifFn =
+	            (dummy) -> getWhereConditionMonthRif(flowViewFilterError);
+
+	    // =========================
+	    // gestione region REG per tabgen
+	    // =========================
+	    if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	        String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+	        String tableNameRegErrors = flowViewFilterError.getFlow().getName() + "_REG_" + cfgSuffixRegError;
+	        ConfigurationDO cfgObj = configuration.findByKeyId("flowWithExternalUpdate");
+	        if (cfgObj != null) {
+	            String cfg = cfgObj.getValue();
+	            String[] cfgSplitted = cfg.split("/");
+	            for (int i = 0; i < cfgSplitted.length; i++) {
+	                String value = cfgSplitted[i];
+	                int iend = value.indexOf("(");
+	                flussoInterno = value.substring(0, iend);
+	                String flussoCopia = value.substring(iend + 1, value.length() - 1);
+	                if (flussoInterno != null && !"".equals(flussoInterno) && flussoCopia.equals(formFlowDTO.getName())) {
+	                    tableNameRegErrors = flussoInterno + "_REG_" + cfgSuffixRegError;
+	                    extTable = true;
+	                }
+	            }
+	        }
+	        if (extTable) {
+	            nomeFlusso = flussoInterno;
+	        }
+	        List<TabgenField> fields = tabgenDelegate.searchFieldsByTabgenId(tableNameRegErrors.toUpperCase());
+
+	        for (TabgenField field : fields) {
+	            if ("CAMPO_CHIAVE".equals(field.getDescription())) {
+	                String valueColumn = field.getTabgenValueColumn();
+	                String queryTabgen = "select * from fm_tabgen_value where tabgen_id = '" + tableNameRegErrors.toUpperCase()
+	                        + "' and " + valueColumn + " = '1'";
+	                Query queryTab = entityManager.createNativeQuery(queryTabgen);
+	                resultTabgen = queryTab.getResultList();
+	                break;
+	            }
+	        }
+	    }
+
+	    // =========================
+	    // sez0and1are1toN
+	    // =========================
+	    if (formFlowDTO.getFlowTableList().size() > 1) {
+	        int countPk = 0;
+	        for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+	            if (formFlowTableDTO.getSection() == 0 || formFlowTableDTO.getSection() == 1) {
+	                int countPkTable = 0;
+	                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	                    if (field.isPk()) {
+	                        countPkTable++;
+	                    }
+	                }
+	                if (countPk == 0) {
+	                    countPk = countPkTable;
+	                } else {
+	                    if (countPk != countPkTable) {
+	                        sez0and1are1toN = true;
+	                    }
+	                }
+	            }
+	        }
+	    }
+
+	    // =====================================================================
+	    // 1) ACCORDION PRATICHE ERRATE + POPUP PRATICHE DA ERRORI
+	    // =====================================================================
+	    if (pkList != null || flowViewFilterError.getDetailErr()) {
+
+	        campiSelect = "MESS.MESSAGE, nvl(COD.DESCRIPTION,'DESCRIZIONE ERRORE NON DISPONIBILE, ERRORE NON CENSITO'), MESS.CREATION_DATE, MESS.SEVERITY";
+	        if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	            campiSelect = "MESS.CODICEERRORE, MESS.DESCRIZIONEERRORE, MESS.RECEIVING_DATE, MESS.SEVERITY";
+	        }
+
+	        try {
+
+	            for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+
+	                String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection();
+	                String tableNative = "FM_FLOW_" + nomeFlusso + "_";
+
+	                String tableNameError = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection() + "_MESSAGE";
+	                String tableScarti = nomeFlusso + "_REG_SCARTI_REGIONE";
+	                fieldPk = "ON ";
+
+	                for (int i = 0; i < pkList.length; i++) {
+	                    if (pkList[i] != null) {
+	                    	FormFlowTableFieldDTO pkField = findFieldByName(formFlowDTO, pkListName[i]);
+	                        whereConcat += buildPkWhereCondition("PRA", pkField, pkList[i]);
+	                    }
+	                }
+	                
+	                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	                    if (field.isPk()) {
+	                        if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	                            if (formFlowTableDTO.getSection() == 0) {
+	                                fieldPk += buildNullableJoinCondition("PRA", "reg", field.getName());
+	                            }
+	                        } else {
+	                            fieldPk += buildNullableJoinCondition("PRA", "MESS", field.getName());
+	                        }
+	                    }
+	                }
+	                
+	                fieldPk = fieldPk.substring(0, fieldPk.length() - 4);
+	                if (formFlowTableDTO.getSection() == 0) {
+	                    fieldPkFilter += fieldPk;
+	                }
+
+	                join2SQL = leftJoinSQL + tableMessage + " COD ON MESS.MESSAGE = COD.EM_ID";
+
+	                if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	                    innerOnScarti += "ON ";
+	                    for (int i = 0; i < resultTabgen.size(); i++) {
+	                        String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+	                        innerOnScarti += buildNullableJoinCondition("reg", "MESS", fieldName);
+	                    }
+	                    if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                        innerOnScarti += "reg.extraction_id = MESS.extraction_id and ";
+	                    }
+	                    innerOnScarti = trimTrailingAnd(innerOnScarti);
+	                    fromSQl += tableName + " PRA " + joinSQL + tableNative + "REG_0 reg " + fieldPk + " join "
+	                            + tableScarti + " MESS " + innerOnScarti;
+	                } else {
+	                    fromSQl += tableName + " PRA " + joinSQL + tableNameError + " MESS " + fieldPk;
+	                }
+
+	                if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                    fieldPkFilter = fieldPkFilter.replace("MESS.", "PRA2.");
+	                    for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                        if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                            fromSQl += " " + joinSQL + tableNative + "0 " + "PRA2 " + fieldPkFilter + " AND PRA2."
+	                                    + filter.get("campo") + " = '" + filter.get("selected") + "' ";
+	                        }
+	                    }
+	                }
+
+	                if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+
+	                    if ("PRATICHE_SEGNALAZIONI_REG".equals(region) || "SEGNALAZIONI_REG".equals(region)
+	                            || "PRATICHE_SEGNALAZIONI_REG_AGG".equals(region) || "SEGNALAZIONI_REG_AGG".equals(region)) {
+	                        whereSQL += "mess.severity = 'SEGNALAZIONE' AND ";
+	                    } else {
+	                        whereSQL += "mess.severity = 'SCARTO' AND ";
+	                    }
+
+	                    if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                        whereSQL += whereConcat + "reg.extraction_id = :extractionId AND ";
+	                    } else {
+	                        if (useDateFromTo && refDate != null) {
+	                            JoinChain j0 = ensureAlias0.apply(formFlowTableDTO.getSection(), "PRA");
+	                            fromSQl += j0.joinSql;
+
+	                            String dateAlias = j0.targetAlias;
+	                            if (refDate.section() != null && refDate.section() > 0) {
+	                                JoinChain chain = buildChainFrom0.apply(j0.targetAlias, refDate.section());
+	                                fromSQl += chain.joinSql;
+	                                dateAlias = chain.targetAlias;
+	                            }
+
+	                            whereSQL += whereConcat + dateBetween.apply(dateAlias + "." + refDate.fieldName()) + " AND ";
+
+	                            if (!aziende.isEmpty()) {
+	                                whereSQL += "PRA.CODICEAZIENDA IN ( :aziendeprofilate ) AND ";
+	                            }
+	                        } else {
+	                            if (!aziende.isEmpty()) {
+	                                whereSQL += whereConcat + "PRA.MONTH_RIF " + getWhereConditionMonthRifFn.apply(true)
+	                                        + " AND PRA.YEAR_RIF = :anni AND PRA.CODICEAZIENDA IN ( :aziendeprofilate ) AND ";
+	                            } else {
+	                                whereSQL += whereConcat + "PRA.MONTH_RIF " + getWhereConditionMonthRifFn.apply(true)
+	                                        + " AND PRA.YEAR_RIF = :anni AND ";
+	                            }
+	                        }
+
+	                        whereSQL += " MESS.RECEIVING_DATE = (SELECT "
+	                                + "MAX(MESS.RECEIVING_DATE) FROM " + tableNative + "REG_0 reg "
+	                                + joinSQL + tableScarti + " MESS " + innerOnScarti
+	                                + " AND reg.extraction_id = MESS.extraction_id AND MESS.RECEIVING_DATE IS NOT NULL) AND ";
+	                    }
+
+	                } else {
+
+	                    if ("WARNING".equals(region) || "PRATICHE_WARNING".equals(region)) {
+	                        whereSQL += "mess.severity = 'WARNING' AND ";
+	                    } else {
+	                        whereSQL += "mess.severity = 'ERROR' AND ";
+	                    }
+
+	                    if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                        whereSQL += whereConcat + "reg.extraction_id = :extractionId AND ";
+	                    } else {
+
+	                        if (useDateFromTo && refDate != null) {
+	                            JoinChain j0 = ensureAlias0.apply(formFlowTableDTO.getSection(), "PRA");
+	                            fromSQl += j0.joinSql;
+
+	                            String dateAlias = j0.targetAlias;
+	                            if (refDate.section() != null && refDate.section() > 0) {
+	                                JoinChain chain = buildChainFrom0.apply(j0.targetAlias, refDate.section());
+	                                fromSQl += chain.joinSql;
+	                                dateAlias = chain.targetAlias;
+	                            }
+
+	                            whereSQL += whereConcat + dateBetween.apply(dateAlias + "." + refDate.fieldName()) + " AND ";
+
+	                            if (!aziende.isEmpty()) {
+	                                whereSQL += "PRA.CODICEAZIENDA IN ( :aziendeprofilate ) AND ";
+	                            }
+
+	                        } else {
+	                            if (!aziende.isEmpty()) {
+	                                whereSQL += whereConcat + "PRA.MONTH_RIF " + getWhereConditionMonthRifFn.apply(true)
+	                                        + " AND PRA.YEAR_RIF = :anni AND PRA.CODICEAZIENDA IN ( :aziendeprofilate ) AND ";
+	                            } else {
+	                                whereSQL += whereConcat + "PRA.MONTH_RIF " + getWhereConditionMonthRifFn.apply(true)
+	                                        + " AND PRA.YEAR_RIF = :anni AND ";
+	                            }
+	                        }
+	                    }
+	                }
+
+	                if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                    whereSQL += "PRA.IMPORT_TYPE = :tipoimportazione AND ";
+	                }
+	                if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                    whereSQL += "PRA.CODICEPRESIDIO = :codicepresidio AND ";
+	                }
+	                if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                    whereSQL += "PRA.CODICEAZIENDA = :codiceazienda AND ";
+	                }
+
+	                if (flowViewFilterError.getErrorCode() != null) {
+	                    if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	                        whereSQL += "MESS.codiceerrore = '" + flowViewFilterError.getErrorCode() + "'";
+	                    } else {
+	                        whereSQL += "MESS.MESSAGE = '" + flowViewFilterError.getErrorCode() + "'";
+	                    }
+	                }
+
+	                if (whereSQL.endsWith("AND ")) {
+	                    whereSQL = whereSQL.substring(0, whereSQL.length() - 4);
+	                }
+
+	                if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	                    querySQL += selectSQL + "distinct " + campiSelect + fromSQl + whereSQL + unionAllSQL;
+	                    break;
+	                } else {
+	                    querySQL += selectSQL + campiSelect + fromSQl + join2SQL + whereSQL + unionAllSQL;
+	                }
+
+	                fromSQl = " FROM ";
+	                whereSQL = " WHERE ";
+	                whereConcat = "";
+	                fieldPk = "";
+	                innerOnScarti = "";
+	            }
+
+	            if (querySQL.endsWith("UNION ALL ")) {
+	                querySQL = querySQL.substring(0, querySQL.length() - 10);
+	            }
+
+	        } catch (Exception e) {
+	            LogUtil.logException(logger, "", e);
+	        }
+
+	    // =====================================================================
+	    // 2) PRATICHE
+	    // =====================================================================
+	    } else if (praticheTotali != null) {
+
+	        selectSQL = "SELECT DISTINCT ";
+	        whereSQL = " WHERE ";
+	        String extractionId = flowViewFilterError.getExtractionId();
+
+	        if (extractionId != null) {
+
+	            String campiWhere = "";
+	            String filtersSQL = "";
+
+	            try {
+	                List<String> campi = new ArrayList<String>();
+	                List<String> campiDesc = new ArrayList<String>();
+	                String campiDescStr = "";
+	                String tableNameNative = "FM_FLOW_" + formFlowDTO.getName() + "_";
+
+	                for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_REG_" + table.getSection();
+	                    String tableNameExist = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection();
+
+	                    if (table.getSection() == 0) {
+	                        campiWhere += tableName + ".DATE_PROCESSING < f.DATE_PROCESSING ";
+	                        fromSQl += tableName;
+	                        onSQL += tableName + ".extraction_id = SEZIONE1.extraction_id AND ";
+	                        if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                            for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                                if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                                    campiWhere += "AND f." + filter.get("campo") + "='" + filter.get("selected") + "' ";
+	                                }
+	                            }
+	                        }
+	                    } else if (table.getSection() == 1) {
+	                        fromSQl += " LEFT JOIN " + tableName + " ON (";
+	                    }
+
+	                    for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                        if (table.getSection() == 0) {
+	                            if (field.getGroups()) {
+	                                campi.add(field.getName());
+	                                campiDesc.add(field.getDescriptionsm());
+	                            }
+	                            if (field.isPk()) {
+	                                pkNameList.add(field.getName());
+	                                filters.add(field);
+	                                campiWhere += " and " + tableName + "." + field.getName() + "= " + "f." + field.getName();
+	                                if (flowViewFilterError.getFilters() != null
+	                                        && flowViewFilterError.getFilters().get(field.getName()) != null
+	                                        && flowViewFilterError.getFilters().get(field.getName()) != "") {
+	                                    filtersSQL += " and " + tableName + "." + field.getName() + "= '"
+	                                            + flowViewFilterError.getFilters().get(field.getName()) + "'";
+	                                }
+	                                onSQL += tableName + "." + field.getName() + " = SEZIONE1." + field.getName() + " AND ";
+	                            }
+	                        }
+
+	                        if (table.getSection() == 1) {
+	                            if (field.getGroups()) {
+	                                if (campi.contains(field.getName())) {
+	                                    campiSelect += tableNameNative + "REG_0." + field.getName() + " , ";
+	                                    campiDescStr += field.getDescriptionsm() + " , ";
+	                                    campi.remove(field.getName());
+	                                    campiDesc.remove(field.getDescriptionsm());
+	                                } else {
+	                                    campiSelect += tableName + "." + field.getName() + " , ";
+	                                    campiDescStr += field.getDescriptionsm() + " , ";
+	                                }
+	                            }
+	                        }
+
+	                        if (field.isReferenceDate() && !field.isPk()) {
+	                            filters.add(field);
+	                            if (flowViewFilterError.getFilters() != null
+	                                    && flowViewFilterError.getFilters().get(field.getName()) != null
+	                                    && flowViewFilterError.getFilters().get(field.getName()) != "") {
+
+	                                SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
+	                                String data = dateFormat.format(flowViewFilterError.getFilters().get(field.getName()));
+	                                filtersSQL += " and " + tableName + "." + field.getName() + " >= to_date('" + data
+	                                        + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and " + tableName + "." + field.getName()
+	                                        + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            }
+	                        }
+	                    }
+
+	                    if (table.getSection() == 0) {
+	                        if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                            whereSQL += tableName + ".IMPORT_TYPE = :tipoimportazione AND ";
+	                        }
+	                        if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                            whereSQL += tableName + ".CODICEPRESIDIO = :codicepresidio AND ";
+	                        }
+	                        if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                            whereSQL += tableName + ".CODICEAZIENDA = :codiceazienda AND ";
+	                        }
+
+	                        if (giaConsolidataInviataDetail) {
+	                            whereSQL += tableName + ".EXTRACTION_ID = :extractionId filtri "
+	                                    + buildExistsGiaConsolidataInviataSql(
+	                                            tableName,
+	                                            formFlowDTO.getName(),
+	                                            pkSection0,
+	                                            flowViewFilterError
+	                                    );
+	                        } else {
+	                            whereSQL += tableName + ".EXTRACTION_ID = :extractionId filtri AND EXISTS (" +
+	                                    " SELECT 1 FROM " + tableNameExist + " f WHERE " + campiWhere + ")";
+	                        }
+	                    }
+
+	                    if (table.getSection() == 1) {
+	                        onSQL = onSQL.replaceAll("SEZIONE1", tableName);
+	                        fromSQl += onSQL;
+	                        break;
+	                    }
+
+	                }
+
+	                if (fromSQl.toUpperCase().endsWith(" AND ")) {
+	                    fromSQl = fromSQl.substring(0, fromSQl.length() - 4);
+	                    fromSQl += " )";
+	                }
+
+	                if (filtersSQL != null && !"".equals(filtersSQL)) {
+	                    whereSQL = whereSQL.replaceAll("filtri", filtersSQL);
+	                } else {
+	                    whereSQL = whereSQL.replaceAll("filtri", "");
+	                }
+
+	                if (campi.size() > 0) {
+	                    for (int i = 0; i < campi.size(); i++) {
+	                        campiSelect += tableNameNative + "REG_0." + campi.get(i) + " , ";
+	                        campiDescStr += campiDesc.get(i) + " , ";
+	                    }
+	                }
+
+	                campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+	                campiDescStr = campiDescStr.substring(0, campiDescStr.length() - 2);
+
+	                String[] nuoviCampi = campiSelect.split(",");
+	                String[] nuoveDesc = campiDescStr.split(",");
+	                List<String> campiNew = new ArrayList<String>();
+	                List<String> descrNew = new ArrayList<String>();
+	                for (int i = 0; i < nuoviCampi.length; i++) {
+	                    campiNew.add(nuoviCampi[i]);
+	                    descrNew.add(nuoveDesc[i]);
+	                }
+
+	                Map<Integer, String> campiPerPosizione = new TreeMap<>();
+	                Map<Integer, String> descrPerPosizione = new TreeMap<>();
+
+	                for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	                    for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                        if (Boolean.TRUE.equals(field.getGroups())) {
+	                            String campo = "FM_FLOW_" + formFlowDTO.getName() + "_REG_" + table.getSection() + "." + field.getName();
+	                            String descr = field.getDescriptionsm();
+	                            if (!campiPerPosizione.containsKey(field.getPosition())) {
+	                                campiPerPosizione.put(field.getPosition(), campo);
+	                                descrPerPosizione.put(field.getPosition(), descr);
+	                            }
+	                        }
+	                    }
+	                }
+
+	                int maxPos = campiPerPosizione.keySet().stream().max(Integer::compareTo).orElse(0);
+	                campiPerPosizione.put(maxPos + 1, "FM_FLOW_" + formFlowDTO.getName() + "_REG_0.import_type");
+	                descrPerPosizione.put(maxPos + 1, "Tipo Importazione");
+
+	                StringBuilder sbCampi = new StringBuilder();
+	                StringBuilder sbDesc = new StringBuilder();
+	                for (Integer pos : campiPerPosizione.keySet()) {
+	                    sbCampi.append(campiPerPosizione.get(pos)).append(", ");
+	                    sbDesc.append(descrPerPosizione.get(pos)).append(", ");
+	                }
+
+	                if (sbCampi.length() > 0) {
+	                    campiSelect = sbCampi.substring(0, sbCampi.length() - 2);
+	                }
+	                if (sbDesc.length() > 0) {
+	                    campiDescStr = sbDesc.substring(0, sbDesc.length() - 2);
+	                }
+
+	                selectFields.clear();
+	                selectDescriptions.clear();
+	                int position = 0;
+	                for (Integer pos : campiPerPosizione.keySet()) {
+	                    String campo = campiPerPosizione.get(pos);
+	                    String[] fieldPoint = campo.split("\\.");
+	                    selectFields.put(position, fieldPoint[fieldPoint.length - 1].trim());
+	                    selectDescriptions.put(position, descrPerPosizione.get(pos).trim());
+	                    position++;
+	                }
+
+	                querySQL += selectSQL + campiSelect + fromSQl + whereSQL;
+
+	            } catch (Exception e) {
+	                LogUtil.logException(logger, "", e);
+	            }
+
+	        } else {
+
+	            try {
+	                List<String> campi = new ArrayList<String>();
+	                List<String> campiDesc = new ArrayList<String>();
+	                String campiDescStr = "";
+	                String tableNameNative = "FM_FLOW_" + formFlowDTO.getName() + "_";
+
+	                boolean canViewDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+
+	                String refDateFieldName = null;
+	                Integer refDateSection = null;
+
+	                if (canViewDateFromTo && refDate != null) {
+	                    refDateSection = (refDate.section() != null ? refDate.section() : null);
+	                    refDateFieldName = (refDate.fieldName() != null ? refDate.fieldName() : null);
+	                }
+
+	                for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection();
+
+	                    if (table.getSection() == 0) {
+
+	                        if (!canViewDateFromTo) {
+	                            if (!aziende.isEmpty()) {
+	                                whereSQL += tableName + ".MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError)
+	                                        + " AND " + tableName + ".YEAR_RIF = :anni AND " + tableName + ".CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                            } else {
+	                                whereSQL += tableName + ".MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError)
+	                                        + " AND " + tableName + ".YEAR_RIF = :anni ";
+	                            }
+	                        } else {
+	                            if (!aziende.isEmpty()) {
+	                                whereSQL = appendCond(whereSQL, tableName + ".CODICEAZIENDA IN ( :aziendeprofilate )");
+	                            }
+	                        }
+
+	                        if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                            for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                                if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                                    whereSQL = appendCond(whereSQL,
+	                                            tableName + "." + filter.get("campo") + "='" + filter.get("selected") + "'");
+	                                }
+	                            }
+	                        }
+
+	                        if (region != null) {
+	                            if ("PRATICHE_NOT_SEND_REG".equals(region)) {
+	                                whereSQL += " and(" + tableName + ".STATE_SEND_REGION != :state ) and(" + tableName + ".STATE_SEND_REGION != :state2 )";
+	                            } else if ("PRATICHE_REG".equals(region)) {
+	                                whereSQL += " and(" + tableName + ".STATE_SEND_REGION = :state  or " + tableName + ".STATE_SEND_REGION = :state2 )";
+	                            } else if ("PRATICHE_RIC_REG".equals(region)) {
+	                                whereSQL += " and(" + tableName + ".STATE_SEND_REGION = :state ) and(" + tableName
+	                                        + ".status_region = :state2 or " + tableName + ".status_region = :state3 )";
+	                            }
+	                        }
+
+	                        fromSQl += tableName;
+
+	                    } else if (table.getSection() == 1) {
+	                        fromSQl += " LEFT JOIN " + tableName + " ON (";
+	                    }
+
+	                    for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                        if (table.getSection() == 0) {
+	                            if (field.getGroups()) {
+	                                campi.add(field.getName());
+	                                campiDesc.add(field.getDescriptionsm());
+	                            }
+	                            if (field.isPk()) {
+	                                pkNameList.add(field.getName());
+	                                filters.add(field);
+
+	                                if (null != flowViewFilterError.getFilters()
+	                                        && flowViewFilterError.getFilters().get(field.getName()) != null
+	                                        && flowViewFilterError.getFilters().get(field.getName()) != "") {
+	                                    whereSQL = appendCond(whereSQL,
+	                                            tableName + "." + field.getName() + "= '" + flowViewFilterError.getFilters().get(field.getName()) + "'");
+	                                }
+
+	                                onSQL += tableName + "." + field.getName() + " = SEZIONE1." + field.getName() + " AND ";
+	                            }
+	                        }
+
+	                        if (table.getSection() == 1) {
+	                            if (field.getGroups()) {
+	                                if (campi.contains(field.getName())) {
+	                                    campiSelect += tableNameNative + "0." + field.getName() + " , ";
+	                                    campiDescStr += field.getDescriptionsm() + " , ";
+	                                    campi.remove(field.getName());
+	                                    campiDesc.remove(field.getDescriptionsm());
+	                                } else {
+	                                    campiSelect += tableName + "." + field.getName() + " , ";
+	                                    campiDescStr += field.getDescriptionsm() + " , ";
+	                                }
+	                            }
+	                        }
+
+	                        if (field.isReferenceDate() && !field.isPk()) {
+	                            filters.add(field);
+	                            if (null != flowViewFilterError.getFilters()
+	                                    && flowViewFilterError.getFilters().get(field.getName()) != null
+	                                    && flowViewFilterError.getFilters().get(field.getName()) != "") {
+
+	                                SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
+	                                String data = dateFormat.format(flowViewFilterError.getFilters().get(field.getName()));
+	                                whereSQL = appendCond(whereSQL,
+	                                        tableName + "." + field.getName()
+	                                                + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and "
+	                                                + tableName + "." + field.getName()
+	                                                + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS')");
+	                            }
+	                        }
+	                    }
+
+	                    if (onSQL.toUpperCase().endsWith(" AND ")) {
+	                        onSQL = onSQL.substring(0, onSQL.length() - 4);
+	                        onSQL += " )";
+	                    }
+
+	                    if (table.getSection() == 1) {
+	                        onSQL = onSQL.replaceAll("SEZIONE1", tableName);
+	                        fromSQl += onSQL;
+	                        break;
+	                    }
+	                    if (sez0and1are1toN) {
+	                        break;
+	                    }
+	                }
+
+	                if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                    whereSQL = appendCond(whereSQL, tableNameNative + "0.IMPORT_TYPE = :tipoimportazione");
+	                }
+	                if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                    whereSQL = appendCond(whereSQL, tableNameNative + "0.CODICEPRESIDIO = :codicepresidio");
+	                }
+	                if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                    whereSQL = appendCond(whereSQL, tableNameNative + "0.CODICEAZIENDA = :codiceazienda");
+	                }
+
+	                if (canViewDateFromTo && refDateFieldName != null && refDateSection != null) {
+	                    if (refDateSection == 0) {
+	                        whereSQL = appendCond(whereSQL,
+	                                dateBetween.apply(tableNameNative + "0." + refDateFieldName));
+	                    } else if (refDateSection == 1) {
+	                        whereSQL = appendCond(whereSQL,
+	                                dateBetween.apply(tableNameNative + "1." + refDateFieldName));
+	                    } else {
+	                        JoinChain jc = buildChainFrom0.apply(tableNameNative + "0", refDateSection);
+
+	                        if (jc.joinSql != null && !jc.joinSql.isEmpty()) {
+	                            fromSQl += jc.joinSql;
+	                            whereSQL = appendCond(whereSQL,
+	                                    dateBetween.apply(jc.targetAlias + "." + refDateFieldName));
+	                        } else {
+	                            whereSQL = appendCond(whereSQL,
+	                                    dateBetween.apply(tableNameNative + refDateSection + "." + refDateFieldName));
+	                        }
+	                    }
+	                }
+
+	                if (campi.size() > 0) {
+	                    for (int i = 0; i < campi.size(); i++) {
+	                        campiSelect += tableNameNative + "0." + campi.get(i) + " , ";
+	                        campiDescStr += campiDesc.get(i) + " , ";
+	                    }
+	                }
+
+	                campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+	                campiDescStr = campiDescStr.substring(0, campiDescStr.length() - 2);
+
+	                String[] nuoviCampi = campiSelect.split(",");
+	                String[] nuoveDesc = campiDescStr.split(",");
+	                List<String> campiNew = new ArrayList<String>();
+	                List<String> descrNew = new ArrayList<String>();
+	                for (int i = 0; i < nuoviCampi.length; i++) {
+	                    campiNew.add(nuoviCampi[i]);
+	                    descrNew.add(nuoveDesc[i]);
+	                }
+
+	                Map<Integer, String> campiPerPosizione = new TreeMap<>();
+	                Map<Integer, String> descrPerPosizione = new TreeMap<>();
+
+	                for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	                    for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                        if (Boolean.TRUE.equals(field.getGroups())) {
+	                            String campo = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + "." + field.getName();
+	                            String descr = field.getDescriptionsm();
+	                            if (!campiPerPosizione.containsKey(field.getPosition())) {
+	                                campiPerPosizione.put(field.getPosition(), campo);
+	                                descrPerPosizione.put(field.getPosition(), descr);
+	                            }
+	                        }
+	                    }
+	                }
+
+	                int maxPos = campiPerPosizione.keySet().stream().max(Integer::compareTo).orElse(0);
+	                campiPerPosizione.put(maxPos + 1, "FM_FLOW_" + formFlowDTO.getName() + "_0.import_type");
+	                descrPerPosizione.put(maxPos + 1, "Tipo Importazione");
+
+	                StringBuilder sbCampi = new StringBuilder();
+	                StringBuilder sbDesc = new StringBuilder();
+	                for (Integer pos : campiPerPosizione.keySet()) {
+	                    sbCampi.append(campiPerPosizione.get(pos)).append(", ");
+	                    sbDesc.append(descrPerPosizione.get(pos)).append(", ");
+	                }
+
+	                campiSelect = sbCampi.substring(0, sbCampi.length() - 2);
+	                campiDescStr = sbDesc.substring(0, sbDesc.length() - 2);
+
+	                selectFields.clear();
+	                selectDescriptions.clear();
+	                int position = 0;
+	                for (Integer pos : campiPerPosizione.keySet()) {
+	                    String campo = campiPerPosizione.get(pos);
+	                    String[] fieldPoint = campo.split("\\.");
+	                    selectFields.put(position, fieldPoint[fieldPoint.length - 1].trim());
+	                    selectDescriptions.put(position, descrPerPosizione.get(pos).trim());
+	                    position++;
+	                }
+
+	                campiSelect = "";
+	                campiNew = campiNew.stream().map(String::trim).distinct().collect(Collectors.toList());
+	                for (String campo : campiNew) {
+	                    campiSelect += campo + ",";
+	                }
+	                campiSelect = campiSelect.substring(0, campiSelect.length() - 1);
+	                campiSelect += "," + tableNameNative + "0." + "import_type";
+	                campiDescStr += ",Tipo Importazione";
+	                campiNew.add(tableNameNative + "0." + "import_type");
+	                descrNew.add("Tipo Importazione");
+
+	                String[] selectFieldsApp = campiSelect.split(",");
+	                position = 0;
+	                for (int i = 0; i < selectFieldsApp.length; i++) {
+	                    String fieldCopy = selectFieldsApp[i].substring(0, selectFieldsApp[i].length());
+	                    String[] fieldPoint = fieldCopy.split("\\.");
+	                    selectFields.put(position, fieldPoint[1]);
+	                    if (descrNew.get(i).startsWith(" ")) {
+	                        String sub = descrNew.get(i).substring(1, descrNew.get(i).length());
+	                        descrNew.set(i, sub);
+	                    }
+	                    if (descrNew.get(i).endsWith(" ")) {
+	                        String sub = descrNew.get(i).substring(0, descrNew.get(i).length() - 1);
+	                        descrNew.set(i, sub);
+	                    }
+	                    selectDescriptions.put(position, descrNew.get(i));
+	                    position++;
+	                }
+
+	                querySQL += selectSQL + campiSelect + fromSQl + whereSQL;
+
+	            } catch (Exception e) {
+	                LogUtil.logException(logger, "", e);
+	            }
+	        }
+
+	    // =====================================================================
+	    // 3) PRATICHE ERRATE
+	    // =====================================================================
+	    } else {
+
+	        selectSQL = "SELECT ";
+	        String filterForQuerySQL = "";
+	        String filterSQL0 = "";
+	        String filterSQL1 = "";
+	        String filterSQL2 = "";
+	        String outerSelect = "";
+	        String innerSelect = "SELECT ";
+	        String innerSelect2 = "SELECT ";
+	        String innerOn = "ON ";
+	        String innerOn2 = "ON ";
+	        String innerOn3 = "ON ";
+	        String innerJoin = "JOIN ";
+	        String from = "FROM (";
+	        String innerFrom = "FROM ";
+	        String innerWhere = "WHERE ";
+	        String leftJoin = "LEFT JOIN ";
+	        String outerSelectCount = "COUNT(1) ";
+	        String unionAll = "UNION ALL ";
+	        groupBy = "GROUP BY ";
+	        String sezioneFiltroDataRiferimento = "";
+	        String innerWhereScarti = "";
+
+	        try {
+	            List<String> campi = new ArrayList<>();
+	            List<String> campiDate = new ArrayList<>();
+	            List<String> campiDate0 = new ArrayList<>();
+	            List<String> campiPratica = new ArrayList<>();
+	            List<String> campiPratica0 = new ArrayList<>();
+	            List<String> campiPratica1 = new ArrayList<>();
+	            List<String> campiPraticaDate = new ArrayList<>();
+	            List<String> campiPraticaDate1 = new ArrayList<>();
+	            List<String> campiDesc0 = new ArrayList<>();
+	            List<String> campiDesc1 = new ArrayList<>();
+	            List<String> campiDescDate0 = new ArrayList<>();
+	            List<String> campiDescDate1 = new ArrayList<>();
+	            String campiDescStr = "";
+
+	            for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	                for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                    if (table.getSection() == 0) {
+	                        if (field.getGroups()) {
+	                            if ("Date".equals(field.getFieldType())) {
+	                                campiPraticaDate.add("a." + field.getName() + " , ");
+	                                campiDescDate0.add(field.getDescriptionsm());
+	                            } else {
+	                                campiPratica0.add(field.getName());
+	                                campiDesc0.add(field.getDescriptionsm());
+	                            }
+	                        }
+	                    } else if (table.getSection() == 1) {
+	                        if (field.getGroups()) {
+	                            if ("Date".equals(field.getFieldType())) {
+	                                campiPraticaDate1.add("p." + field.getName() + " , ");
+	                                campiDescDate1.add(field.getDescriptionsm());
+	                            } else {
+	                                campiPratica1.add(field.getName());
+	                                campiDesc1.add(field.getDescriptionsm());
+	                            }
+	                        }
+	                    }
+	                }
+	            }
+
+	            for (int j = 0; j < campiPratica0.size(); j++) {
+	                campiPratica.add("a." + campiPratica0.get(j) + " , ");
+	                outerSelect += "c0." + campiPratica0.get(j) + " , ";
+	                campiDescStr += campiDesc0.get(j) + " , ";
+	                groupBy += "c0." + campiPratica0.get(j) + " , ";
+	            }
+
+	            for (int j = 0; j < campiPratica1.size(); j++) {
+	                if (!campiPratica0.contains(campiPratica1.get(j))) {
+	                    campiPratica.add("p." + campiPratica1.get(j) + " , ");
+	                    outerSelect += "c0." + campiPratica1.get(j) + " , ";
+	                    campiDescStr += campiDesc1.get(j) + " , ";
+	                    groupBy += "c0." + campiPratica1.get(j) + " , ";
+	                }
+	            }
+
+	            for (int j = 0; j < campiPraticaDate.size(); j++) {
+	                String outerData = campiPraticaDate.get(j).substring(2);
+	                outerSelect += "c0." + outerData + " ";
+	                campiDescStr += campiDescDate0.get(j) + " , ";
+	                groupBy += "c0." + outerData + " ";
+	            }
+
+	            for (int j = 0; j < campiPraticaDate1.size(); j++) {
+	                String outerData = campiPraticaDate1.get(j).substring(2);
+	                outerSelect += "c0." + outerData + " ";
+	                campiDescStr += campiDescDate1.get(j) + " , ";
+	                groupBy += "c0." + outerData + " ";
+	            }
+
+	            for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	                String tableA = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + " a ";
+	                String tableNative = "FM_FLOW_" + nomeFlusso + "_";
+	                String tableMessageLocal = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + "_MESSAGE b ";
+	                String tableScarti = nomeFlusso + "_REG_SCARTI_REGIONE b ";
+
+	                Set<String> onPkAdded = new HashSet<>();
+	                Set<String> on2PkAdded = new HashSet<>();
+	                Set<String> on3PkAdded = new HashSet<>();
+
+	                if (table.getSection() >= 2) {
+	                    for (String f0 : campiPratica0) {
+	                        innerSelect2 += "p." + f0 + " , ";
+	                    }
+	                    for (String f1 : campiPratica1) {
+	                        if (!campiPratica0.contains(f1)) {
+	                            innerSelect2 += "q." + f1 + " , ";
+	                        }
+	                    }
+	                    innerSelect2 += "a.import_type , ";
+
+	                    for (String d1 : campiPraticaDate1) {
+	                        String col = d1.trim().substring(2).replace(",", "").trim();
+	                        innerSelect2 += "q." + col + " , ";
+	                    }
+
+	                    for (String d0 : campiPraticaDate) {
+	                        String col = d0.trim().substring(2).replace(",", "").trim();
+	                        innerSelect2 += "p." + col + " , ";
+	                    }
+	                }
+
+	                if (table.getSection() == 0) {
+	                    for (String campo : campiPratica) innerSelect += campo;
+	                    innerSelect += "a.import_type , ";
+	                    for (String campoData : campiPraticaDate1) innerSelect += campoData;
+	                    for (String campoData : campiPraticaDate) innerSelect += campoData;
+	                }
+
+	                for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                    if (table.getSection() == 0) {
+
+	                        if (field.getGroups()) {
+	                            if ("Date".equals(field.getFieldType())) {
+	                                campiDate0.add(field.getName());
+	                            } else {
+	                                campi.add(field.getName());
+	                            }
+	                        }
+
+	                        if (field.isPk()) {
+	                            pkNameList.add(field.getName());
+	                            filters.add(field);
+
+	                            if (flowViewFilterError.getFilters() != null
+	                                    && flowViewFilterError.getFilters().get(field.getName()) != null
+	                                    && !flowViewFilterError.getFilters().get(field.getName()).toString().isEmpty()) {
+	                                filterForQuerySQL += " and a." + field.getName() + "='" + flowViewFilterError.getFilters().get(field.getName()) + "'";
+	                            }
+	                        }
+
+	                        if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                            for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                                if (filter.get("selected") != null && !filter.get("selected").isEmpty()
+	                                        && field.getName().equalsIgnoreCase(filter.get("campo"))) {
+	                                    filterForQuerySQL += " and a." + field.getName() + "='" + filter.get("selected") + "'";
+	                                }
+	                            }
+	                        }
+	                    }
+
+	                    if (table.getSection() == 1) {
+	                        if (field.getGroups()) {
+	                            if (campi.contains(field.getName())) {
+	                                innerSelect2 += "q." + field.getName() + " , ";
+	                                campi.remove(field.getName());
+	                            } else {
+	                                if ("Date".equals(field.getFieldType())) {
+	                                    campiDate.add(field.getName());
+	                                } else {
+	                                    innerSelect += "a." + field.getName() + " , ";
+	                                    innerSelect2 += "q." + field.getName() + " , ";
+	                                }
+	                            }
+	                        }
+	                    }
+
+	                    if (field.getGroups() && field.isPk()) {
+
+	                        if (on2PkAdded.add(field.getName())) {
+	                            innerOn2 += buildNullableJoinCondition("a", "p", field.getName());
+	                        }
+	                        if (on3PkAdded.add(field.getName())) {
+	                        	innerOn3 += buildNullableJoinCondition("a", "q", field.getName());
+	                        }
+
+	                        if (table.getSection() == 1) {
+	                            innerSelect += "a." + field.getName() + " , ";
+	                        }
+	                    }
+
+	                    if (field.isPk() && pkNameList.contains(field.getName())) {
+
+	                        if (region != null && !"PRATICHE_WARNING".equals(region)) {
+	                            if (table.getSection() == 0) {
+	                                if (onPkAdded.add(field.getName())) {
+	                                    innerOn += buildNullableJoinCondition("a", "reg", field.getName());
+	                                }
+	                            }
+	                        } else {
+	                            if (onPkAdded.add(field.getName())) {
+	                                innerOn += buildNullableJoinCondition("a", "b", field.getName());
+	                            }
+	                        }
+	                    }
+
+	                    if (field.isReferenceDate() && !field.isPk()) {
+	                        filters.add(field);
+	                        if (flowViewFilterError.getFilters() != null
+	                                && flowViewFilterError.getFilters().get(field.getName()) != null) {
+	                            Object v = flowViewFilterError.getFilters().get(field.getName());
+	                            if (v instanceof Date d) {
+	                                SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
+	                                String data = dateFormat.format(d);
+
+	                                if (table.getSection() == 0) {
+	                                    sezioneFiltroDataRiferimento = "0";
+	                                    filterSQL0 += " and a." + field.getName() + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS')"
+	                                            + " and a." + field.getName() + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                                    filterSQL1 = " and p." + field.getName() + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS')"
+	                                            + " and p." + field.getName() + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                                    filterSQL2 = filterSQL1;
+	                                } else if (table.getSection() == 1) {
+	                                    sezioneFiltroDataRiferimento = "1";
+	                                    filterSQL0 += " and p." + field.getName() + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS')"
+	                                            + " and p." + field.getName() + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                                    filterSQL1 = " and a." + field.getName() + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS')"
+	                                            + " and a." + field.getName() + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                                    filterSQL2 = " and q." + field.getName() + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS')"
+	                                            + " and q." + field.getName() + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                                }
+	                            }
+	                        }
+	                    }
+	                }
+
+	                innerOn = trimTrailingAnd(innerOn);
+	                innerOn2 = trimTrailingAnd(innerOn2);
+	                innerOn3 = trimTrailingAnd(innerOn3);
+
+	                innerOn = innerOn + " ";
+	                innerOn2 = innerOn2 + " ";
+	                innerOn3 = innerOn3 + " ";
+
+	                if (region == null || "PRATICHE_WARNING".equals(region)) {
+	                    innerJoin += tableMessageLocal;
+	                } else {
+	                    innerJoin += tableNative + "REG_0 reg ";
+	                }
+
+	                if (table.getSection() == 0) {
+
+	                    if (region != null && !"PRATICHE_WARNING".equals(region)) {
+	                        innerOnScarti += "ON ";
+	                        innerWhereScarti += "and ";
+
+	                        for (int i = 0; i < resultTabgen.size(); i++) {
+	                        	String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+	                            innerOnScarti += buildNullableJoinCondition("reg", "b", fieldName);
+	                            innerWhereScarti += buildNullableJoinCondition("c2", "reg", fieldName);
+	                        }
+	                        if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                            innerOnScarti += "reg.extraction_id = b.extraction_id and ";
+	                        }
+	                        innerOnScarti = trimTrailingAnd(innerOnScarti);
+	                        innerWhereScarti = trimTrailingAnd(innerWhereScarti);
+	                        
+	                        innerOnScarti = innerOnScarti + " ";
+
+	                        if (!sez0and1are1toN) {
+	                            if (contaSezioni > 1) {
+	                                innerFrom += tableA + innerJoin + innerOn
+	                                        + "JOIN " + tableScarti + innerOnScarti
+	                                        + "JOIN " + tableNative + "1 p " + innerOn2
+	                                        + "JOIN FM_FLOW_EXPORTING_REQUEST e on reg.extraction_id = e.id ";
+	                            } else {
+	                                innerFrom += tableA + innerJoin + innerOn
+	                                        + "JOIN " + tableScarti + innerOnScarti
+	                                        + "JOIN FM_FLOW_EXPORTING_REQUEST e on reg.extraction_id = e.id ";
+	                            }
+	                        } else {
+	                            innerFrom += tableA + innerJoin + innerOn
+	                                    + "JOIN " + tableScarti + innerOnScarti
+	                                    + "JOIN FM_FLOW_EXPORTING_REQUEST e on reg.extraction_id = e.id ";
+	                        }
+	                    } else {
+	                        if (contaSezioni > 1) {
+	                            innerFrom += tableA + innerJoin + innerOn
+	                                    + "JOIN " + tableNative + "1 p " + innerOn2;
+	                        } else {
+	                            innerFrom += tableA + innerJoin + innerOn;
+	                        }
+	                    }
+
+	                } else if (table.getSection() == 1) {
+
+	                    if (campi.size() > 0) {
+	                        for (int i = 0; i < campi.size(); i++) {
+	                            innerSelect += "p." + campi.get(i) + " , ";
+	                            innerSelect2 += "p." + campi.get(i) + " , ";
+	                        }
+	                    }
+
+	                    innerSelect += "a.import_type , ";
+	                    innerSelect2 += "a.import_type , ";
+
+	                    if (campiDate.size() > 0) {
+	                        for (int i = 0; i < campiDate.size(); i++) {
+	                            innerSelect += "a." + campiDate.get(i) + " , ";
+	                            innerSelect2 += "q." + campiDate.get(i) + " , ";
+	                        }
+	                        campiDate.clear();
+	                    }
+
+	                    if (campiDate0.size() > 0) {
+	                        for (int i = 0; i < campiDate0.size(); i++) {
+	                            innerSelect += "p." + campiDate0.get(i) + " , ";
+	                            innerSelect2 += "p." + campiDate0.get(i) + " , ";
+	                        }
+	                        campiDate0.clear();
+	                    }
+
+	                    if (region != null && !"PRATICHE_WARNING".equals(region)) {
+	                        innerFrom += tableA + innerJoin + innerOn
+	                                + "JOIN " + tableScarti + innerOnScarti
+	                                + "JOIN " + tableNative + "1 p " + innerOn2;
+	                    } else {
+	                        innerFrom += tableA + innerJoin + innerOn
+	                                + "JOIN " + tableNative + "0 p " + innerOn2;
+	                    }
+
+	                } else {
+	                    innerFrom += tableA + innerJoin + innerOn
+	                            + "JOIN " + tableNative + "0 p " + innerOn2
+	                            + "JOIN " + tableNative + "1 q " + innerOn3;
+	                }
+
+	                if (innerSelect.endsWith(" , ")) innerSelect = innerSelect.substring(0, innerSelect.length() - 2);
+	                if (innerSelect2.endsWith(" , ")) innerSelect2 = innerSelect2.substring(0, innerSelect2.length() - 2);
+
+	                if (region != null && !"PRATICHE_WARNING".equals(region)) {
+
+	                    if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                        innerWhere += "reg.extraction_id = :extractionId ";
+	                    } else {
+
+	                        if (useDateFromTo && refDate != null) {
+	                            JoinChain j0 = ensureAlias0.apply(table.getSection(), "a");
+	                            innerFrom += j0.joinSql;
+
+	                            String dateAlias = j0.targetAlias;
+	                            if (refDate.section() != null && refDate.section() > 0) {
+	                                JoinChain chain = buildChainFrom0.apply(j0.targetAlias, refDate.section());
+	                                innerFrom += chain.joinSql;
+	                                dateAlias = chain.targetAlias;
+	                            }
+
+	                            innerWhere += dateBetween.apply(dateAlias + "." + refDate.fieldName());
+
+	                            if (!aziende.isEmpty()) innerWhere += " AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                            else innerWhere += " ";
+	                        } else {
+	                            if (!aziende.isEmpty()) {
+	                                innerWhere += "a.MONTH_RIF " + getWhereConditionMonthRifFn.apply(true)
+	                                        + " AND a.YEAR_RIF = :anni AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                            } else {
+	                                innerWhere += "a.MONTH_RIF " + getWhereConditionMonthRifFn.apply(true)
+	                                        + " AND a.YEAR_RIF = :anni ";
+	                            }
+	                        }
+
+	                        if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) innerWhere += " and a.IMPORT_TYPE = :tipoimportazione ";
+	                        if (codicePresidio != null && !codicePresidio.equals("Tutte")) innerWhere += " and a.CODICEPRESIDIO = :codicepresidio ";
+	                        if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) innerWhere += " and a.CODICEAZIENDA = :codiceazienda ";
+	                    }
+
+	                    if ("PRATICHE_SEGNALAZIONI_REG".equals(region) || "PRATICHE_SEGNALAZIONI_REG_AGG".equals(region)) {
+	                        innerWhere += "AND B.SEVERITY = 'SEGNALAZIONE' ";
+	                        if (flowViewFilterError.getExtractionIdFromGrid() == null) {
+	                            innerWhere += " and e.end_extraction_date = (SELECT MAX(e2.end_extraction_date) FROM FM_FLOW_" + nomeFlusso
+	                                    + "_REG_0 c2, fm_flow_exporting_request e2 "
+	                                    + " WHERE e2.end_extraction_date IS NOT NULL AND c2.extraction_id = e2.id "
+	                                    + innerWhereScarti + " )";
+	                            innerWhere += " and b.RECEIVING_DATE = (SELECT MAX(b.RECEIVING_DATE) FROM FM_FLOW_" + nomeFlusso
+	                                    + "_REG_0 c2, " + tableScarti
+	                                    + " WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id "
+	                                    + innerWhereScarti + " )";
+	                        }
+	                        if ("PRATICHE_SEGNALAZIONI_REG_AGG".equals(region)) innerWhere += " AND a.STATUS_REGION = 'SEGNALAZIONE'";
+	                    } else {
+	                        innerWhere += "AND B.SEVERITY = 'SCARTO' ";
+	                        if (flowViewFilterError.getExtractionIdFromGrid() == null) {
+	                            innerWhere += " and e.end_extraction_date = (SELECT MAX(e2.end_extraction_date) FROM FM_FLOW_" + nomeFlusso
+	                                    + "_REG_0 c2, fm_flow_exporting_request e2"
+	                                    + " WHERE e2.end_extraction_date IS NOT NULL AND c2.extraction_id = e2.id "
+	                                    + innerWhereScarti + " )";
+	                            innerWhere += " and b.RECEIVING_DATE = (SELECT MAX(b.RECEIVING_DATE) FROM FM_FLOW_" + nomeFlusso
+	                                    + "_REG_0 c2, " + tableScarti
+	                                    + " WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id "
+	                                    + innerWhereScarti + " )";
+	                        }
+	                        if ("PRATICHE_ERRATE_REG_AGG".equals(region)) innerWhere += " AND a.STATUS_REGION = 'SCARTO'";
+	                    }
+
+	                } else {
+
+	                    if (useDateFromTo && refDate != null) {
+	                        JoinChain j0 = ensureAlias0.apply(table.getSection(), "a");
+	                        innerFrom += j0.joinSql;
+
+	                        String dateAlias = j0.targetAlias;
+	                        if (refDate.section() != null && refDate.section() > 0) {
+	                            JoinChain chain = buildChainFrom0.apply(j0.targetAlias, refDate.section());
+	                            innerFrom += chain.joinSql;
+	                            dateAlias = chain.targetAlias;
+	                        }
+
+	                        innerWhere += dateBetween.apply(dateAlias + "." + refDate.fieldName());
+	                        if (!aziende.isEmpty()) innerWhere += " AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                        else innerWhere += " ";
+	                    } else {
+	                        if (!aziende.isEmpty()) {
+	                            innerWhere += "a.MONTH_RIF " + getWhereConditionMonthRifFn.apply(true)
+	                                    + " AND a.YEAR_RIF = :anni AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                        } else {
+	                            innerWhere += "a.MONTH_RIF " + getWhereConditionMonthRifFn.apply(true)
+	                                    + " AND a.YEAR_RIF = :anni ";
+	                        }
+	                    }
+
+	                    if ("PRATICHE_WARNING".equals(region)) innerWhere += "AND B.SEVERITY = 'WARNING' ";
+	                    else innerWhere += "AND B.SEVERITY = 'ERROR' ";
+
+	                    if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) innerWhere += " and a.IMPORT_TYPE = :tipoimportazione ";
+	                    if (codicePresidio != null && !codicePresidio.equals("Tutte")) innerWhere += " and a.CODICEPRESIDIO = :codicepresidio ";
+	                    if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) innerWhere += " and a.CODICEAZIENDA = :codiceazienda ";
+	                }
+
+	                if (table.getSection() == 0) {
+	                    innerWhere += " filtri ";
+	                }
+
+	                if (table.getSection() != 0 && flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                    for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                        if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                            filterForQuerySQL = filterForQuerySQL.replace("a." + filter.get("campo").toLowerCase(),
+	                                    "p." + filter.get("campo").toLowerCase());
+	                        }
+	                    }
+	                    innerWhere += filterForQuerySQL;
+	                } else {
+	                    innerWhere += filterForQuerySQL;
+	                }
+
+	                if (table.getSection() < 2) {
+	                    innerWhere += (table.getSection() == 0 ? filterSQL0 : filterSQL1);
+
+	                    innerSelect = innerSelect.substring(7);
+	                    String[] nuoviCampi = innerSelect.split(",");
+	                    List<String> campiNew = new ArrayList<>();
+	                    for (String c : nuoviCampi) campiNew.add(c);
+
+	                    Collections.sort(campiNew, new Comparator<String>() {
+	                        @Override
+	                        public int compare(String o1, String o2) {
+	                            return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	                        }
+	                    });
+
+	                    innerSelect = "SELECT ";
+	                    campiNew = campiNew.stream().map(String::trim).distinct().collect(Collectors.toList());
+	                    for (String campo : campiNew) innerSelect += campo + " , ";
+	                    innerSelect = innerSelect.substring(0, innerSelect.length() - 2);
+
+	                    querySQL += innerSelect + " " + innerFrom + innerWhere + " " + unionAll;
+
+	                } else {
+
+	                    innerWhere += filterSQL2;
+
+	                    innerSelect2 = innerSelect2.substring(7);
+	                    String[] nuoviCampi = innerSelect2.split(",");
+	                    List<String> campiNew = new ArrayList<>();
+	                    for (String c : nuoviCampi) campiNew.add(c);
+
+	                    Collections.sort(campiNew, new Comparator<String>() {
+	                        @Override
+	                        public int compare(String o1, String o2) {
+	                            return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	                        }
+	                    });
+
+	                    innerSelect2 = "SELECT ";
+	                    campiNew = campiNew.stream().map(String::trim).distinct().collect(Collectors.toList());
+	                    for (String campo : campiNew) innerSelect2 += campo + " , ";
+	                    innerSelect2 = innerSelect2.substring(0, innerSelect2.length() - 2);
+
+	                    querySQL += innerSelect2 + " " + innerFrom + innerWhere + " " + unionAll;
+	                }
+
+	                innerFrom = "FROM ";
+	                innerJoin = "JOIN ";
+	                innerSelect = "SELECT ";
+	                innerSelect2 = "SELECT ";
+	                innerOn2 = "ON ";
+	                innerOn3 = "ON ";
+	                innerWhere = "WHERE ";
+	                innerOnScarti = "";
+	                innerWhereScarti = "";
+
+	                if (region == null || "PRATICHE_WARNING".equals(region)) {
+	                    innerOn = "ON ";
+	                } else {
+	                    if (table.getSection() == 0) break;
+	                    innerOn = "ON ";
+	                }
+	            }
+
+	            if (sezioneFiltroDataRiferimento.equals("") || sezioneFiltroDataRiferimento.equals("0")) {
+	                querySQL = querySQL.replaceAll("filtri", "");
+	            } else if (sezioneFiltroDataRiferimento.equals("1")) {
+	                querySQL = querySQL.replaceAll("filtri", filterSQL0);
+	            }
+
+	            outerSelect = outerSelect.substring(0, outerSelect.length() - 2);
+	            campiDescStr = campiDescStr.substring(0, campiDescStr.length() - 2);
+
+	            String[] nuoviCampi = outerSelect.split(",");
+	            String[] nuoveDesc = campiDescStr.split(",");
+	            List<String> campiNew = new ArrayList<>();
+	            List<String> descrNew = new ArrayList<>();
+	            for (int i = 0; i < nuoviCampi.length; i++) {
+	                campiNew.add(nuoviCampi[i]);
+	                descrNew.add(nuoveDesc[i]);
+	            }
+
+	            Map<Integer, String> campiPerPosizione = new TreeMap<>();
+	            Map<Integer, String> descrPerPosizione = new TreeMap<>();
+
+	            for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	                for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	                    if (Boolean.TRUE.equals(f.getGroups())) {
+	                        String campo = "FM_FLOW_" + formFlowDTO.getName() + "_" + t.getSection() + "." + f.getName();
+	                        String descr = f.getDescriptionsm();
+	                        if (!campiPerPosizione.containsKey(f.getPosition())) {
+	                            campiPerPosizione.put(f.getPosition(), campo);
+	                            descrPerPosizione.put(f.getPosition(), descr);
+	                        }
+	                    }
+	                }
+	            }
+
+	            int maxPos = campiPerPosizione.keySet().stream().max(Integer::compareTo).orElse(0);
+	            campiPerPosizione.put(maxPos + 1, "FM_FLOW_" + formFlowDTO.getName() + "_0.import_type");
+	            descrPerPosizione.put(maxPos + 1, "Tipo Importazione");
+
+	            StringBuilder sbCampi = new StringBuilder();
+	            StringBuilder sbDesc = new StringBuilder();
+	            for (Integer pos : campiPerPosizione.keySet()) {
+	                sbCampi.append(campiPerPosizione.get(pos)).append(", ");
+	                sbDesc.append(descrPerPosizione.get(pos)).append(", ");
+	            }
+
+	            campiSelect = sbCampi.substring(0, sbCampi.length() - 2);
+	            campiDescStr = sbDesc.substring(0, sbDesc.length() - 2);
+
+	            selectFields.clear();
+	            selectDescriptions.clear();
+	            int position = 0;
+	            for (Integer pos : campiPerPosizione.keySet()) {
+	                String campo = campiPerPosizione.get(pos);
+	                String[] fieldPoint = campo.split("\\.");
+	                selectFields.put(position, fieldPoint[fieldPoint.length - 1].trim());
+	                selectDescriptions.put(position, descrPerPosizione.get(pos).trim());
+	                position++;
+	            }
+
+	            outerSelect = "";
+	            campiNew = campiNew.stream().map(String::trim).distinct().collect(Collectors.toList());
+	            for (String campo : campiNew) outerSelect += campo + " , ";
+	            outerSelect = outerSelect.substring(0, outerSelect.length() - 2);
+
+	            outerSelect += ",c0.import_type";
+	            campiDescStr += ",Tipo Importazione";
+	            campiNew.add("c0.import_type");
+	            descrNew.add("Tipo Importazione");
+
+	            String[] selectFieldsApp = outerSelect.split(",");
+	            position = 0;
+	            for (int i = 0; i < selectFieldsApp.length; i++) {
+	                String fieldCopy = selectFieldsApp[i].trim();
+	                String[] fieldPoint = fieldCopy.split("\\.");
+	                selectFields.put(position, fieldPoint[1].replaceAll("\\s+", ""));
+	                if (descrNew.get(i).startsWith(" ")) descrNew.set(i, descrNew.get(i).substring(1));
+	                if (descrNew.get(i).endsWith(" ")) descrNew.set(i, descrNew.get(i).substring(0, descrNew.get(i).length() - 1));
+	                selectDescriptions.put(position, descrNew.get(i));
+	                position++;
+	            }
+
+	            outerSelect = "SELECT  " + outerSelect + ", " + outerSelectCount;
+
+	            if (querySQL.endsWith(leftJoin + " ( ")) {
+	                querySQL = querySQL.substring(0, querySQL.length() - 13);
+	            }
+
+	            querySQL = outerSelect + from + querySQL;
+
+	            groupBy += "c0.import_type , ";
+	            groupBy = groupBy.substring(0, groupBy.length() - 3);
+
+	            if (querySQL.endsWith(unionAll)) {
+	                querySQL = querySQL.substring(0, querySQL.length() - unionAll.length());
+	            } else if (querySQL.endsWith(unionAll + " ")) {
+	                querySQL = querySQL.substring(0, querySQL.length() - (unionAll.length() + 1));
+	            }
+
+	            querySQL += ") c0 " + groupBy;
+
+	        } catch (Exception e) {
+	            LogUtil.logException(logger, "", e);
+	        }
+	    }
+
+	    List<Object> result = new ArrayList<Object>();
+	    result.add(querySQL);
+	    result.add(selectFields);
+	    result.add(selectDescriptions);
+	    result.add(filters);
+	    result.add(pkNameList);
+	    result.add(false);
+
+	    return result;
+	}
+	
+	private static class JoinChain {
+	    final String joinSql;
+	    final String targetAlias;
+
+	    JoinChain(String joinSql, String targetAlias) {
+	        this.joinSql = (joinSql == null ? "" : joinSql);
+	        this.targetAlias = targetAlias;
+	    }
+	}
+
+	// overload comodo: come prima, parte da REF{startSection}
+	private JoinChain buildJoinChainFrom(int startSection,
+	                                     int targetSection,
+	                                     String flowName,
+	                                     Map<Integer, List<String>> pkBySection) {
+	    return buildJoinChainFrom(startSection, targetSection, flowName, pkBySection, "REF" + startSection);
+	}
+
+	
+	private JoinChain buildJoinChainFrom(int startSection,
+            int targetSection,
+            String flowName,
+            Map<Integer, List<String>> pkBySection,
+            String startAlias) {
+
+		if (targetSection <= startSection) {
+			return new JoinChain("", startAlias);
+		}
+	
+		StringBuilder sb = new StringBuilder();
+		String prevAlias = startAlias;
+	
+		for (int s = startSection + 1; s <= targetSection; s++) {
+			String curAlias = "REF" + s;
+			String tableName = "FM_FLOW_" + flowName + "_" + s;
+			
+			sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+			
+			List<String> pks = getJoinKeysBetweenSections(s - 1, s, pkBySection);
+			
+			for (String pk : pks) {
+				sb.append(prevAlias).append(".").append(pk)
+				.append(" = ")
+				.append(curAlias).append(".").append(pk)
+				.append(" AND ");
+			}
+	
+			if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+				sb.setLength(sb.length() - 5);
+			}
+		
+			sb.append(" ");
+			prevAlias = curAlias;
+		}
+		
+		return new JoinChain(sb.toString(), "REF" + targetSection);
+	}
+	
+	private boolean isGiaConsolidataInviataDetail(FlowViewFilterError flowViewFilterError) {
+	    return flowViewFilterError != null
+	            && "INVIATA".equalsIgnoreCase(flowViewFilterError.getCheckType());
+	}
+
+	private List<String> getPkFieldsSectionZero(FormFlowDTO formFlowDTO) {
+	    List<String> pkFields = new ArrayList<>();
+	    if (formFlowDTO != null && formFlowDTO.getFlowTableList() != null) {
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	            if (table.getSection() == 0) {
+	                for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                    if (field.isPk()) {
+	                        pkFields.add(field.getName());
+	                    }
+	                }
+	                break;
+	            }
+	        }
+	    }
+	    return pkFields;
+	}
+
+	private String buildExistsGiaConsolidataInviataSql(String currentRegTable,
+	                                                   String flowName,
+	                                                   List<String> pkFields,
+	                                                   FlowViewFilterError flowViewFilterError) {
+	    StringBuilder sql = new StringBuilder();
+
+	    sql.append(" AND EXISTS (");
+	    sql.append("SELECT 1 ");
+	    sql.append("FROM FM_FLOW_").append(flowName).append("_0 FOTH ");
+	    sql.append("JOIN FM_FLOW_").append(flowName).append("_REG_0 FREG ");
+	    sql.append("ON 1 = 1 ");
+
+	    for (String pk : pkFields) {
+	        sql.append("AND FREG.").append(pk).append(" = FOTH.").append(pk).append(" ");
+	    }
+
+	    sql.append("JOIN FM_FLOW_EXPORTING_REQUEST FER ");
+	    sql.append("ON FER.ID = FREG.EXTRACTION_ID ");
+	    sql.append("WHERE FREG.EXTRACTION_ID <> ").append(currentRegTable).append(".EXTRACTION_ID ");
+	    sql.append("AND NVL(FER.DELETED, 0) = 0 ");
+	    sql.append("AND NVL(FER.CONSOLIDATA, 0) = 1 ");
+	    sql.append("AND FOTH.STATE_SEND_REGION = 'INVIATA' ");
+
+	    for (String pk : pkFields) {
+	        sql.append("AND ").append(currentRegTable).append(".").append(pk)
+	           .append(" = FOTH.").append(pk).append(" ");
+	    }
+
+	    if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	        for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	            if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                sql.append("AND FOTH.").append(filter.get("campo"))
+	                   .append("='").append(filter.get("selected")).append("' ");
+	            }
+	        }
+	    }
+
+	    sql.append(")");
+
+	    return sql.toString();
+	}
+	
+	@Override
+	public List<Object> createQueryXLS(FlowViewFilterError flowViewFilterError, List<String> aziende) {
+
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+	    String whereSQL = " WHERE ";
+	    String campiSelect = "";
+	    String tableMessage = "FM_ERROR_MESSAGE ";
+	    String querySQL = "";
+	    String groupBy = "GROUP BY ";
+	    String region = flowViewFilterError.getName();
+	    String innerOnScarti = "";
+	    HashMap<Integer,String> selectFields = new HashMap<Integer,String>();
+	    HashMap<Integer,String> selectDescriptions = new HashMap<Integer,String>();
+	    List<FormFlowTableFieldDTO> filters = new ArrayList<FormFlowTableFieldDTO>();
+	    List<String> pkNameList = new ArrayList<String>();
+	    String flussoInterno = "";
+	    boolean extTable = false;
+	    List<Object[]> resultTabgen = null;
+	    String nomeFlusso = formFlowDTO.getName();
+	    boolean sez0and1are1toN = false;
+	    String tipoImportazione = flowViewFilterError.getTipoImportazione();
+	    String codicePresidio = flowViewFilterError.getCodicePresidio();
+	    if (tipoImportazione == null) {
+	        flowViewFilterError.setTipoImportazione("Tutte");
+	        tipoImportazione = "Tutte";
+	    }
+	    if (codicePresidio == null) {
+	        flowViewFilterError.setCodicePresidio("Tutte");
+	        codicePresidio = "Tutte";
+	    }
+	    String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+	    if (codiceAzienda == null) {
+	        flowViewFilterError.setCodiceAzienda("Tutte");
+	        codiceAzienda = "Tutte";
+	    }
+	    int contaSezioni = (formFlowDTO.getFlowTableList() != null) ? formFlowDTO.getFlowTableList().size() : 0;
+
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) pks.add(f.getName());
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    List<String> pk0tmp = new ArrayList<>(pkBySection.getOrDefault(0, Collections.emptyList()));
+	    if (pk0tmp.isEmpty()) {
+	        for (List<String> pks : pkBySection.values()) {
+	            if (pks != null && !pks.isEmpty()) {
+	                pk0tmp = new ArrayList<>(pks);
+	                break;
+	            }
+	        }
+	    }
+	    final List<String> pk0 = Collections.unmodifiableList(pk0tmp);
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+
+	    java.util.function.Function<String, String> rtrimAnd = (s) -> {
+	        if (s != null && s.toUpperCase().endsWith(" AND ")) return s.substring(0, s.length() - 5);
+	        return s;
+	    };
+
+	    java.util.function.Function<String, String> truncIfNeeded =
+	            (qualified) -> "TRUNC(" + qualified + ")";
+	    java.util.function.Function<String, String> dateBetween = (qualified) ->
+	            truncIfNeeded.apply(qualified) + " BETWEEN :datada AND :dataa ";
+
+	    java.util.function.BiFunction<Integer, String, java.util.function.Function<Integer, JoinChain>> buildJoinChainFrom =
+	            (startSection, startAlias) -> (targetSection) -> {
+
+	                if (targetSection == null || targetSection <= startSection) {
+	                    return new JoinChain("", startAlias);
+	                }
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = startAlias;
+
+	                for (int s = startSection + 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + s;
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    for (String pk : pk0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                          .append(" = ")
+	                          .append(curAlias).append(".").append(pk)
+	                          .append(" AND ");
+	                    }
+
+	                    sb = new StringBuilder(rtrimAnd.apply(sb.toString()));
+	                    sb.append(" ");
+
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+	    java.util.function.BiFunction<Integer, Integer, String> aliasForSectionInThisSubquery =
+	            (currentSection, wantedSection) -> {
+	                if (wantedSection == null) return null;
+	                if (wantedSection == currentSection) return "a";
+	                if (currentSection == 0 && wantedSection == 1) return "p";
+	                if (currentSection == 1 && wantedSection == 0) return "p";
+	                if (currentSection >= 2 && wantedSection == 0) return "p";
+	                if (currentSection >= 2 && wantedSection == 1) return "q";
+	                return null;
+	            };
+
+	    if(region!= null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	        String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+	        String tableNameRegErrors = flowViewFilterError.getFlow().getName() + "_REG_" + cfgSuffixRegError;
+	        ConfigurationDO cfgObj = configuration.findByKeyId("flowWithExternalUpdate");
+	        if(cfgObj!=null) {
+	            String cfg = cfgObj.getValue();
+	            String[] cfgSplitted = cfg.split("/");
+	            for (int i = 0; i < cfgSplitted.length; i++) {
+	                String value = cfgSplitted[i];
+	                int iend = value.indexOf("(");
+	                flussoInterno = value.substring(0,iend);
+	                String flussoCopia = value.substring(iend+1,value.length()-1);
+	                if(flussoInterno!=null && !"".equals(flussoInterno) && flussoCopia.equals(formFlowDTO.getName())){
+	                    tableNameRegErrors = flussoInterno + "_REG_" + cfgSuffixRegError;
+	                    extTable = true;
+	                }
+	            }
+	        }
+	        if(extTable) {
+	            nomeFlusso = flussoInterno;
+	        }
+	        List<TabgenField> fields = tabgenDelegate.searchFieldsByTabgenId(tableNameRegErrors.toUpperCase());
+
+	        for(TabgenField field: fields) {
+	            if("CAMPO_CHIAVE".equals(field.getDescription())) {
+	                String valueColumn = field.getTabgenValueColumn();
+	                String queryTabgen = "select * from fm_tabgen_value where tabgen_id = '" + tableNameRegErrors.toUpperCase() + "' and " + valueColumn + " = '1'";
+	                Query queryTab = entityManager.createNativeQuery(queryTabgen);
+	                resultTabgen = queryTab.getResultList();
+	                break;
+	            }
+	        }
+	    }
+
+	    if(formFlowDTO.getFlowTableList().size()>1) {
+	        int countPk = 0;
+	        for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+	            if(formFlowTableDTO.getSection()==0 || formFlowTableDTO.getSection()==1) {
+	                int countPkTable = 0;
+	                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	                    if(field.isPk()) {
+	                        countPkTable++;
+	                    }
+	                }
+	                if(countPk==0) {
+	                    countPk = countPkTable;
+	                }else {
+	                    if(countPk!=countPkTable) {
+	                        sez0and1are1toN = true;
+	                    }
+	                }
+	            }
+	        }
+	    }
+
+	    String filterForQuerySQL = "";
+	    String filterSQL0 = "";
+	    String filterSQL1 = "";
+	    String filterSQL2= "";
+	    String outerSelect = "";
+	    String innerSelect = "SELECT ";
+	    String innerSelect2 = "SELECT ";
+	    String innerOn = "ON ";
+	    String innerOn2 = "ON ";
+	    String innerOn3 = "ON ";
+	    String innerJoin = "JOIN ";
+	    String from = "FROM (";
+	    String innerFrom = "FROM ";
+	    String innerWhere = "WHERE ";
+	    String leftJoin = "LEFT JOIN ";
+	    String outerSelectCount = "COUNT(1) ";
+	    String unionAll = "UNION ALL ";
+	    groupBy = "GROUP BY ";
+	    String sezioneFiltroDataRiferimento = "";
+	    String innerWhereScarti = "";
+
+	    try {
+	        List<String> campi = new ArrayList<String>();
+	        List<String> campiDate = new ArrayList<String>();
+	        List<String> campiDate0 = new ArrayList<String>();
+	        List<String> campiPratica = new ArrayList<String>();
+	        List<String> campiPratica0 = new ArrayList<String>();
+	        List<String> campiPratica1 = new ArrayList<String>();
+	        List<String> campiPraticaDate = new ArrayList<String>();
+	        List<String> campiPraticaDate1 = new ArrayList<String>();
+	        List<String> campiDesc0 = new ArrayList<String>();
+	        List<String> campiDesc1 = new ArrayList<String>();
+	        List<String> campiDescDate0 = new ArrayList<String>();
+	        List<String> campiDescDate1 = new ArrayList<String>();
+	        String campiDescStr = "";
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                if(table.getSection()==0) {
+	                    if (field.getGroups()) {
+	                        if("Date".equals(field.getFieldType())) {
+	                            campiPraticaDate.add("a." + field.getName() + " , ");
+	                            campiDescDate0.add(field.getDescriptionsm());
+	                        }else {
+	                            campiPratica0.add(field.getName());
+	                            campiDesc0.add(field.getDescriptionsm());
+	                        }
+	                    }
+	                }else if(table.getSection()==1) {
+	                    if (field.getGroups()) {
+	                        if("Date".equals(field.getFieldType())) {
+	                            campiPraticaDate1.add("p." + field.getName() + " , ");
+	                            campiDescDate1.add(field.getDescriptionsm());
+	                        }else {
+	                            campiPratica1.add(field.getName());
+	                            campiDesc1.add(field.getDescriptionsm());
+	                        }
+	                    }
+	                }
+	            }
+	        }
+	        for(int j=0; j<campiPratica0.size(); j++) {
+	            campiPratica.add("a." + campiPratica0.get(j) + " , ");
+	            outerSelect += "c0." + campiPratica0.get(j) + " , ";
+	            campiDescStr += campiDesc0.get(j) + " , ";
+	            groupBy += "c0." + campiPratica0.get(j) + " , ";
+	        }
+	        for(int j=0; j<campiPratica1.size(); j++) {
+	            if(!campiPratica0.contains(campiPratica1.get(j))) {
+	                campiPratica.add("p." + campiPratica1.get(j) + " , ");
+	                outerSelect += "c0." + campiPratica1.get(j) + " , ";
+	                campiDescStr += campiDesc1.get(j) + " , ";
+	                groupBy += "c0." + campiPratica1.get(j) + " , ";
+	            }
+	        }
+	        for(int j=0; j<campiPraticaDate.size(); j++) {
+	            String outerData=campiPraticaDate.get(j).substring(2,campiPraticaDate.get(j).length());
+	            outerSelect += "c0." + outerData + " ";
+	            campiDescStr += campiDescDate0.get(j) + " , ";
+	            groupBy += "c0." + outerData + " ";
+	        }
+
+	        for(int j=0; j<campiPraticaDate1.size(); j++) {
+	            String outerData=campiPraticaDate1.get(j).substring(2,campiPraticaDate1.get(j).length());
+	            outerSelect += "c0." + outerData + " ";
+	            campiDescStr += campiDescDate1.get(j) + " , ";
+	            groupBy += "c0." + outerData + " ";
+	        }
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	            String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + " a ";
+	            String tableNative = "FM_FLOW_" + nomeFlusso + "_";
+	            tableMessage = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + "_MESSAGE b ";
+	            String tableScarti = nomeFlusso + "_REG_SCARTI_REGIONE b ";
+
+	            String joinRefChainSql = "";
+	            String refAliasForWhere = null;
+	            if (useDateFromTo && refDate != null) {
+	                Integer refSec = refDate.section();
+	                Integer curSec = table.getSection();
+
+	                refAliasForWhere = aliasForSectionInThisSubquery.apply(curSec, refSec);
+
+	                if (refAliasForWhere == null && refSec != null) {
+	                    int startSec = 0;
+	                    String startAlias = (curSec != null && curSec >= 1) ? "p" : "a";
+
+	                    if (curSec != null && curSec == 0) {
+	                        startSec = 0;
+	                        startAlias = "a";
+	                    }
+
+	                    JoinChain chain = buildJoinChainFrom.apply(startSec, startAlias).apply(refSec);
+	                    joinRefChainSql = chain.joinSql;
+	                    refAliasForWhere = chain.targetAlias;
+	                }
+
+	                if (refAliasForWhere == null && refSec != null && refSec == 0 && curSec != null && curSec == 0) {
+	                    refAliasForWhere = "a";
+	                }
+	            }
+
+	            if(table.getSection()==0) {
+	                for(String campo: campiPratica) {
+	                    innerSelect += campo;
+	                }
+	                innerSelect+="a.import_type , ";
+	                innerSelect+="a.month_rif , ";
+	                innerSelect+="a.year_rif , ";
+	                innerSelect+="b.codiceerrore , ";
+	                innerSelect+="b.descrizioneerrore , ";
+	                for(String campoData: campiPraticaDate1) {
+	                    innerSelect += campoData;
+	                }
+	                for(String campoData: campiPraticaDate) {
+	                    innerSelect += campoData;
+	                }
+	            }
+
+	            innerOn = "ON ";
+	            if(region!= null && !"PRATICHE_WARNING".equals(region) && table.getSection() == 0) {
+	                for (String pk : pk0) {
+	                	innerOn += buildNullableJoinCondition("a", "reg", pk);
+	                }
+	            } else {
+	                for (String pk : pk0) {
+	                	innerOn += buildNullableJoinCondition("a", "b", pk);
+	                }
+	            }
+	            
+	            innerOn2 = "ON ";
+	            for (String pk : pk0) {
+	            	innerOn2 += buildNullableJoinCondition("a", "p", pk);
+	            }
+	            
+	            innerOn3 = "ON ";
+	            for (String pk : pk0) {
+	            	innerOn3 += buildNullableJoinCondition("a", "q", pk);
+	            }
+	            
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                if (table.getSection() == 0) {
+	                    if (field.getGroups()) {
+	                        if("Date".equals(field.getFieldType())) {
+	                            campiDate0.add(field.getName());
+	                        }else {
+	                            campi.add(field.getName());
+	                        }
+	                    }
+	                    if( field.isPk()) {
+	                        pkNameList.add(field.getName());
+	                        filters.add(field);
+	                        if(flowViewFilterError.getFilters() != null && flowViewFilterError.getFilters().get(field.getName()) != null
+	                                && flowViewFilterError.getFilters().get(field.getName()) != "") {
+	                            filterForQuerySQL += " and a." + field.getName() + "=" + "'"
+	                                    + flowViewFilterError.getFilters().get(field.getName()) + "'";
+	                        }
+	                    }
+	                    if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                        for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                            if (filter.get("selected") != null && !filter.get("selected").isEmpty()
+	                                    && field.getName().toLowerCase().equals(filter.get("campo").toLowerCase())) {
+
+	                                filterForQuerySQL += " and a." + field.getName() + "=" + "'"
+	                                            + filter.get("selected") + "'";
+	                            }
+	                        }
+	                    }
+	                }
+	                if (table.getSection() == 1) {
+	                    if (field.getGroups()) {
+	                        if (campi.contains(field.getName())) {
+	                            innerSelect2 += "q." + field.getName() + " , ";
+	                            campi.remove(field.getName());
+	                        } else {
+	                            if("Date".equals(field.getFieldType())) {
+	                                campiDate.add(field.getName());
+	                            }else {
+	                                innerSelect += "a." + field.getName() + " , ";
+	                                innerSelect2 += "q." + field.getName() + " , ";
+	                            }
+	                        }
+	                    }
+	                }
+	                if (field.getGroups() && field.isPk() && table.getSection() == 1) {
+	                    innerSelect += "a." + field.getName() + " , ";
+	                }
+	                if (field.isReferenceDate() && !field.isPk()) {
+	                    filters.add(field);
+	                    if (flowViewFilterError.getFilters() != null && flowViewFilterError.getFilters().get(field.getName()) != null
+	                        && flowViewFilterError.getFilters().get(field.getName()) != "") {
+
+	                        SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
+	                        String data = dateFormat.format(flowViewFilterError.getFilters().get(field.getName()));
+	                        whereSQL += " and " + tableName + "." + field.getName() + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and "
+	                        + tableName + "." + field.getName() + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+
+	                        if(table.getSection() == 0) {
+	                            sezioneFiltroDataRiferimento = "0";
+	                            filterSQL0 += " and a." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and a." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL1 = " and p." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and p." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL2 = filterSQL1;
+
+	                        }else if(table.getSection() == 1) {
+	                            sezioneFiltroDataRiferimento = "1";
+	                            filterSQL0 += " and p." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and p." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL1 = " and a." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and a." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL2 = " and q." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and q." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                        }
+	                    }
+	                }
+	            }
+
+	            innerOn = trimTrailingAnd(innerOn);
+	            innerOn2 = trimTrailingAnd(innerOn2);
+	            innerOn3 = trimTrailingAnd(innerOn3);
+	            
+	            if (region == null || "PRATICHE_WARNING".equals(region)) {
+	                innerJoin += tableMessage;
+	            } else {
+	                innerJoin += tableNative + "REG_0 reg ";
+	            }
+
+	            if(table.getSection() == 0) {
+	                if(region!=null && !"PRATICHE_WARNING".equals(region)) {
+	                    innerOnScarti = "ON ";
+	                    innerWhereScarti = "and ";
+	                    for(int i=0; i<resultTabgen.size(); i++) {
+	                    	String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+	                        innerOnScarti += buildNullableJoinCondition("reg", "b", fieldName);
+	                        innerWhereScarti += buildNullableJoinCondition("c2", "reg", fieldName);
+	                    }
+	                    if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                        innerOnScarti += "reg.extraction_id = b.extraction_id and ";
+	                    }
+	                    innerOnScarti = trimTrailingAnd(innerOnScarti);
+	                    innerWhereScarti = trimTrailingAnd(innerWhereScarti);
+	                    if(!sez0and1are1toN) {
+	                        if (contaSezioni>1) {
+	                            innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableScarti + innerOnScarti +  "JOIN " + tableNative + "1 p " + innerOn2 +
+	                                    "JOIN FM_FLOW_EXPORTING_REQUEST e on reg.extraction_id = e.id ";
+	                        } else {
+	                            innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableScarti + innerOnScarti +
+	                                    "JOIN FM_FLOW_EXPORTING_REQUEST e on reg.extraction_id = e.id ";
+	                        }
+	                    }else {
+	                        innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableScarti + innerOnScarti +
+	                                "JOIN FM_FLOW_EXPORTING_REQUEST e on reg.extraction_id = e.id ";
+	                    }
+	                }else {
+	                    if (contaSezioni>1) {
+	                        innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "1 p " + innerOn2;
+	                    } else {
+	                        innerFrom += tableName + innerJoin + innerOn;
+	                    }
+	                }
+
+	                if (useDateFromTo && refDate != null && joinRefChainSql != null && !joinRefChainSql.isEmpty()) {
+	                    innerFrom += joinRefChainSql;
+	                }
+
+	            }else if(table.getSection() == 1) {
+	                if (campi.size() > 0) {
+	                    for(int i=0; i<campi.size(); i++) {
+	                        innerSelect += "p." + campi.get(i) + " , ";
+	                        innerSelect2 += "p." + campi.get(i) + " , ";
+	                    }
+	                }
+	                innerSelect+="a.import_type , ";
+	                innerSelect2+="a.import_type , ";
+	                if(campiDate.size()>0) {
+	                    for(int i=0; i<campiDate.size(); i++) {
+	                        innerSelect += "a." + campiDate.get(i) + " , ";
+	                        innerSelect2 += "q." + campiDate.get(i) + " , ";
+	                    }
+	                    campiDate.clear();
+	                }
+	                if(campiDate0.size()>0) {
+	                    for(int i=0; i<campiDate0.size(); i++) {
+	                        innerSelect += "p." + campiDate0.get(i) + " , ";
+	                        innerSelect2 += "p." + campiDate0.get(i) + " , ";
+	                    }
+	                    campiDate0.clear();
+	                }
+	                if(region!=null && !"PRATICHE_WARNING".equals(region)) {
+	                    innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableScarti + innerOnScarti + "JOIN " + tableNative + "1 p " + innerOn2;
+	                }else {
+	                    innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "0 p " + innerOn2;
+	                }
+
+	                if (useDateFromTo && refDate != null && joinRefChainSql != null && !joinRefChainSql.isEmpty()) {
+	                    innerFrom += joinRefChainSql;
+	                }
+
+	            }else {
+	                innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "0 p " + innerOn2
+	                        + "JOIN " + tableNative + "1 q " + innerOn3;
+
+	                if (useDateFromTo && refDate != null && joinRefChainSql != null && !joinRefChainSql.isEmpty()) {
+	                    innerFrom += joinRefChainSql;
+	                }
+	            }
+
+	            if (innerSelect.endsWith(" , ")) {
+	                innerSelect = innerSelect.substring(0, innerSelect.length() - 2);
+	            }
+	            if (innerSelect2.endsWith(" , ")) {
+	                innerSelect2 = innerSelect2.substring(0, innerSelect2.length() - 2);
+	            }
+
+	            if(region != null && !"PRATICHE_WARNING".equals(region)) {
+	                if (useDateFromTo && refDate != null && refAliasForWhere != null) {
+
+	                    innerWhere += dateBetween.apply(refAliasForWhere + "." + refDate.fieldName());
+
+	                    if (!aziende.isEmpty()) {
+	                        innerWhere += " AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                    }
+
+	                } else {
+	                    if (!aziende.isEmpty()) {
+	                        innerWhere += "a.MONTH_RIF "+ getWhereConditionMonthRif(flowViewFilterError) +" AND a.YEAR_RIF = :anni AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                    } else {
+	                        innerWhere += "a.MONTH_RIF "+ getWhereConditionMonthRif(flowViewFilterError) +" AND a.YEAR_RIF = :anni ";
+	                    }
+	                }
+
+	                if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                    innerWhere += " and a.IMPORT_TYPE = :tipoimportazione ";
+	                }
+	                if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                    innerWhere += " and a.CODICEPRESIDIO = :codicepresidio ";
+	                }
+	                if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                    innerWhere += " and a.CODICEAZIENDA = :codiceazienda ";
+	                }
+
+	                if("PRATICHE_SEGNALAZIONI_REG".equals(region) || "PRATICHE_SEGNALAZIONI_REG_AGG".equals(region)) {
+	                    innerWhere += "AND B.SEVERITY = 'SEGNALAZIONE' ";
+	                    if (flowViewFilterError.getExtractionIdFromGrid() == null) {
+	                        innerWhere += " and e.end_extraction_date = (SELECT MAX(e2.end_extraction_date) FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, fm_flow_exporting_request e2 "
+	                                + " WHERE e2.end_extraction_date IS NOT NULL AND c2.extraction_id = e2.id " +
+	                                innerWhereScarti +" )";
+	                        innerWhere += " and b.RECEIVING_DATE = (SELECT "
+	                                + "MAX(b.RECEIVING_DATE) FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, "+tableScarti+
+	                                "  WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id " +
+	                                innerWhereScarti +" )";
+	                    }
+	                    if("PRATICHE_SEGNALAZIONI_REG_AGG".equals(region)) {
+	                        innerWhere+= " AND a.STATUS_REGION = 'SEGNALAZIONE'";
+	                    }
+	                }else {
+	                    innerWhere += "AND B.SEVERITY = 'SCARTO' ";
+	                    if (flowViewFilterError.getExtractionIdFromGrid() == null) {
+	                        innerWhere += " and e.end_extraction_date = (SELECT MAX(e2.end_extraction_date) FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, fm_flow_exporting_request e2" +
+	                                "  WHERE e2.end_extraction_date IS NOT NULL AND c2.extraction_id = e2.id " +
+	                                innerWhereScarti +" )";
+	                        innerWhere += " and b.RECEIVING_DATE = (SELECT "
+	                                + "MAX(b.RECEIVING_DATE) FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, "+tableScarti+
+	                                "  WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id " +
+	                                innerWhereScarti +" )";
+	                    }
+	                    if("PRATICHE_ERRATE_REG_AGG".equals(region)) {
+	                        innerWhere+= " AND a.STATUS_REGION = 'SCARTO'";
+	                    }
+	                }
+	            }else {
+	                if (useDateFromTo && refDate != null && refAliasForWhere != null) {
+
+	                    innerWhere += dateBetween.apply(refAliasForWhere + "." + refDate.fieldName());
+
+	                    if (!aziende.isEmpty()) {
+	                        innerWhere += " AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                    }
+
+	                } else {
+	                    if (!aziende.isEmpty()) {
+	                        innerWhere += "a.MONTH_RIF "+ getWhereConditionMonthRif(flowViewFilterError) +" AND a.YEAR_RIF = :anni AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                    } else {
+	                        innerWhere += "a.MONTH_RIF "+ getWhereConditionMonthRif(flowViewFilterError) +" AND a.YEAR_RIF = :anni ";
+	                    }
+	                }
+
+	                if("PRATICHE_WARNING".equals(region)) {
+	                    innerWhere += "AND B.SEVERITY = 'WARNING' ";
+	                }else {
+	                    innerWhere += "AND B.SEVERITY = 'ERROR' ";
+	                }
+	                if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                    innerWhere += " and a.IMPORT_TYPE = :tipoimportazione ";
+	                }
+	                if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                    innerWhere += " and a.CODICEPRESIDIO = :codicepresidio ";
+	                }
+	                if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                    innerWhere += " and a.CODICEAZIENDA = :codiceazienda ";
+	                }
+	            }
+
+	            if (table.getSection() == 0) {
+	                filterForQuerySQL = trimTrailingAnd(filterForQuerySQL);
+	                innerWhere += " filtri ";
+	            }
+	            if (table.getSection() != 0 && flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                    if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                        filterForQuerySQL = filterForQuerySQL.replace("a."+filter.get("campo").toLowerCase(), "p."+filter.get("campo").toLowerCase());
+	                    }
+	                }
+	                innerWhere += filterForQuerySQL;
+	            } else {
+	                innerWhere += filterForQuerySQL;
+	            }
+
+	            if(table.getSection()<2) {
+	                if(table.getSection() == 0) {
+	                    innerWhere += filterSQL0;
+	                }else {
+	                    innerWhere += filterSQL1;
+	                }
+	                innerSelect = innerSelect.substring(7);
+	                String[] nuoviCampi = innerSelect.split(",");
+	                List<String> campiNew = new ArrayList<String>();
+	                for (int i = 0; i < nuoviCampi.length; i++) {
+	                    campiNew.add(nuoviCampi[i]);
+	                }
+
+	                Collections.sort(campiNew, new Comparator<String>() {
+	                    @Override
+	                    public int compare(String o1, String o2) {
+	                        return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	                    }
+	                });
+
+	                innerSelect = "SELECT ";
+	                campiNew = campiNew.stream().map(String :: trim).distinct().collect(Collectors.toList());
+	                for(String campo: campiNew) {
+	                    innerSelect += campo + " , ";
+	                }
+	                innerSelect = innerSelect.substring(0, innerSelect.length() - 2);
+	                querySQL += innerSelect + innerFrom + innerWhere + unionAll;
+	            }
+	            else {
+	                innerSelect2 = innerSelect2.substring(7);
+	                String[] nuoviCampi = innerSelect2.split(",");
+	                List<String> campiNew = new ArrayList<String>();
+	                for (int i = 0; i < nuoviCampi.length; i++) {
+	                    campiNew.add(nuoviCampi[i]);
+	                }
+
+	                Collections.sort(campiNew, new Comparator<String>() {
+	                    @Override
+	                    public int compare(String o1, String o2) {
+	                        return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	                    }
+	                });
+
+	                innerSelect2 = "SELECT ";
+	                campiNew = campiNew.stream().map(String :: trim).distinct().collect(Collectors.toList());
+	                for(String campo: campiNew) {
+	                    innerSelect2 += campo + " , ";
+	                }
+	                innerWhere += filterSQL2;
+	                innerSelect2 = innerSelect2.substring(0, innerSelect2.length() - 2);
+	                querySQL += innerSelect2 + innerFrom + innerWhere + unionAll;
+	            }
+	            
+	            innerWhere = trimTrailingAnd(innerWhere);
+	            
+	            innerFrom = "FROM ";
+	            innerJoin = "JOIN ";
+	            innerSelect = "SELECT ";
+	            innerOn2 = "ON ";
+	            innerOn3 = "ON ";
+	            innerWhere = "WHERE ";
+	            if(region == null || "PRATICHE_WARNING".equals(region)) {
+	                innerOn = "ON ";
+	            }else {
+	                if(table.getSection() == 0) {
+	                    break;
+	                }
+	            }
+	        }
+
+	        if(sezioneFiltroDataRiferimento == "" || sezioneFiltroDataRiferimento == "0") {
+	            querySQL = querySQL.replaceAll("filtri", "");
+	        }
+	        else if(sezioneFiltroDataRiferimento == "1") {
+	            querySQL = querySQL.replaceAll("filtri", filterSQL0);
+	        }
+
+	        outerSelect = outerSelect.substring(0, outerSelect.length() - 2);
+	        campiDescStr = campiDescStr.substring(0, campiDescStr.length() - 2);
+
+	        String[] nuoviCampi = outerSelect.split(",");
+	        String[] nuoveDesc = campiDescStr.split(",");
+	        List<String> campiNew = new ArrayList<String>();
+	        List<String> descrNew = new ArrayList<String>();
+	        for (int i = 0; i < nuoviCampi.length; i++) {
+	            campiNew.add(nuoviCampi[i]);
+	            descrNew.add(nuoveDesc[i]);
+	        }
+
+	        outerSelect = "";
+	        campiNew = campiNew.stream().map(String :: trim).distinct().collect(Collectors.toList());
+	        for(String campo: campiNew) {
+	            outerSelect += campo + " , ";
+	        }
+	        outerSelect = outerSelect.substring(0, outerSelect.length() - 2);
+
+	        String outerSelectFinal = ",c0.import_type,c0.month_rif,c0.year_rif,c0.codiceerrore,c0.descrizioneerrore ";
+
+	        String[] selectFieldsApp = outerSelect.split(",");
+	        selectFields.clear();
+	        selectDescriptions.clear();
+	        int position = 0;
+
+	        for(int i=0; i<selectFieldsApp.length; i++) {
+	            String fieldCopy = selectFieldsApp[i].substring(0,selectFieldsApp[i].length()-1);
+	            String[] fieldPoint = fieldCopy.split("\\.");
+	            selectFields.put(position, fieldPoint[1].replaceAll("\\s+",""));
+	            if(descrNew.get(i).startsWith(" ")) {
+	                String sub = descrNew.get(i).substring(1, descrNew.get(i).length());
+	                descrNew.set(i,sub);
+	            }
+	            if(descrNew.get(i).endsWith(" ")) {
+	                String sub = descrNew.get(i).substring(0, descrNew.get(i).length()-1);
+	                descrNew.set(i,sub);
+	            }
+	            selectDescriptions.put(position,descrNew.get(i));
+	            position++;
+	        }
+
+	        outerSelect = "SELECT  " + outerSelect + outerSelectFinal;
+	        querySQL = querySQL.substring(0, querySQL.length() - unionAll.length());
+	        querySQL = outerSelect + from + querySQL;
+	        querySQL += ") c0 ";
+
+	    } catch (Exception e) {
+	        LogUtil.logException(logger, "", e);
+	    }
+
+	    List<Object> result = new ArrayList<Object>();
+	    result.add(querySQL);
+	    result.add(selectFields);
+	    result.add(selectDescriptions);
+	    result.add(filters);
+	    result.add(pkNameList);
+	    result.add(false);
+
+	    return result;
+	}
+	
+	@Override
+	public List<Object> createQueryErrorXLS(FlowViewFilterError flowViewFilterError, List<String> aziende) {
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+	    String selectSQL = "SELECT ";
+	    String whereSQL = " WHERE ";
+	    String campiSelect = "";
+	    String tableMessage = "FM_ERROR_MESSAGE ";
+	    String querySQL = "";
+	    String groupBy = "GROUP BY ";
+	    String region = flowViewFilterError.getRegion();
+	    HashMap<Integer,String> selectFields = new HashMap<Integer,String>();
+	    HashMap<Integer,String> selectDescriptions = new HashMap<Integer,String>();
+	    List<FormFlowTableFieldDTO> filters = new ArrayList<FormFlowTableFieldDTO>();
+	    List<String> pkNameList = new ArrayList<String>();
+
+	    String nomeFlusso = formFlowDTO.getName();
+	    boolean sez0and1are1toN = false;
+	    String tipoImportazione = flowViewFilterError.getTipoImportazione();
+	    String codicePresidio = flowViewFilterError.getCodicePresidio();
+	    if (tipoImportazione == null) {
+	        flowViewFilterError.setTipoImportazione("Tutte");
+	        tipoImportazione = "Tutte";
+	    }
+	    if (codicePresidio == null) {
+	        flowViewFilterError.setCodicePresidio("Tutte");
+	        codicePresidio = "Tutte";
+	    }
+	    String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+	    if (codiceAzienda == null) {
+	        flowViewFilterError.setCodiceAzienda("Tutte");
+	        codiceAzienda = "Tutte";
+	    }
+	    int contaSezioni = (formFlowDTO.getFlowTableList() != null) ? formFlowDTO.getFlowTableList().size() : 0;
+
+	    if(formFlowDTO.getFlowTableList().size()>1) {
+	        int countPk = 0;
+	        for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+	            if(formFlowTableDTO.getSection()==0 || formFlowTableDTO.getSection()==1) {
+	                int countPkTable = 0;
+	                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	                    if(field.isPk()) {
+	                        countPkTable++;
+	                    }
+	                }
+	                if(countPk==0) {
+	                    countPk = countPkTable;
+	                }else {
+	                    if(countPk!=countPkTable) {
+	                        sez0and1are1toN = true;
+	                    }
+	                }
+	            }
+	        }
+	    }
+
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) pks.add(f.getName());
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    List<String> pk0tmp = new ArrayList<>(pkBySection.getOrDefault(0, Collections.emptyList()));
+	    if (pk0tmp.isEmpty()) {
+	        for (List<String> pks : pkBySection.values()) {
+	            if (pks != null && !pks.isEmpty()) {
+	                pk0tmp = new ArrayList<>(pks);
+	                break;
+	            }
+	        }
+	    }
+	    final List<String> pk0 = Collections.unmodifiableList(pk0tmp);
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+	    
+	    java.util.function.Function<String, String> rtrimAnd = (s) -> {
+	        if (s != null && s.toUpperCase().endsWith(" AND ")) return s.substring(0, s.length() - 5);
+	        return s;
+	    };
+	    
+	    java.util.function.Function<String, String> truncIfNeeded =
+	            (qualified) -> "TRUNC(" + qualified + ")";
+	    java.util.function.Function<String, String> dateBetween = (qualified) ->
+	            truncIfNeeded.apply(qualified) + " BETWEEN :datada AND :dataa ";
+
+	    java.util.function.BiFunction<Integer, String, java.util.function.Function<Integer, JoinChain>> buildJoinChainFrom =
+	            (startSection, startAlias) -> (targetSection) -> {
+
+	                if (targetSection == null || targetSection <= startSection) {
+	                    return new JoinChain("", startAlias);
+	                }
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = startAlias;
+
+	                for (int s = startSection + 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + s;
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    for (String pk : pk0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                          .append(" = ")
+	                          .append(curAlias).append(".").append(pk)
+	                          .append(" AND ");
+	                    }
+
+	                    sb = new StringBuilder(rtrimAnd.apply(sb.toString()));
+	                    sb.append(" ");
+
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+	    java.util.function.BiFunction<Integer, Integer, String> aliasForSectionInThisSubquery =
+	            (currentSection, wantedSection) -> {
+	                if (wantedSection == null) return null;
+	                if (wantedSection == currentSection) return "a";
+	                if (currentSection == 0 && wantedSection == 1) return "p";
+	                if (currentSection == 1 && wantedSection == 0) return "p";
+	                if (currentSection >= 2 && wantedSection == 0) return "p";
+	                if (currentSection >= 2 && wantedSection == 1) return "q";
+	                return null;
+	            };
+
+	    selectSQL = "SELECT ";
+	    String filterForQuerySQL = "";
+	    String filterSQL0 = "";
+	    String filterSQL1 = "";
+	    String filterSQL2= "";
+	    String outerSelect = "";
+	    String innerSelect = "SELECT ";
+	    String innerSelect2 = "SELECT ";
+	    String innerOn = "ON ";
+	    String innerOn2 = "ON ";
+	    String innerOn3 = "ON ";
+	    String innerJoin = "JOIN ";
+	    String from = "FROM (";
+	    String innerFrom = "FROM ";
+	    String innerWhere = "WHERE ";
+	    String leftJoin = "LEFT JOIN ";
+	    String outerSelectCount = "COUNT(1) ";
+	    String unionAll = "UNION ALL ";
+	    groupBy = "GROUP BY ";
+	    String sezioneFiltroDataRiferimento = "";
+
+	    try {
+	        List<String> campi = new ArrayList<String>();
+	        List<String> campiDate = new ArrayList<String>();
+	        List<String> campiDate0 = new ArrayList<String>();
+	        List<String> campiPratica = new ArrayList<String>();
+	        List<String> campiPratica0 = new ArrayList<String>();
+	        List<String> campiPratica1 = new ArrayList<String>();
+	        List<String> campiPraticaDate = new ArrayList<String>();
+	        List<String> campiPraticaDate1 = new ArrayList<String>();
+	        List<String> campiDesc0 = new ArrayList<String>();
+	        List<String> campiDesc1 = new ArrayList<String>();
+	        List<String> campiDescDate0 = new ArrayList<String>();
+	        List<String> campiDescDate1 = new ArrayList<String>();
+	        String campiDescStr = "";
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                if(table.getSection()==0) {
+	                    if (field.getGroups()) {
+	                        if("Date".equals(field.getFieldType())) {
+	                            campiPraticaDate.add("a." + field.getName() + " , ");
+	                            campiDescDate0.add(field.getDescriptionsm());
+	                        }else {
+	                            campiPratica0.add(field.getName());
+	                            campiDesc0.add(field.getDescriptionsm());
+	                        }
+	                    }
+	                }else if(table.getSection()==1) {
+	                    if (field.getGroups()) {
+	                        if("Date".equals(field.getFieldType())) {
+	                            campiPraticaDate1.add("p." + field.getName() + " , ");
+	                            campiDescDate1.add(field.getDescriptionsm());
+	                        }else {
+	                            campiPratica1.add(field.getName());
+	                            campiDesc1.add(field.getDescriptionsm());
+	                        }
+	                    }
+	                }
+	            }
+	        }
+	        for(int j=0; j<campiPratica0.size(); j++) {
+	            campiPratica.add("a." + campiPratica0.get(j) + " , ");
+	            outerSelect += "c0." + campiPratica0.get(j) + " , ";
+	            campiDescStr += campiDesc0.get(j) + " , ";
+	            groupBy += "c0." + campiPratica0.get(j) + " , ";
+	        }
+	        for(int j=0; j<campiPratica1.size(); j++) {
+	            if(!campiPratica0.contains(campiPratica1.get(j))) {
+	                campiPratica.add("p." + campiPratica1.get(j) + " , ");
+	                outerSelect += "c0." + campiPratica1.get(j) + " , ";
+	                campiDescStr += campiDesc1.get(j) + " , ";
+	                groupBy += "c0." + campiPratica1.get(j) + " , ";
+	            }
+	        }
+	        for(int j=0; j<campiPraticaDate.size(); j++) {
+	            String outerData=campiPraticaDate.get(j).substring(2,campiPraticaDate.get(j).length());
+	            outerSelect += "c0." + outerData + " ";
+	            campiDescStr += campiDescDate0.get(j) + " , ";
+	            groupBy += "c0." + outerData + " ";
+	        }
+
+	        for(int j=0; j<campiPraticaDate1.size(); j++) {
+	            String outerData=campiPraticaDate1.get(j).substring(2,campiPraticaDate1.get(j).length());
+	            outerSelect += "c0." + outerData + " ";
+	            campiDescStr += campiDescDate1.get(j) + " , ";
+	            groupBy += "c0." + outerData + " ";
+	        }
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	            String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + " a ";
+	            String tableNative = "FM_FLOW_" + nomeFlusso + "_";
+	            tableMessage = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + "_MESSAGE b ";
+
+	            String joinRefChainSql = "";
+	            String refAliasForWhere = null;
+	            if (useDateFromTo && refDate != null) {
+	                Integer refSec = refDate.section();
+	                Integer curSec = table.getSection();
+
+	                refAliasForWhere = aliasForSectionInThisSubquery.apply(curSec, refSec);
+
+	                if (refAliasForWhere == null && refSec != null) {
+	                    int startSec = 0;
+	                    String startAlias = (curSec != null && curSec >= 1) ? "p" : "a";
+	                    if (curSec != null && curSec == 0) {
+	                        startSec = 0;
+	                        startAlias = "a";
+	                    }
+
+	                    JoinChain chain = buildJoinChainFrom.apply(startSec, startAlias).apply(refSec);
+	                    joinRefChainSql = chain.joinSql;
+	                    refAliasForWhere = chain.targetAlias;
+	                }
+
+	                if (refAliasForWhere == null && refSec != null && refSec == 0 && curSec != null && curSec == 0) {
+	                    refAliasForWhere = "a";
+	                }
+	            }
+
+	            if(table.getSection()==0) {
+	                for(String campo: campiPratica) {
+	                    innerSelect += campo;
+	                }
+	                for(String campoData: campiPraticaDate1) {
+	                    innerSelect += campoData;
+	                }
+	                for(String campoData: campiPraticaDate) {
+	                    innerSelect += campoData;
+	                }
+	                innerSelect+="a.import_type , ";
+	                innerSelect+="a.month_rif , ";
+	                innerSelect+="a.year_rif , ";
+	                innerSelect+="b.message , ";
+	                innerSelect+="b.severity , ";
+	            }
+
+	            innerOn = "ON ";
+	            if(region!= null && !"PRATICHE_WARNING".equals(region) && table.getSection() == 0) {
+	                for (String pk : pk0) {
+	                	innerOn += buildNullableJoinCondition("a", "reg", pk);
+	                }
+	            } else {
+	                for (String pk : pk0) {
+	                	innerOn += buildNullableJoinCondition("a", "b", pk);
+	                }
+	            }
+
+	            innerOn2 = "ON ";
+	            for (String pk : pk0) {
+	            	innerOn2 += buildNullableJoinCondition("a", "p", pk);
+	            }
+
+	            innerOn3 = "ON ";
+	            for (String pk : pk0) {
+	            	innerOn3 += buildNullableJoinCondition("a", "q", pk);
+	            }
+
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                if (table.getSection() == 0) {
+	                    if (field.getGroups()) {
+	                        if("Date".equals(field.getFieldType())) {
+	                            campiDate0.add(field.getName());
+	                        }else {
+	                            campi.add(field.getName());
+	                        }
+	                    }
+	                    if( field.isPk()) {
+	                        pkNameList.add(field.getName());
+	                        filters.add(field);
+	                        if(flowViewFilterError.getFilters() != null && flowViewFilterError.getFilters().get(field.getName()) != null
+	                                && flowViewFilterError.getFilters().get(field.getName()) != "") {
+	                            filterForQuerySQL += " and a." + field.getName() + "=" + "'"
+	                                    + flowViewFilterError.getFilters().get(field.getName()) + "'";
+	                        }
+	                    }
+	                    if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                        for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                            if (filter.get("selected") != null && !filter.get("selected").isEmpty()
+	                                    && field.getName().toLowerCase().equals(filter.get("campo").toLowerCase())) {
+
+	                                filterForQuerySQL += " and a." + field.getName() + "=" + "'"
+	                                            + filter.get("selected") + "'";
+	                            }
+	                        }
+	                    }
+	                }
+	                if (table.getSection() == 1) {
+	                    if (field.getGroups()) {
+	                        if (campi.contains(field.getName())) {
+	                            innerSelect2 += "q." + field.getName() + " , ";
+	                            campi.remove(field.getName());
+	                        } else {
+	                            if("Date".equals(field.getFieldType())) {
+	                                campiDate.add(field.getName());
+	                            }else {
+	                                innerSelect += "a." + field.getName() + " , ";
+	                                innerSelect2 += "q." + field.getName() + " , ";
+	                            }
+	                        }
+	                    }
+	                }
+	                if (field.getGroups() && field.isPk() && table.getSection() == 1) {
+	                    innerSelect += "a." + field.getName() + " , ";
+	                }
+	                if (field.isReferenceDate() && !field.isPk()) {
+	                    filters.add(field);
+	                    if (flowViewFilterError.getFilters() != null && flowViewFilterError.getFilters().get(field.getName()) != null
+	                        && flowViewFilterError.getFilters().get(field.getName()) != "") {
+
+	                        SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
+	                        String data = dateFormat.format(flowViewFilterError.getFilters().get(field.getName()));
+	                        whereSQL += " and " + tableName + "." + field.getName() + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and "
+	                        + tableName + "." + field.getName() + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+
+	                        if(table.getSection() == 0) {
+	                            sezioneFiltroDataRiferimento = "0";
+	                            filterSQL0 += " and a." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and a." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL1 = " and p." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and p." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL2 = filterSQL1;
+
+	                        }else if(table.getSection() == 1) {
+	                            sezioneFiltroDataRiferimento = "1";
+	                            filterSQL0 += " and p." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and p." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL1 = " and a." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and a." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL2 = " and q." + field.getName() + " >= to_date('" + data +
+	                                    " 00:00:00','dd-mm-yyyy HH24:MI:SS') and q." + field.getName() +
+	                                    " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                        }
+	                    }
+	                }
+	            }
+	            
+	            innerOn = trimTrailingAnd(innerOn);
+	            innerOn2 = trimTrailingAnd(innerOn2);
+	            innerOn3 = trimTrailingAnd(innerOn3);
+	            
+	            innerJoin += tableMessage;
+	            
+	            if(table.getSection() == 0) {
+	                if (contaSezioni>1) {
+	                    innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "1 p " + innerOn2;
+	                } else {
+	                    innerFrom += tableName + innerJoin + innerOn;
+	                }
+
+	                if (useDateFromTo && refDate != null && joinRefChainSql != null && !joinRefChainSql.isEmpty()) {
+	                    innerFrom += joinRefChainSql;
+	                }
+
+	            }else if(table.getSection() == 1) {
+
+	                if (campi.size() > 0) {
+	                    for(int i=0; i<campi.size(); i++) {
+	                        innerSelect += "p." + campi.get(i) + " , ";
+	                        innerSelect2 += "p." + campi.get(i) + " , ";
+	                    }
+	                }
+	                innerSelect+="a.import_type , ";
+	                innerSelect2+="a.import_type , ";
+	                innerSelect+="a.month_rif , ";
+	                innerSelect2+="a.month_rif , ";
+	                innerSelect+="a.year_rif , ";
+	                innerSelect2+="a.year_rif , ";
+	                innerSelect+="b.message , ";
+	                innerSelect2+="b.message , ";
+	                innerSelect+="b.severity , ";
+	                innerSelect2+="b.severity , ";
+
+	                if(campiDate.size()>0) {
+	                    for(int i=0; i<campiDate.size(); i++) {
+	                        innerSelect += "a." + campiDate.get(i) + " , ";
+	                        innerSelect2 += "q." + campiDate.get(i) + " , ";
+	                    }
+	                    campiDate.clear();
+	                }
+	                if(campiDate0.size()>0) {
+	                    for(int i=0; i<campiDate0.size(); i++) {
+	                        innerSelect += "p." + campiDate0.get(i) + " , ";
+	                        innerSelect2 += "p." + campiDate0.get(i) + " , ";
+	                    }
+	                    campiDate0.clear();
+	                }
+	                innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "0 p " + innerOn2;
+
+	                if (useDateFromTo && refDate != null && joinRefChainSql != null && !joinRefChainSql.isEmpty()) {
+	                    innerFrom += joinRefChainSql;
+	                }
+
+	            }else {
+
+	                innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "0 p " + innerOn2
+	                        + "JOIN " + tableNative + "1 q " + innerOn3;
+
+	                if (useDateFromTo && refDate != null && joinRefChainSql != null && !joinRefChainSql.isEmpty()) {
+	                    innerFrom += joinRefChainSql;
+	                }
+	            }
+
+	            if (innerSelect.endsWith(" , ")) innerSelect = innerSelect.substring(0, innerSelect.length() - 2);
+	            if (innerSelect2.endsWith(" , ")) innerSelect2 = innerSelect2.substring(0, innerSelect2.length() - 2);
+
+	            if (useDateFromTo && refDate != null && refAliasForWhere != null) {
+	                innerWhere += dateBetween.apply(refAliasForWhere + "." + refDate.fieldName());
+	                if (!aziende.isEmpty()) {
+	                    innerWhere += " AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                }
+	            } else {
+	                if (!aziende.isEmpty()) {
+	                    innerWhere += "a.MONTH_RIF "+ getWhereConditionMonthRif(flowViewFilterError) +" AND a.YEAR_RIF = :anni AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                } else {
+	                    innerWhere += "a.MONTH_RIF "+ getWhereConditionMonthRif(flowViewFilterError) +" AND a.YEAR_RIF = :anni ";
+	                }
+	            }
+
+	            if("PRATICHE_WARNING".equals(region)) {
+	                innerWhere += "AND B.SEVERITY = 'WARNING' ";
+	            }else {
+	                innerWhere += "AND B.SEVERITY = 'ERROR' ";
+	            }
+
+	            if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                innerWhere += " and a.IMPORT_TYPE = :tipoimportazione ";
+	            }
+	            if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                innerWhere += " and a.CODICEPRESIDIO = :codicepresidio ";
+	            }
+	            if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                innerWhere += " and a.CODICEAZIENDA = :codiceazienda ";
+	            }
+
+	            if (table.getSection() == 0) {
+	            	filterForQuerySQL = trimTrailingAnd(filterForQuerySQL);
+	                innerWhere += " filtri ";
+	            }
+	            if (table.getSection() != 0 && flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                    if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                        filterForQuerySQL = filterForQuerySQL.replace("a."+filter.get("campo").toLowerCase(), "p."+filter.get("campo").toLowerCase());
+	                    }
+	                }
+	                innerWhere += filterForQuerySQL;
+	            } else {
+	                innerWhere += filterForQuerySQL;
+	            }
+
+	            if(table.getSection()<2) {
+	                if(table.getSection() == 0) {
+	                    innerWhere += filterSQL0;
+	                }else {
+	                    innerWhere += filterSQL1;
+	                }
+	                innerSelect = innerSelect.substring(7);
+	                String[] nuoviCampi = innerSelect.split(",");
+	                List<String> campiNew = new ArrayList<String>();
+	                for (int i = 0; i < nuoviCampi.length; i++) {
+	                    campiNew.add(nuoviCampi[i]);
+	                }
+
+	                Collections.sort(campiNew, new Comparator<String>() {
+	                    @Override
+	                    public int compare(String o1, String o2) {
+	                        return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	                    }
+	                });
+
+	                innerSelect = "SELECT ";
+	                campiNew = campiNew.stream().map(String :: trim).distinct().collect(Collectors.toList());
+	                for(String campo: campiNew) {
+	                    innerSelect += campo + " , ";
+	                }
+	                innerSelect = innerSelect.substring(0, innerSelect.length() - 2);
+	                querySQL += innerSelect + innerFrom + innerWhere + unionAll;
+	            }
+	            else {
+	                innerSelect2 = innerSelect2.substring(7);
+	                String[] nuoviCampi = innerSelect2.split(",");
+	                List<String> campiNew = new ArrayList<String>();
+	                for (int i = 0; i < nuoviCampi.length; i++) {
+	                    campiNew.add(nuoviCampi[i]);
+	                }
+
+	                Collections.sort(campiNew, new Comparator<String>() {
+	                    @Override
+	                    public int compare(String o1, String o2) {
+	                        return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	                    }
+	                });
+
+	                innerSelect2 = "SELECT ";
+	                campiNew = campiNew.stream().map(String :: trim).distinct().collect(Collectors.toList());
+	                for(String campo: campiNew) {
+	                    innerSelect2 += campo + " , ";
+	                }
+	                innerWhere += filterSQL2;
+	                innerSelect2 = innerSelect2.substring(0, innerSelect2.length() - 2);
+	                querySQL += innerSelect2 + innerFrom + innerWhere + unionAll;
+	            }
+	            
+	            innerWhere = trimTrailingAnd(innerWhere);
+	            
+	            innerFrom = "FROM ";
+	            innerJoin = "JOIN ";
+	            innerSelect = "SELECT ";
+	            innerOn2 = "ON ";
+	            innerOn3 = "ON ";
+	            innerWhere = "WHERE ";
+	            if(region == null || "PRATICHE_WARNING".equals(region)) {
+	                innerOn = "ON ";
+	            }else {
+	                if(table.getSection() == 0) {
+	                    break;
+	                }
+	            }
+	        }
+
+	        if(sezioneFiltroDataRiferimento == "" || sezioneFiltroDataRiferimento == "0") {
+	            querySQL = querySQL.replaceAll("filtri", "");
+	        }
+	        else if(sezioneFiltroDataRiferimento == "1") {
+	            querySQL = querySQL.replaceAll("filtri", filterSQL0);
+	        }
+
+	        outerSelect = outerSelect.substring(0, outerSelect.length() - 2);
+	        campiDescStr = campiDescStr.substring(0, campiDescStr.length() - 2);
+
+	        String[] nuoviCampi = outerSelect.split(",");
+	        String[] nuoveDesc = campiDescStr.split(",");
+	        List<String> campiNew = new ArrayList<String>();
+	        List<String> descrNew = new ArrayList<String>();
+	        for (int i = 0; i < nuoviCampi.length; i++) {
+	            campiNew.add(nuoviCampi[i]);
+	            descrNew.add(nuoveDesc[i]);
+	        }
+
+	        Map<Integer, String> campiPerPosizione = new TreeMap<>();
+	        Map<Integer, String> descrPerPosizione = new TreeMap<>();
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                if (Boolean.TRUE.equals(field.getGroups())) {
+	                    String campo = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + "." + field.getName();
+	                    String descr = field.getDescriptionsm();
+	                    if (!campiPerPosizione.containsKey(field.getPosition())) {
+	                        campiPerPosizione.put(field.getPosition(), campo);
+	                        descrPerPosizione.put(field.getPosition(), descr);
+	                    }
+	                }
+	            }
+	        }
+
+	        selectFields.clear();
+	        selectDescriptions.clear();
+	        int position = 0;
+	        for (Integer pos : campiPerPosizione.keySet()) {
+	            String campo = campiPerPosizione.get(pos);
+	            String[] fieldPoint = campo.split("\\.");
+	            selectFields.put(position, fieldPoint[fieldPoint.length - 1].trim());
+	            selectDescriptions.put(position, descrPerPosizione.get(pos).trim());
+	            position++;
+	        }
+
+	        outerSelect = "";
+	        campiNew = campiNew.stream().map(String :: trim).distinct().collect(Collectors.toList());
+	        for(String campo: campiNew) {
+	            outerSelect += campo + " , ";
+	        }
+	        outerSelect = outerSelect.substring(0, outerSelect.length() - 2);
+
+	        String outerSelectFinal = ",c0.import_type,c0.MONTH_RIF,c0.YEAR_RIF,c0.message,c0.severity ";
+
+	        String[] selectFieldsApp = outerSelect.split(",");
+	        position = 0;
+	        for(int i=0; i<selectFieldsApp.length; i++) {
+	            String fieldCopy = selectFieldsApp[i].substring(0,selectFieldsApp[i].length()-1);
+	            String[] fieldPoint = fieldCopy.split("\\.");
+	            selectFields.put(position, fieldPoint[1].replaceAll("\\s+",""));
+	            if(descrNew.get(i).startsWith(" ")) {
+	                String sub = descrNew.get(i).substring(1);
+	                descrNew.set(i,sub);
+	            }
+	            if(descrNew.get(i).endsWith(" ")) {
+	                String sub = descrNew.get(i).substring(0, descrNew.get(i).length()-1);
+	                descrNew.set(i,sub);
+	            }
+	            selectDescriptions.put(position,descrNew.get(i));
+	            position++;
+	        }
+
+	        outerSelect = "SELECT  " + outerSelect + outerSelectFinal;
+
+	        if (querySQL.endsWith(leftJoin + " ( ")) {
+	            querySQL = querySQL.substring(0, querySQL.length() - 13);
+	        }
+
+	        querySQL = outerSelect + from + querySQL;
+	        querySQL = querySQL.substring(0, querySQL.length() - unionAll.length());
+	        querySQL += ") c0 ";
+
+	    } catch (Exception e) {
+	        LogUtil.logException(logger, "", e);
+	    }
+
+	    List<Object> result = new ArrayList<Object>();
+	    result.add(querySQL);
+	    result.add(selectFields);
+	    result.add(selectDescriptions);
+	    result.add(filters);
+	    result.add(pkNameList);
+	    result.add(false);
+
+	    return result;
+	}
+	
+	@Override
+	public BigDecimal praticheCount(FlowViewFilterError flowViewFilter) {
+
+	    NativeQuery<?> query = null;
+
+	    String querySQL = "";
+	    String selectSQL = "SELECT ";
+	    String selectCount = "SELECT COUNT(*) FROM (";
+	    String fromSQl = " FROM ";
+	    String whereSQL = " WHERE 1=1 ";
+	    String region = flowViewFilter.getRegion();
+	    FormFlowDTO formFlowDTO = flowViewFilter.getFlow();
+	    String onSQL = "";
+	    String campiSelect = "";
+	    List<FormFlowTableFieldDTO> filters = new ArrayList<FormFlowTableFieldDTO>();
+	    List<String> campi = new ArrayList<String>();
+	    String tableNameNative = "FM_FLOW_" + formFlowDTO.getName() + "_";
+	    boolean sez0and1are1toN = false;
+
+	    String tipoImportazione = flowViewFilter.getTipoImportazione();
+	    if (tipoImportazione == null) {
+	        flowViewFilter.setTipoImportazione("Tutte");
+	        tipoImportazione = "Tutte";
+	    }
+	    String codicePresidio = flowViewFilter.getCodicePresidio();
+	    if (codicePresidio == null) {
+	        flowViewFilter.setCodicePresidio("Tutte");
+	        codicePresidio = "Tutte";
+	    }
+	    String codiceAzienda = flowViewFilter.getCodiceAzienda();
+	    if (codiceAzienda == null) {
+	        flowViewFilter.setCodiceAzienda("Tutte");
+	        codiceAzienda = "Tutte";
+	    }
+
+	    // caricamento lista aziende visibili dall'utente
+	    List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+
+	    // caricamento aziende configurate per il flusso e widget di riferimento visualizzando solo i dettagli delle aziende configurate rispetto al profilo flussi dell'utente
+	    if (flowViewFilter.getRegion() != null) {
+	        TabgenValueFilter filterAz = new TabgenValueFilter();
+	        filterAz.setTabgenId("FM_DASHBOARD_CONFIG");
+	        filterAz.setField2(flowViewFilter.getFlow().getId());
+	        filterAz.setField3(flowViewFilter.getRegion());
+	        List<TabgenValueDO> tabgenValueFlussi = tabgenService.searchTabgenValueByFilter(filterAz);
+	        List<String> aziendeDashConfig = tabgenValueFlussi.stream().map(TabgenValueDO::getField14).distinct().filter(Objects::nonNull)
+	                .collect(Collectors.toList());
+	        if (!aziendeDashConfig.isEmpty()) {
+	            List<String> aziendeNew = new ArrayList<>();
+	            for (String az : aziende) {
+	                for (String azdash : aziendeDashConfig) {
+	                    if (az.contains(azdash))
+	                        aziendeNew.add(az);
+	                }
+	            }
+	            aziende.clear();
+	            aziende = aziendeNew;
+	        }
+	    }
+
+	    // =========================
+	    // 🔧 NEW: reference date per filtro datada/dataa (se CanViewDateFromToFilters=true)
+	    // =========================
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilter.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    // =========================
+	    // 🔧 NEW: PK per section (serve per join chain 0 -> ... -> ref.section)
+	    // =========================
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) pks.add(f.getName());
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+	        JoinChain(String joinSql, String targetAlias) { this.joinSql = joinSql; this.targetAlias = targetAlias; }
+	    }
+	    
+	    // PK della sezione 0
+	    final List<String> pkSection0 = new ArrayList<>(
+	            pkBySection.getOrDefault(0, Collections.emptyList())
+	    );
+
+	    java.util.function.BiFunction<String, Integer, JoinChain> buildChainFrom0 =
+	            (alias0, targetSection) -> {
+	                if (targetSection == null || targetSection <= 0) {
+	                    return new JoinChain("", alias0);
+	                }
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = alias0;
+
+	                for (int s = 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + s;
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    for (String pk : pkSection0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                          .append(" = ")
+	                          .append(curAlias).append(".").append(pk)
+	                          .append(" AND ");
+	                    }
+
+	                    if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+	                        sb.setLength(sb.length() - 5);
+	                    }
+
+	                    sb.append(" ");
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+        java.util.function.Function<String, String> dateBetween =
+	            (qualifiedField) -> "TRUNC(" + qualifiedField + ") BETWEEN :datada AND :dataa ";
+
+	    // =========================
+	    // sez0and1are1toN (INVARIATO)
+	    // =========================
+	    if (formFlowDTO.getFlowTableList().size() > 1) {
+	        int countPk = 0;
+	        for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+	            if (formFlowTableDTO.getSection() == 0 || formFlowTableDTO.getSection() == 1) {
+	                int countPkTable = 0;
+	                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	                    if (field.isPk()) {
+	                        countPkTable++;
+	                    }
+	                }
+	                if (countPk == 0) {
+	                    countPk = countPkTable;
+	                } else {
+	                    if (countPk != countPkTable) {
+	                        sez0and1are1toN = true;
+	                    }
+	                }
+	            }
+	        }
+	    }
+
+	    for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	        String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection();
+
+	        if (table.getSection() == 0) {
+
+	            // =========================
+	            // 🔧 NEW: se useDateFromTo => NON filtro più su MONTH_RIF/YEAR_RIF
+	            // =========================
+	        	if (!useDateFromTo || refDate == null) {
+	        	    if (!aziende.isEmpty()) {
+	        	        whereSQL += " AND " + tableName + ".MONTH_RIF " + getWhereConditionMonthRif(flowViewFilter) + " AND " + tableName
+	        	                + ".YEAR_RIF = :anni AND " + tableName + ".CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	        	    } else {
+	        	        whereSQL += " AND " + tableName + ".MONTH_RIF " + getWhereConditionMonthRif(flowViewFilter) + " AND " + tableName
+	        	                + ".YEAR_RIF = :anni ";
+	        	    }
+	        	}
+
+	            // AGGIUNGO FILTRO IMPORT_TYPE
+	            if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                whereSQL += " AND " + tableName + ".IMPORT_TYPE = :tipoimportazione ";
+	            }
+	            // AGGIUNGO FILTRO CODICE PRESIDIO
+	            if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                whereSQL += " AND " + tableName + ".CODICEPRESIDIO = :codicepresidio ";
+	            }
+	            // AGGIUNGO FILTRO CODICEAZIENDA
+	            if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                whereSQL += " AND " + tableName + ".CODICEAZIENDA = :codiceazienda ";
+	            }
+
+	            if (flowViewFilter.getExtraFilter() != null && !flowViewFilter.getExtraFilter().isEmpty()) {
+	                for (Map<String, String> filter : flowViewFilter.getExtraFilter()) {
+	                    if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                        whereSQL += " AND " + tableName + "." + filter.get("campo") + "='" + filter.get("selected") + "' ";
+	                    }
+	                }
+	            }
+
+	            if (region != null) {
+	                if ("PRATICHE_NOT_SEND_REG".equals(region)) {
+	                    whereSQL = appendCond(whereSQL, "(" + tableName + ".STATE_SEND_REGION != :state)");
+	                    whereSQL = appendCond(whereSQL, "(" + tableName + ".STATE_SEND_REGION != :state2)");
+	                } else if ("PRATICHE_REG".equals(region)) {
+	                    whereSQL = appendCond(whereSQL, "(" + tableName + ".STATE_SEND_REGION = :state OR " + tableName + ".STATE_SEND_REGION = :state2)");
+	                } else if ("PRATICHE_RIC_REG".equals(region)) {
+	                    whereSQL = appendCond(whereSQL, "(" + tableName + ".STATE_SEND_REGION = :state)");
+	                    whereSQL = appendCond(whereSQL, "(" + tableName + ".status_region = :state2 OR " + tableName + ".status_region = :state3)");
+	                }
+	            }
+	            fromSQl += tableName;
+
+	        } else if (table.getSection() == 1) {
+	            fromSQl += " LEFT JOIN " + tableName + " ON (";
+	        }
+
+	        for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	            if (table.getSection() == 0) {
+	                if (field.getGroups()) {
+	                    campi.add(field.getName());
+	                }
+	                if (field.isPk()) {
+	                    if (flowViewFilter.getFilters() != null
+	                            && flowViewFilter.getFilters().get(field.getName()) != null
+	                            && flowViewFilter.getFilters().get(field.getName()) != "") {
+
+	                    	whereSQL = appendCond(whereSQL,
+	                    	        tableName + "." + field.getName() + " = '" + flowViewFilter.getFilters().get(field.getName()) + "'");
+	                    }
+	                    onSQL += tableName + "." + field.getName() + " = SEZIONE1." + field.getName() + " AND ";
+	                }
+	            }
+
+	            if (table.getSection() == 1) {
+	                if (field.getGroups()) {
+	                    if (campi.contains(field.getName())) {
+	                        campiSelect += tableNameNative + "0." + field.getName() + " , ";
+	                        campi.remove(field.getName());
+	                    } else {
+	                        campiSelect += tableName + "." + field.getName() + " , ";
+	                    }
+	                }
+	            }
+
+	            // (INVARIATO) filtri "giornalieri" su date reference dal map filters (non datada/dataa)
+	            if (field.isReferenceDate() && !field.isPk()) {
+	                filters.add(field);
+	                if (flowViewFilter.getFilters() != null
+	                        && flowViewFilter.getFilters().get(field.getName()) != null
+	                        && flowViewFilter.getFilters().get(field.getName()) != "") {
+
+	                    SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
+	                    String data = dateFormat.format(flowViewFilter.getFilters().get(field.getName()));
+	                    whereSQL = appendCond(whereSQL,
+	                            tableName + "." + field.getName() + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS')");
+	                    whereSQL = appendCond(whereSQL,
+	                            tableName + "." + field.getName() + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS')");
+	                }
+	            }
+	        }
+
+	        if (onSQL.toUpperCase().endsWith(" AND ")) {
+	            onSQL = onSQL.substring(0, onSQL.length() - 4);
+	            onSQL += " )";
+	        }
+
+	        if (table.getSection() == 1) {
+	            onSQL = onSQL.replaceAll("SEZIONE1", tableName);
+	            fromSQl += onSQL;
+	            break;
+	        }
+	        if (sez0and1are1toN) {
+	            break;
+	        }
+	    }
+
+	    // =========================
+	    // 🔧 NEW: applico filtro datada/dataa sulla reference date (se richiesto)
+	    // - se ref.section == 0 => uso FM_FLOW_<flow>_0.<campo>
+	    // - se ref.section == 1 => la LEFT JOIN già c'è => uso FM_FLOW_<flow>_1.<campo>
+	    // - se ref.section > 1 => aggiungo join chain REF1..REFn dalla section0
+	    // =========================
+	    if (useDateFromTo && refDate != null) {
+
+	        if (refDate.section() == 0) {
+	        	whereSQL = appendCond(whereSQL, dateBetween.apply(tableNameNative + "0." + refDate.fieldName()));
+	        } else if (refDate.section() == 1) {
+	        	whereSQL = appendCond(whereSQL, dateBetween.apply(tableNameNative + "1." + refDate.fieldName()));
+	        } else {
+	            JoinChain chain = buildChainFrom0.apply(tableNameNative + "0", refDate.section());
+	            fromSQl += chain.joinSql;
+	            whereSQL = appendCond(whereSQL, dateBetween.apply(chain.targetAlias + "." + refDate.fieldName()));
+	        }
+
+	        // in questo caso devo comunque limitare le aziende (prima lo facevo nel blocco month/year)
+	        if (!aziende.isEmpty() && !whereSQL.contains(":aziendeprofilate")) {
+	            whereSQL = appendCond(whereSQL, tableNameNative + "0.CODICEAZIENDA IN ( :aziendeprofilate )");
+	        }
+	    }
+
+	    if (campi.size() > 0) {
+	        for (int i = 0; i < campi.size(); i++) {
+	            campiSelect += tableNameNative + "0." + campi.get(i) + " , ";
+	        }
+	    }
+
+	    campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+
+	    querySQL += selectSQL + campiSelect + fromSQl + whereSQL;
+	    querySQL = selectCount + querySQL + " )";
+
+	    query = entityManager.createNativeQuery(querySQL).unwrap(NativeQuery.class);
+
+	    if ("PRATICHE_NOT_SEND_REG".equals(region)) {
+	        query.setParameter("state", stateSendRegionEnum.INVIATA.toString());
+	        query.setParameter("state2", stateSendRegionEnum.ACCETTATA.toString());
+	    } else if ("PRATICHE_REG".equals(region)) {
+	        query.setParameter("state", stateSendRegionEnum.INVIATA.toString());
+	        query.setParameter("state2", stateSendRegionEnum.ACCETTATA.toString());
+	    } else if ("PRATICHE_RIC_REG".equals(region)) {
+	        query.setParameter("state", stateSendRegionEnum.ACCETTATA.toString());
+	        query.setParameter("state2", "VALIDO");
+	        query.setParameter("state3", "SEGNALAZIONE");
+	    }
+
+	    // =========================
+	    // 🔧 NEW: binding parametri
+	    // =========================
+	    if (useDateFromTo && refDate != null && querySQL.contains(":datada") && querySQL.contains(":dataa")) {
+	        query.setParameter("datada", flowViewFilter.getExtraDateFrom());
+	        query.setParameter("dataa", flowViewFilter.getExtraDateTo());
+	    } else {
+	        query.setParameterList("mesi", getMonthForQuery(flowViewFilter.getMonth()));
+	        query.setParameter("anni", flowViewFilter.getYear());
+	    }
+
+	    if (!aziende.isEmpty() && querySQL.contains(":aziendeprofilate")) {
+	        query.setParameterList("aziendeprofilate", aziende);
+	    }
+	    if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && querySQL.contains(":tipoimportazione")) {
+	        query.setParameter("tipoimportazione", tipoImportazione);
+	    }
+	    if (codicePresidio != null && !codicePresidio.equals("Tutte") && querySQL.contains(":codicepresidio")) {
+	        query.setParameter("codicepresidio", codicePresidio);
+	    }
+	    if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && querySQL.contains(":codiceazienda")) {
+	        query.setParameter("codiceazienda", codiceAzienda);
+	    }
+
+	    BigDecimal result = (BigDecimal) query.getSingleResult();
+	    return result;
+	}
+	
+	private String appendCond(String whereSql, String cond) {
+	    if (cond == null || cond.isBlank()) return whereSql;
+
+	    String w = (whereSql == null) ? "" : whereSql;
+	    String wt = w.trim();
+
+	    String c = cond.trim();
+	    if (c.regionMatches(true, 0, "AND ", 0, 4)) c = c.substring(4).trim();
+	    if (c.regionMatches(true, 0, "and ", 0, 4)) c = c.substring(4).trim();
+
+	    if (wt.equalsIgnoreCase("WHERE") || wt.equalsIgnoreCase("WHERE")) {
+	        return w + " " + c + " ";
+	    }
+	    if (wt.isEmpty()) {
+	        return " WHERE " + c + " ";
+	    }
+	    if (wt.equalsIgnoreCase("WHERE")) {
+	        return w + " " + c + " ";
+	    }
+	    return w + " AND " + c + " ";
+	}
+	
+	@Override
+	public BigDecimal praticheCountDetail(FlowViewFilterError flowViewFilter) {
+//		Query query = null;
+		NativeQuery<?> query = null;
+		
+		String querySQL = "";
+		
+		String message = flowViewFilter.getMessage();
+		String errorCode = flowViewFilter.getErrorCode();
+		String tipoImportazione = flowViewFilter.getTipoImportazione();
+		if (tipoImportazione == null) {
+			flowViewFilter.setTipoImportazione("Tutte");
+		}
+		String codicePresidio = flowViewFilter.getCodicePresidio();
+		if (codicePresidio == null) {
+			flowViewFilter.setCodicePresidio("Tutte");
+		}
+		String codiceAzienda = flowViewFilter.getCodiceAzienda();
+		if (codiceAzienda == null) {
+			flowViewFilter.setCodiceAzienda("Tutte");
+		}
+		
+		//caricamento lista aziende visibili dall'utente
+		List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+		//caricamento aziende configurate per il flusso e widget di riferimento visualizzando solo i dettagli delle aziende configurate rispetto al profilo flussi dell'utente
+		if (flowViewFilter.getRegion()!=null) {
+			TabgenValueFilter filterAz = new TabgenValueFilter();
+			filterAz.setTabgenId("FM_DASHBOARD_CONFIG");
+			filterAz.setField2(flowViewFilter.getFlow().getId());
+			filterAz.setField3(flowViewFilter.getRegion());
+			List<TabgenValueDO> tabgenValueFlussi = tabgenService.searchTabgenValueByFilter(filterAz);
+			List<String> aziendeDashConfig = tabgenValueFlussi.stream().map(TabgenValueDO::getField14).distinct().filter(Objects::nonNull).collect(Collectors.toList());
+			if(!aziendeDashConfig.isEmpty()) {
+				List<String> aziendeNew = new ArrayList<>();
+				for (String az : aziende) {
+				    for (String azdash : aziendeDashConfig) {
+				        if (az.contains(azdash))
+				        	aziendeNew.add(az);
+				    }
+				}
+				aziende.clear();
+				aziende = aziendeNew;
+			}	
+		}
+		
+		querySQL = "SELECT COUNT(*) FROM (" + flowViewFilter.getQueryDetail() + " )";
+		//imposto i parametri in minuscolo per non avere problemi nel setting
+		querySQL = TabgenUtility.normalizeAllParamsToLowerCase(querySQL);
+		
+		//elimino eventuali parametri non obbligatori e non settabili per azienda tipoImportazione codicePresidio
+		if (aziende.isEmpty() && querySQL.contains(":aziendeprofilate")) {
+			querySQL = querySQL.replace(":aziendeprofilate", TabgenUtility.getFieldForParameter(querySQL, ":aziendeprofilate"));
+		}
+		if ((tipoImportazione == null || tipoImportazione.equals("Tutte")) && querySQL.contains(":tipoimportazione")) {
+			querySQL = querySQL.replace(":tipoimportazione", TabgenUtility.getFieldForParameter(querySQL, ":tipoimportazione"));
+		}
+		if ((codicePresidio == null || codicePresidio.equals("Tutte")) && querySQL.contains(":codicepresidio")) {
+			querySQL = querySQL.replace(":codicepresidio", TabgenUtility.getFieldForParameter(querySQL, ":codicepresidio"));
+		}
+		if ((codiceAzienda == null || codiceAzienda.equals("Tutte")) && querySQL.contains(":codiceazienda")) {
+			querySQL = querySQL.replace(":codiceazienda", TabgenUtility.getFieldForParameter(querySQL, ":codiceazienda"));
+		}
+		if ((message == null || message.equals("Tutte")) && querySQL.contains(":message")) {
+			querySQL = querySQL.replace(":message", TabgenUtility.getFieldForParameter(querySQL, ":message"));
+		}
+		if ((errorCode == null || errorCode.equals("Tutte")) && querySQL.contains(":codiceerrore")) {
+			querySQL = querySQL.replace(":codiceerrore", TabgenUtility.getFieldForParameter(querySQL, ":codiceerrore"));
+		}
+		
+//		query = entityManager.createNativeQuery(querySQL);
+		query = entityManager.createNativeQuery(querySQL).unwrap(NativeQuery.class);
+		
+	    if (querySQL.contains(":datada")) {
+	    	query.setParameter("datada", flowViewFilter.getExtraDateFrom());
+	    }
+	    if (querySQL.contains(":dataa")) {
+	    	query.setParameter("dataa", flowViewFilter.getExtraDateTo());
+	    }
+	    if (querySQL.contains(":anni")) {
+	        query.setParameter("anni", flowViewFilter.getYear());
+	    }
+	    if (querySQL.contains(":mesi")) {
+	        query.setParameterList("mesi", getMonthForQuery(flowViewFilter.getMonth()));
+	    }
+
+		if (!aziende.isEmpty() && querySQL.contains(":aziendeprofilate")) {
+		    query.setParameterList("aziendeprofilate", aziende);
+		}
+		if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && querySQL.contains(":tipoimportazione")) {
+		    query.setParameter("tipoimportazione", tipoImportazione);
+		}
+		if (codicePresidio != null && !codicePresidio.equals("Tutte") && querySQL.contains(":codicepresidio")) {
+		    query.setParameter("codicepresidio", codicePresidio);
+		}
+		if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && querySQL.contains(":codiceazienda")) {
+		    query.setParameter("codiceazienda", codiceAzienda);
+		}
+		if (errorCode != null && !errorCode.equals("Tutte") && querySQL.contains(":codiceerrore")) {
+		    query.setParameter("codiceerrore", errorCode);
+		}
+		if (message != null && !message.equals("Tutte") && querySQL.contains(":message")) {
+		    query.setParameter("message", message);
+		}
+
+		BigDecimal result = (BigDecimal) query.getSingleResult();
+
+		return result;
+
+	}
+	
+	@Override
+	public BigDecimal praticheErrorCount(FlowViewFilterError flowViewFilter) {
+
+	    // PRATICHE ERRATE
+	    FormFlowDTO formFlowDTO = flowViewFilter.getFlow();
+	    String region = flowViewFilter.getRegion();
+
+	    String filterSQL = "";
+	    String outerSelect = "";
+	    String innerSelect = "SELECT ";
+	    String innerSelect2 = "SELECT ";
+	    String innerOn = "ON ";
+	    String innerOn2 = "ON ";
+	    String innerOn3 = "ON ";
+	    String innerJoin = "JOIN ";
+	    String innerFrom = " FROM ";
+	    String innerWhere = " WHERE ";
+	    String leftJoin = "LEFT JOIN ";
+	    String outerSelectCount = "COUNT(1) ";
+	    String unionAll = "UNION ALL ";
+	    String groupBy = "GROUP BY ";
+	    String querySQL = "";
+	    String fromSQl = " FROM (";
+	    String whereSQL = " WHERE ";
+	    String innerOnScarti = "";
+	    String sezioneFiltroDataRiferimento = "";
+	    String filterSQL0 = "";
+	    String filterSQL1 = "";
+	    String filterSQL2 = "";
+	    List<FormFlowTableFieldDTO> filters = new ArrayList<>();
+
+	    // caricamento lista aziende visibili dall'utente
+	    List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+
+	    String tipoImportazione = flowViewFilter.getTipoImportazione();
+	    if (tipoImportazione == null) {
+	        flowViewFilter.setTipoImportazione("Tutte");
+	        tipoImportazione = "Tutte";
+	    }
+	    String codicePresidio = flowViewFilter.getCodicePresidio();
+	    if (codicePresidio == null) {
+	        flowViewFilter.setCodicePresidio("Tutte");
+	        codicePresidio = "Tutte";
+	    }
+	    String codiceAzienda = flowViewFilter.getCodiceAzienda();
+	    if (codiceAzienda == null) {
+	        flowViewFilter.setCodiceAzienda("Tutte");
+	        codiceAzienda = "Tutte";
+	    }
+
+	    int contaSezioni = (formFlowDTO.getFlowTableList() != null) ? formFlowDTO.getFlowTableList().size() : 0;
+
+	    // =========================================================
+	    // ✅ reference date per filtro datada/dataa (solo se CanViewDateFromToFilters=true)
+	    // =========================================================
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilter.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    // =========================================================
+	    // ✅ PK map by section + PK sezione 0 "definitiva" (FINAL per lambda)
+	    // =========================================================
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) pks.add(f.getName());
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    List<String> pk0tmp = new ArrayList<>(pkBySection.getOrDefault(0, Collections.emptyList()));
+	    if (pk0tmp.isEmpty()) {
+	        for (List<String> pks : pkBySection.values()) {
+	            if (pks != null && !pks.isEmpty()) {
+	                pk0tmp = new ArrayList<>(pks);
+	                break;
+	            }
+	        }
+	    }
+	    final List<String> pk0 = Collections.unmodifiableList(pk0tmp);
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+
+	    java.util.function.BiFunction<String, Integer, String> tableNameBySectionNormal =
+	            (flowName, section) -> "FM_FLOW_" + flowName + "_" + section;
+
+	    java.util.function.Function<String, String> truncIfNeeded =
+	            (qualifiedField) -> "TRUNC(" + qualifiedField + ")";
+	    java.util.function.Function<String, String> dateBetween =
+	            (qualifiedField) -> truncIfNeeded.apply(qualifiedField) + " BETWEEN :datada AND :dataa ";
+
+	    java.util.function.BiFunction<String, Integer, JoinChain> buildChainFrom0 =
+	            (alias0, targetSection) -> {
+	                if (targetSection == null || targetSection <= 0) return new JoinChain("", alias0);
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = alias0;
+
+	                for (int s = 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = tableNameBySectionNormal.apply(formFlowDTO.getName(), s);
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    for (String pk : pk0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                          .append(" = ")
+	                          .append(curAlias).append(".").append(pk)
+	                          .append(" AND ");
+	                    }
+
+	                    if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+	                        sb.setLength(sb.length() - 5);
+	                    }
+
+	                    sb.append(" ");
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+	    java.util.function.BiFunction<Integer, String, JoinChain> ensureAlias0 =
+	            (currentSection, currentAlias) -> {
+	                if (currentSection == null || currentSection == 0) return new JoinChain("", currentAlias);
+
+	                String alias0 = currentAlias + "0";
+	                StringBuilder j0 = new StringBuilder();
+	                String table0 = tableNameBySectionNormal.apply(formFlowDTO.getName(), 0);
+
+	                j0.append(" JOIN ").append(table0).append(" ").append(alias0).append(" ON ");
+
+	                for (String pk : pk0) {
+	                    j0.append(currentAlias).append(".").append(pk)
+	                      .append(" = ")
+	                      .append(alias0).append(".").append(pk)
+	                      .append(" AND ");
+	                }
+	                if (j0.length() >= 5 && j0.substring(j0.length() - 5).equals(" AND ")) {
+	                    j0.setLength(j0.length() - 5);
+	                }
+	                j0.append(" ");
+
+	                return new JoinChain(j0.toString(), alias0);
+	            };
+
+	    // =========================================================
+	    // aziende dash config (INVARIATO)
+	    // =========================================================
+	    if (flowViewFilter.getRegion() != null) {
+	        TabgenValueFilter filterAz = new TabgenValueFilter();
+	        filterAz.setTabgenId("FM_DASHBOARD_CONFIG");
+	        filterAz.setField2(flowViewFilter.getFlow().getId());
+	        filterAz.setField3(flowViewFilter.getRegion());
+	        List<TabgenValueDO> tabgenValueFlussi = tabgenService.searchTabgenValueByFilter(filterAz);
+	        List<String> aziendeDashConfig = tabgenValueFlussi.stream()
+	                .map(TabgenValueDO::getField14)
+	                .distinct()
+	                .filter(Objects::nonNull)
+	                .collect(Collectors.toList());
+	        if (!aziendeDashConfig.isEmpty()) {
+	            List<String> aziendeNew = new ArrayList<>();
+	            for (String az : aziende) {
+	                for (String azdash : aziendeDashConfig) {
+	                    if (az.contains(azdash)) aziendeNew.add(az);
+	                }
+	            }
+	            aziende.clear();
+	            aziende = aziendeNew;
+	        }
+	    }
+
+	    List<String> listField = new ArrayList<>();
+	    String notKField = "";
+	    List<Object[]> resultTabgen = null;
+	    String flussoInterno = "";
+	    boolean extTable = false;
+	    String nomeFlusso = formFlowDTO.getName();
+	    List<String> pkNameList = new ArrayList<>();
+
+	    if (region != null && !"PRATICHE_WARNING".equals(region)) {
+	        String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+	        String tableNameRegErrors = flowViewFilter.getFlow().getName() + "_REG_" + cfgSuffixRegError;
+	        ConfigurationDO cfgObj = configuration.findByKeyId("flowWithExternalUpdate");
+	        if (cfgObj != null) {
+	            String cfg = cfgObj.getValue();
+	            String[] cfgSplitted = cfg.split("/");
+	            for (int i = 0; i < cfgSplitted.length; i++) {
+	                String value = cfgSplitted[i];
+	                int iend = value.indexOf("(");
+	                flussoInterno = value.substring(0, iend);
+	                String flussoCopia = value.substring(iend + 1, value.length() - 1);
+	                if (flussoInterno != null && !"".equals(flussoInterno) && flussoCopia.equals(formFlowDTO.getName())) {
+	                    tableNameRegErrors = flussoInterno + "_REG_" + cfgSuffixRegError;
+	                    extTable = true;
+	                }
+	            }
+	        }
+	        if (extTable) {
+	            nomeFlusso = flussoInterno;
+	        }
+
+	        List<TabgenField> fields = tabgenDelegate.searchFieldsByTabgenId(tableNameRegErrors.toUpperCase());
+	        for (TabgenField field : fields) {
+	            if ("CAMPO_CHIAVE".equals(field.getDescription())) {
+	                String valueColumn = field.getTabgenValueColumn();
+	                String queryTabgen = "select * from fm_tabgen_value where tabgen_id = '" + tableNameRegErrors.toUpperCase()
+	                        + "' and " + valueColumn + " = '1'";
+	                Query queryTab = entityManager.createNativeQuery(queryTabgen);
+	                resultTabgen = queryTab.getResultList();
+	                break;
+	            }
+	        }
+
+	        List<FormFlowTableFieldDTO> fieldList = flowViewFilter.getFlow().getFlowTableList().get(0).getFlowTableFieldList();
+	        for (FormFlowTableFieldDTO field : fieldList) {
+	            for (int i = 0; i < resultTabgen.size(); i++) {
+	                if (field.getName().equalsIgnoreCase((String) resultTabgen.get(i)[1])) {
+	                    listField.add(field.getName());
+	                }
+	            }
+	        }
+	    }
+
+	    try {
+	        List<String> campi = new ArrayList<>();
+	        List<String> campiDate = new ArrayList<>();
+	        List<String> campiDate0 = new ArrayList<>();
+	        List<String> campiPratica = new ArrayList<>();
+	        List<String> campiPratica0 = new ArrayList<>();
+	        List<String> campiPratica1 = new ArrayList<>();
+	        List<String> campiPraticaDate = new ArrayList<>();
+	        List<String> campiPraticaDate1 = new ArrayList<>();
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                if (table.getSection() == 0) {
+	                    if (field.getGroups()) {
+	                        if ("Date".equals(field.getFieldType())) {
+	                            campiPraticaDate.add("a." + field.getName() + " , ");
+	                        } else {
+	                            campiPratica0.add(field.getName());
+	                        }
+	                    }
+	                } else if (table.getSection() == 1) {
+	                    if (field.getGroups()) {
+	                        if ("Date".equals(field.getFieldType())) {
+	                            campiPraticaDate1.add("p." + field.getName() + " , ");
+	                        } else {
+	                            campiPratica1.add(field.getName());
+	                        }
+	                    }
+	                }
+	            }
+	        }
+
+	        for (int j = 0; j < campiPratica0.size(); j++) {
+	            campiPratica.add("a." + campiPratica0.get(j) + " , ");
+	            outerSelect += "c0." + campiPratica0.get(j) + " , ";
+	            groupBy += "c0." + campiPratica0.get(j) + " , ";
+	        }
+	        for (int j = 0; j < campiPratica1.size(); j++) {
+	            if (!campiPratica0.contains(campiPratica1.get(j))) {
+	                campiPratica.add("p." + campiPratica1.get(j) + " , ");
+	                outerSelect += "c0." + campiPratica1.get(j) + " , ";
+	                groupBy += "c0." + campiPratica1.get(j) + " , ";
+	            }
+	        }
+	        for (int j = 0; j < campiPraticaDate.size(); j++) {
+	            String outerData = campiPraticaDate.get(j).substring(2, campiPraticaDate.get(j).length());
+	            outerSelect += "c0." + outerData + " ";
+	            groupBy += "c0." + outerData + " ";
+	        }
+	        for (int j = 0; j < campiPraticaDate1.size(); j++) {
+	            String outerData = campiPraticaDate1.get(j).substring(2, campiPraticaDate1.get(j).length());
+	            outerSelect += "c0." + outerData + " ";
+	            groupBy += "c0." + outerData + " ";
+	        }
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	            String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + " a ";
+	            String tableNative = "FM_FLOW_" + nomeFlusso + "_";
+	            String tableMessage = "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + "_MESSAGE b ";
+	            String tableScarti = nomeFlusso + "_REG_SCARTI_REGIONE b ";
+
+	            // dedup ON
+	            Set<String> onPkAdded = new HashSet<>();
+	            Set<String> on2PkAdded = new HashSet<>();
+	            Set<String> on3PkAdded = new HashSet<>();
+
+	            // =========================================================
+	            // ✅ FIX: innerOn2 / innerOn3 SEMPRE con PK della sezione 0
+	            // =========================================================
+	            for (String pk : pk0) {
+	                if (on2PkAdded.add(pk)) {
+	                    innerOn2 += buildNullableJoinCondition("a", "p", pk);
+	                }
+	                if (on3PkAdded.add(pk)) {
+	                    innerOn3 += buildNullableJoinCondition("a", "q", pk);
+	                }
+	            }
+
+	            // =========================================================
+	            // ✅ NEW (MIRATO): serve per costruire le subquery MAX(...) correlate
+	            // =========================================================
+	            String innerWhereScarti = "";
+
+	            if (table.getSection() >= 2) {
+	                for (String f0 : campiPratica0) innerSelect2 += "p." + f0 + " , ";
+	                for (String f1 : campiPratica1) {
+	                    if (!campiPratica0.contains(f1)) innerSelect2 += "q." + f1 + " , ";
+	                }
+	                for (String d1 : campiPraticaDate1) {
+	                    String col = d1.trim().substring(2).replace(",", "").trim();
+	                    innerSelect2 += "q." + col + " , ";
+	                }
+	                for (String d0 : campiPraticaDate) {
+	                    String col = d0.trim().substring(2).replace(",", "").trim();
+	                    innerSelect2 += "p." + col + " , ";
+	                }
+	            }
+
+	            if (table.getSection() == 0) {
+	                for (String campo : campiPratica) innerSelect += campo;
+	                for (String campoData : campiPraticaDate1) innerSelect += campoData;
+	                for (String campoData : campiPraticaDate) innerSelect += campoData;
+	            }
+
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                if (table.getSection() == 0) {
+
+	                    if (field.getGroups()) {
+	                        if ("Date".equals(field.getFieldType())) {
+	                            campiDate0.add(field.getName());
+	                        } else {
+	                            campi.add(field.getName());
+	                        }
+	                    }
+
+	                    if (field.isPk()
+	                            && flowViewFilter.getFilters() != null
+	                            && flowViewFilter.getFilters().get(field.getName()) != null
+	                            && !"".equals(flowViewFilter.getFilters().get(field.getName()))) {
+
+	                        filterSQL += " and a." + field.getName() + "='" + flowViewFilter.getFilters().get(field.getName()) + "'";
+	                    }
+
+	                    if (flowViewFilter.getExtraFilter() != null && !flowViewFilter.getExtraFilter().isEmpty()) {
+	                        for (Map<String, String> filter : flowViewFilter.getExtraFilter()) {
+	                            if (filter.get("selected") != null && !filter.get("selected").isEmpty()
+	                                    && field.getName().equalsIgnoreCase(filter.get("campo"))) {
+	                                filterSQL += " and a." + field.getName() + "='" + filter.get("selected") + "'";
+	                            }
+	                        }
+	                    }
+
+	                    if (field.isPk()) {
+	                        pkNameList.add(field.getName());
+	                    }
+	                }
+
+	                if (table.getSection() == 1) {
+	                    if (field.getGroups()) {
+	                        if (campi.contains(field.getName())) {
+	                            innerSelect2 += "q." + field.getName() + " , ";
+	                            campi.remove(field.getName());
+	                        } else {
+	                            if ("Date".equals(field.getFieldType())) {
+	                                campiDate.add(field.getName());
+	                            } else {
+	                                innerSelect += "a." + field.getName() + " , ";
+	                                innerSelect2 += "q." + field.getName() + " , ";
+	                            }
+	                        }
+	                    }
+	                }
+
+	                // =========================================================
+	                // ✅ FIX: rimosso l'uso di field.isPk() per costruire innerOn2/innerOn3
+	                // Rimane solo l'eventuale innerSelect per section 1
+	                // =========================================================
+	                if (field.getGroups() && field.isPk() && table.getSection() == 1) {
+	                    innerSelect += "a." + field.getName() + " , ";
+	                }
+
+	                if (field.isPk() && pkNameList.contains(field.getName())) {
+	                    if (region != null && !"PRATICHE_WARNING".equals(region)) {
+	                        if (table.getSection() == 0) {
+	                            if (onPkAdded.add(field.getName())) {
+	                            	innerOn += buildNullableJoinCondition("a", "reg", field.getName());
+	                            }
+	                        }
+	                    } else {
+	                        if (onPkAdded.add(field.getName())) {
+	                        	innerOn += buildNullableJoinCondition("a", "b", field.getName());
+	                        }
+	                    }
+	                }
+
+	                if (field.isReferenceDate() && !field.isPk()) {
+	                    filters.add(field);
+	                    if (flowViewFilter.getFilters() != null
+	                            && flowViewFilter.getFilters().get(field.getName()) != null
+	                            && !"".equals(flowViewFilter.getFilters().get(field.getName()))) {
+
+	                        SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
+	                        String data = dateFormat.format(flowViewFilter.getFilters().get(field.getName()));
+
+	                        if (table.getSection() == 0) {
+	                            sezioneFiltroDataRiferimento = "0";
+	                            filterSQL0 += " and a." + field.getName() + " >= to_date('" + data
+	                                    + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and a." + field.getName()
+	                                    + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL1 = " and p." + field.getName() + " >= to_date('" + data
+	                                    + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and p." + field.getName()
+	                                    + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL2 = filterSQL1;
+
+	                        } else if (table.getSection() == 1) {
+	                            sezioneFiltroDataRiferimento = "1";
+	                            filterSQL0 += " and p." + field.getName() + " >= to_date('" + data
+	                                    + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and p." + field.getName()
+	                                    + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL1 = " and a." + field.getName() + " >= to_date('" + data
+	                                    + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and a." + field.getName()
+	                                    + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                            filterSQL2 = " and q." + field.getName() + " >= to_date('" + data
+	                                    + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and q." + field.getName()
+	                                    + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                        }
+	                    }
+	                }
+	            }
+	            
+	            innerOn = trimTrailingAnd(innerOn);
+	            innerOn2 = trimTrailingAnd(innerOn2);
+	            innerOn3 = trimTrailingAnd(innerOn3);
+	            
+	            if (region == null || "PRATICHE_WARNING".equals(region)) {
+	                innerJoin += tableMessage;
+	            } else {
+	                innerJoin += tableNative + "REG_0 reg ";
+	            }
+
+	            if (table.getSection() == 0) {
+	                if (region != null && !"PRATICHE_WARNING".equals(region)) {
+
+	                    innerOnScarti += "ON ";
+	                    innerWhereScarti += " and ";
+
+	                    for (int i = 0; i < resultTabgen.size(); i++) {
+	                        String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+	                        innerOnScarti += buildNullableJoinCondition("reg", "b", fieldName);
+	                        innerWhereScarti += buildNullableJoinCondition("c2", "reg", fieldName);
+	                    }
+	                    if (flowViewFilter.getExtractionIdFromGrid() != null) {
+				            innerOnScarti += "reg.extraction_id = b.extraction_id and ";
+				        }
+	                    innerOnScarti = trimTrailingAnd(innerOnScarti);
+	                    innerWhereScarti = trimTrailingAnd(innerWhereScarti);
+	                    
+	                    innerOnScarti += " ";
+	                    
+	                    if (contaSezioni > 1) {
+	                        innerFrom += tableName + innerJoin + innerOn
+	                                + "JOIN " + tableScarti + innerOnScarti
+	                                + "JOIN " + tableNative + "1 p " + innerOn2
+	                                + "JOIN FM_FLOW_EXPORTING_REQUEST e on reg.extraction_id = e.id ";
+	                    } else {
+	                        innerFrom += tableName + innerJoin + innerOn
+	                                + "JOIN " + tableScarti + innerOnScarti
+	                                + "JOIN FM_FLOW_EXPORTING_REQUEST e on reg.extraction_id = e.id ";
+	                    }
+
+	                } else {
+	                    if (contaSezioni > 1) {
+	                        innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "1 p " + innerOn2;
+	                    } else {
+	                        innerFrom += tableName + innerJoin + innerOn;
+	                    }
+	                }
+
+	            } else if (table.getSection() == 1) {
+
+	                if (campi.size() > 0) {
+	                    for (int i = 0; i < campi.size(); i++) {
+	                        innerSelect += "p." + campi.get(i) + " , ";
+	                        innerSelect2 += "p." + campi.get(i) + " , ";
+	                    }
+	                }
+	                if (campiDate.size() > 0) {
+	                    for (int i = 0; i < campiDate.size(); i++) {
+	                        innerSelect += "a." + campiDate.get(i) + " , ";
+	                        innerSelect2 += "q." + campiDate.get(i) + " , ";
+	                    }
+	                    campiDate.clear();
+	                }
+	                if (campiDate0.size() > 0) {
+	                    for (int i = 0; i < campiDate0.size(); i++) {
+	                        innerSelect += "p." + campiDate0.get(i) + " , ";
+	                        innerSelect2 += "p." + campiDate0.get(i) + " , ";
+	                    }
+	                    campiDate0.clear();
+	                }
+
+	                if (region != null && !"PRATICHE_WARNING".equals(region)) {
+	                    innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableScarti + innerOnScarti
+	                            + "JOIN " + tableNative + "1 p " + innerOn2;
+	                } else {
+	                    innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "0 p " + innerOn2;
+	                }
+
+	            } else {
+	                innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "0 p " + innerOn2
+	                        + "JOIN " + tableNative + "1 q " + innerOn3;
+	            }
+
+	            if (innerSelect.endsWith(" , ")) innerSelect = innerSelect.substring(0, innerSelect.length() - 2);
+	            if (innerSelect2.endsWith(" , ")) innerSelect2 = innerSelect2.substring(0, innerSelect2.length() - 2);
+	            
+	            if (flowViewFilter.getExtractionIdFromGrid() != null) {
+				    innerWhere += "b.extraction_id = :extractionId ";
+				} else {
+		            if (useDateFromTo && refDate != null) {
+	
+		                JoinChain j0 = ensureAlias0.apply(table.getSection(), "a");
+		                innerFrom += j0.joinSql;
+	
+		                JoinChain chain = buildChainFrom0.apply(j0.targetAlias, refDate.section());
+		                innerFrom += chain.joinSql;
+	
+		                innerWhere += "TRUNC(" + chain.targetAlias + "." + refDate.fieldName() + ") BETWEEN :datada AND :dataa ";
+	
+		                if (!aziende.isEmpty()) {
+		                    innerWhere += " AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+		                } else {
+		                    innerWhere += " ";
+		                }
+	
+		            } else {
+		                if (!aziende.isEmpty()) {
+		                    innerWhere += "a.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilter)
+		                            + " AND a.YEAR_RIF = :anni AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+		                } else {
+		                    innerWhere += "a.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilter) + " AND a.YEAR_RIF = :anni ";
+		                }
+		            }
+				}
+	            
+	            if (region != null && !"PRATICHE_WARNING".equals(region)) {
+
+	                if ("PRATICHE_SEGNALAZIONI_REG".equals(region) || "PRATICHE_SEGNALAZIONI_REG_AGG".equals(region)) {
+	                    innerWhere += "AND B.SEVERITY = 'SEGNALAZIONE'";
+
+	                    if (flowViewFilter.getExtractionIdFromGrid() == null) {
+	                        innerWhere += " and e.end_extraction_date = (SELECT MAX(e2.end_extraction_date) "
+	                                + "FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, fm_flow_exporting_request e2 "
+	                                + "WHERE e2.end_extraction_date IS NOT NULL AND c2.extraction_id = e2.id "
+	                                + innerWhereScarti + " )";
+	                        innerWhere += " and b.RECEIVING_DATE = (SELECT MAX(b.RECEIVING_DATE) "
+	                                + "FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, " + tableScarti
+	                                + " WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id "
+	                                + innerWhereScarti + " )";
+	                    }
+
+	                    if ("PRATICHE_SEGNALAZIONI_REG_AGG".equals(region)) {
+	                        innerWhere += " AND a.STATUS_REGION = 'SEGNALAZIONE'";
+	                    }
+
+	                } else {
+
+	                    innerWhere += "AND B.SEVERITY = 'SCARTO'";
+
+	                    if (flowViewFilter.getExtractionIdFromGrid() == null) {
+	                        innerWhere += " and e.end_extraction_date = (SELECT MAX(e2.end_extraction_date) "
+	                                + "FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, fm_flow_exporting_request e2 "
+	                                + "WHERE e2.end_extraction_date IS NOT NULL AND c2.extraction_id = e2.id "
+	                                + innerWhereScarti + " )";
+	                        innerWhere += " and b.RECEIVING_DATE = (SELECT MAX(b.RECEIVING_DATE) "
+	                                + "FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, " + tableScarti
+	                                + " WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id "
+	                                + innerWhereScarti + " )";
+	                    }
+
+	                    if ("PRATICHE_ERRATE_REG_AGG".equals(region)) {
+	                        innerWhere += " AND a.STATUS_REGION = 'SCARTO'";
+	                    }
+	                }
+
+	            } else {
+	                if ("PRATICHE_WARNING".equals(region)) {
+	                    innerWhere += "AND B.SEVERITY = 'WARNING'";
+	                } else {
+	                    innerWhere += "AND B.SEVERITY = 'ERROR'";
+	                }
+	            }
+
+	            if (table.getSection() == 0) {
+	            	filterSQL = trimTrailingAnd(filterSQL);
+	                innerWhere += " filtri ";
+	            }
+
+	            if (table.getSection() != 0 && flowViewFilter.getExtraFilter() != null && !flowViewFilter.getExtraFilter().isEmpty()) {
+	                for (Map<String, String> filter : flowViewFilter.getExtraFilter()) {
+	                    if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                        filterSQL = filterSQL.replace("a." + filter.get("campo").toLowerCase(),
+	                                "p." + filter.get("campo").toLowerCase());
+	                    }
+	                }
+	                innerWhere += filterSQL;
+	            } else {
+	                innerWhere += filterSQL;
+	            }
+
+	            if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                innerWhere += " and a.IMPORT_TYPE = :tipoimportazione ";
+	            }
+	            if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                innerWhere += " and a.CODICEPRESIDIO = :codicepresidio ";
+	            }
+	            if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                innerWhere += " and a.CODICEAZIENDA = :codiceazienda ";
+	            }
+
+	            if (table.getSection() < 2) {
+	                innerWhere += (table.getSection() == 0 ? filterSQL0 : filterSQL1);
+
+	                innerSelect = innerSelect.substring(7);
+	                String[] nuoviCampi = innerSelect.split(",");
+	                List<String> campiNew = new ArrayList<>();
+	                for (int i = 0; i < nuoviCampi.length; i++) campiNew.add(nuoviCampi[i]);
+
+	                Collections.sort(campiNew, new Comparator<String>() {
+	                    @Override
+	                    public int compare(String o1, String o2) {
+	                        return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	                    }
+	                });
+
+	                innerSelect = "SELECT ";
+	                campiNew = campiNew.stream().map(String::trim).distinct().collect(Collectors.toList());
+	                for (String campo : campiNew) innerSelect += campo + " , ";
+	                innerSelect = innerSelect.substring(0, innerSelect.length() - 2);
+
+	                querySQL += innerSelect + innerFrom + innerWhere + unionAll;
+
+	            } else {
+
+	                innerWhere += filterSQL2;
+
+	                innerSelect2 = innerSelect2.substring(7);
+	                String[] nuoviCampi = innerSelect2.split(",");
+	                List<String> campiNew = new ArrayList<>();
+	                for (int i = 0; i < nuoviCampi.length; i++) campiNew.add(nuoviCampi[i]);
+
+	                Collections.sort(campiNew, new Comparator<String>() {
+	                    @Override
+	                    public int compare(String o1, String o2) {
+	                        return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	                    }
+	                });
+
+	                innerSelect2 = "SELECT ";
+	                if (region != null && !"PRATICHE_WARNING".equals(region)) {
+	                    innerSelect2 += "DISTINCT ";
+	                }
+	                campiNew = campiNew.stream().map(String::trim).distinct().collect(Collectors.toList());
+	                for (String campo : campiNew) innerSelect2 += campo + " , ";
+	                innerSelect2 = innerSelect2.substring(0, innerSelect2.length() - 2);
+
+	                querySQL += innerSelect2 + innerFrom + innerWhere + unionAll;
+	            }
+	            
+	            innerWhere = trimTrailingAnd(innerWhere);
+	            
+	            innerFrom = "FROM ";
+	            innerJoin = "JOIN ";
+	            innerSelect = "SELECT ";
+	            innerSelect2 = "SELECT ";
+	            innerOn2 = "ON ";
+	            innerOn3 = "ON ";
+	            innerWhere = "WHERE ";
+	            if (region == null || "PRATICHE_WARNING".equals(region)) {
+	                innerOn = "ON ";
+	            } else {
+	                if (table.getSection() == 0) {
+	                    break;
+	                }
+	            }
+	        }
+
+	        if (sezioneFiltroDataRiferimento.equals("") || sezioneFiltroDataRiferimento.equals("0")) {
+	            querySQL = querySQL.replaceAll("filtri", "");
+	        } else if (sezioneFiltroDataRiferimento.equals("1")) {
+	            querySQL = querySQL.replaceAll("filtri", filterSQL0);
+	        }
+
+	        outerSelect = outerSelect.substring(0, outerSelect.length() - 2);
+
+	        String[] nuoviCampi = outerSelect.split(",");
+	        List<String> campiNew = new ArrayList<>();
+	        for (int i = 0; i < nuoviCampi.length; i++) campiNew.add(nuoviCampi[i]);
+
+	        Collections.sort(campiNew, new Comparator<String>() {
+	            @Override
+	            public int compare(String o1, String o2) {
+	                return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	            }
+	        });
+
+	        outerSelect = "";
+	        campiNew = campiNew.stream().map(String::trim).distinct().collect(Collectors.toList());
+	        for (String campo : campiNew) outerSelect += campo + " , ";
+	        outerSelect = outerSelect.substring(0, outerSelect.length() - 2);
+
+	        outerSelect = "SELECT  " + outerSelect + ", " + outerSelectCount;
+
+	        if (querySQL.endsWith(leftJoin + " ( ")) {
+	            querySQL = querySQL.substring(0, querySQL.length() - 13);
+	        }
+
+	        querySQL = outerSelect + fromSQl + querySQL;
+
+	        groupBy = groupBy.substring(0, groupBy.length() - 3);
+	        querySQL = querySQL.substring(0, querySQL.length() - unionAll.length());
+	        querySQL += ") c0 " + groupBy;
+
+	        querySQL = "SELECT COUNT(1) FROM ( " + querySQL + ")";
+
+	    } catch (Exception e) {
+	        LogUtil.logException(logger, "", e);
+//	      e.printStackTrace();
+	    }
+
+	    NativeQuery<?> query = entityManager.createNativeQuery(querySQL).unwrap(NativeQuery.class);
+
+	    // ✅ set parametri mesi/anni vs datada/dataa
+	    if (flowViewFilter.getExtractionIdFromGrid()!= null && querySQL.contains(":extractionId")) {
+		    query.setParameter("extractionId", flowViewFilter.getExtractionIdFromGrid());
+		} else {
+		    if (Boolean.TRUE.equals(flowViewFilter.getCanViewDateFromToFilters())) {
+		        if (useDateFromTo && refDate != null) {
+		            if (querySQL.contains(":datada")) query.setParameter("datada", flowViewFilter.getExtraDateFrom());
+		            if (querySQL.contains(":dataa")) query.setParameter("dataa", flowViewFilter.getExtraDateTo());
+		        }
+		    } else {
+		        if (querySQL.contains(":mesi")) {
+		            query.setParameterList("mesi", getMonthForQuery(flowViewFilter.getMonth()));
+		        }
+		        if (querySQL.contains(":anni")) {
+		            query.setParameter("anni", flowViewFilter.getYear());
+		        }
+		    }
+		}
+	    
+	    if (!aziende.isEmpty() && querySQL.contains(":aziendeprofilate")) {
+	        query.setParameterList("aziendeprofilate", aziende);
+	    }
+	    if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && querySQL.contains(":tipoimportazione")) {
+	        query.setParameter("tipoimportazione", tipoImportazione);
+	    }
+	    if (codicePresidio != null && !codicePresidio.equals("Tutte") && querySQL.contains(":codicepresidio")) {
+	        query.setParameter("codicepresidio", codicePresidio);
+	    }
+	    if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && querySQL.contains(":codiceazienda")) {
+	        query.setParameter("codiceazienda", codiceAzienda);
+	    }
+
+	    BigDecimal result = (BigDecimal) query.getSingleResult();
+	    return result;
+	}
+
+	/**
+	 * Restituisce la COUNT dei messaggi di errori
+	 * @param flowViewFilterError
+	 * @return
+	 */
+	@Override
+	public BigDecimal errorCount(FlowViewFilterError flowViewFilterError) {
+
+	    BigDecimal result = BigDecimal.ZERO;
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+	    String[] pkList = flowViewFilterError.getPkList();
+
+	    String errorCode = flowViewFilterError.getErrorCode();
+	    if (errorCode == null) {
+	        flowViewFilterError.setErrorCode("Tutte");
+	        errorCode = "Tutte";
+	    }
+
+	    String message = flowViewFilterError.getMessage();
+	    if (message == null) {
+	        flowViewFilterError.setMessage("Tutte");
+	        message = "Tutte";
+	    }
+
+	    String tipoImportazione = flowViewFilterError.getTipoImportazione();
+	    if (tipoImportazione == null) {
+	        flowViewFilterError.setTipoImportazione("Tutte");
+	        tipoImportazione = "Tutte";
+	    }
+
+	    String codicePresidio = flowViewFilterError.getCodicePresidio();
+	    if (codicePresidio == null) {
+	        flowViewFilterError.setCodicePresidio("Tutte");
+	        codicePresidio = "Tutte";
+	    }
+
+	    String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+	    if (codiceAzienda == null) {
+	        flowViewFilterError.setCodiceAzienda("Tutte");
+	        codiceAzienda = "Tutte";
+	    }
+
+	    // caricamento lista aziende visibili dall'utente
+	    List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+
+	    String selectSQL = "SELECT ";
+	    String fromSQl = "FROM ";
+	    String whereSQL = "WHERE ";
+	    String join = "JOIN ";
+	    String query = "";
+	    String stringConcat = "";
+	    String tableMessage = "FM_ERROR_MESSAGE ";
+	    String region = flowViewFilterError.getRegion();
+
+	    String innerOnScarti = "";
+	    List<Object[]> resultTabgen = null;
+	    String flussoInterno = "";
+	    boolean extTable = false;
+
+	    // =========================================================
+	    // ✅ NEW: reference date per filtro datada/dataa
+	    // =========================================================
+	    final boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    ReferenceDateFieldDTO refDate = null;
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+	    final ReferenceDateFieldDTO refDateFinal = refDate;
+
+	    // =========================================================
+	    // ✅ NEW: PK map by section + helpers join chain
+	    // =========================================================
+	    final Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    if (formFlowDTO.getFlowTableList() != null) {
+	        for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	            List<String> pks = new ArrayList<>();
+	            if (t.getFlowTableFieldList() != null) {
+	                for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	                    if (f.isPk()) pks.add(f.getName());
+	                }
+	            }
+	            pkBySection.put(t.getSection(), pks);
+	        }
+	    }
+
+	    // helper semplice per chain da section0 verso refDate.section (senza lambda che catturano variabili non-final)
+	    java.util.function.BiFunction<String, Integer, JoinChain> buildChainFrom0 = (alias0, targetSection) -> {
+	        if (targetSection == null || targetSection <= 0) return new JoinChain("", alias0);
+
+	        StringBuilder sb = new StringBuilder();
+	        String prevAlias = alias0;
+
+	        for (int s = 1; s <= targetSection; s++) {
+	            String curAlias = "REF" + s;
+	            String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + s;
+
+	            sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	            List<String> pkPrev = pkBySection.getOrDefault(s - 1, Collections.emptyList());
+	            if (pkPrev == null || pkPrev.isEmpty()) {
+	                pkPrev = pkBySection.getOrDefault(s, Collections.emptyList());
+	            }
+
+	            for (String pk : pkPrev) {
+	                sb.append(prevAlias).append(".").append(pk)
+	                  .append(" = ")
+	                  .append(curAlias).append(".").append(pk)
+	                  .append(" AND ");
+	            }
+
+	            if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+	                sb.setLength(sb.length() - 5);
+	            }
+	            sb.append(" ");
+	            prevAlias = curAlias;
+	        }
+
+	        return new JoinChain(sb.toString(), "REF" + targetSection);
+	    };
+
+	    // helper: se non sei su section0, crea alias0 e join verso FM_FLOW_<flow>_0
+	    java.util.function.BiFunction<Integer, String, JoinChain> ensureAlias0 = (currentSection, currentAlias) -> {
+	        if (currentSection == null || currentSection == 0) return new JoinChain("", currentAlias);
+
+	        String alias0 = currentAlias + "0";
+	        StringBuilder j0 = new StringBuilder();
+	        String table0 = "FM_FLOW_" + formFlowDTO.getName() + "_0";
+
+	        j0.append(" JOIN ").append(table0).append(" ").append(alias0).append(" ON ");
+
+	        List<String> pk0 = pkBySection.getOrDefault(0, Collections.emptyList());
+	        for (String pk : pk0) {
+	            j0.append(currentAlias).append(".").append(pk)
+	              .append(" = ")
+	              .append(alias0).append(".").append(pk)
+	              .append(" AND ");
+	        }
+	        if (j0.length() >= 5 && j0.substring(j0.length() - 5).equals(" AND ")) {
+	            j0.setLength(j0.length() - 5);
+	        }
+	        j0.append(" ");
+
+	        return new JoinChain(j0.toString(), alias0);
+	    };
+
+	    // =========================================================
+	    // tabgen key fields per region
+	    // =========================================================
+	    if (region != null) {
+	        String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+	        String tableNameRegErrors = flowViewFilterError.getFlow().getName() + "_REG_" + cfgSuffixRegError;
+	        ConfigurationDO cfgObj = configuration.findByKeyId("flowWithExternalUpdate");
+	        if (cfgObj != null) {
+	            String cfg = cfgObj.getValue();
+	            String[] cfgSplitted = cfg.split("/");
+	            for (int i = 0; i < cfgSplitted.length; i++) {
+	                String value = cfgSplitted[i];
+	                int iend = value.indexOf("(");
+	                flussoInterno = value.substring(0, iend);
+	                String flussoCopia = value.substring(iend + 1, value.length() - 1);
+	                if (flussoInterno != null && !"".equals(flussoInterno) && flussoCopia.equals(formFlowDTO.getName())) {
+	                    tableNameRegErrors = flussoInterno + "_REG_" + cfgSuffixRegError;
+	                    extTable = true;
+	                }
+	            }
+	        }
+
+	        List<TabgenField> fields = tabgenDelegate.searchFieldsByTabgenId(tableNameRegErrors.toUpperCase());
+	        for (TabgenField field : fields) {
+	            if ("CAMPO_CHIAVE".equals(field.getDescription())) {
+	                String valueColumn = field.getTabgenValueColumn();
+	                String queryTabgen = "select * from fm_tabgen_value where tabgen_id = '" + tableNameRegErrors.toUpperCase()
+	                        + "' and " + valueColumn + " = '1'";
+	                Query queryTab = entityManager.createNativeQuery(queryTabgen);
+	                resultTabgen = queryTab.getResultList();
+	                break;
+	            }
+	        }
+	    }
+
+	    // =========================================================
+	    // query
+	    // =========================================================
+	    if (pkList != null) { // ACCORDION FLOW VIEW
+	        int index = flowViewFilterError.getIndex();
+	        try {
+	            String nativeTableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + index;
+	            String tableName = nativeTableName + "_MESSAGE ";
+
+	            for (int i = 0; i < pkList.length; i++) {
+	                stringConcat += pkList[i];
+	            }
+
+	            if (index == 0) {
+	                boolean found = false;
+	                if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                    for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                        if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                            found = true;
+	                            query += selectSQL + "count(1)" + fromSQl + tableName + " PPP ";
+	                            query += join + nativeTableName + " PRA2 ON PRA2." + filter.get("campo") + "='" + filter.get("selected")
+	                                    + "' AND PPP.codicestruttura = PRA2.codicestruttura AND PPP.codiceaccessops = PRA2.codiceaccessops ";
+	                            query += join + tableMessage + " QQQ ON PPP.MESSAGE = QQQ.EM_ID " + whereSQL + "ROW_ID ='" + stringConcat + "' ";
+	                        }
+	                    }
+	                }
+	                if (!found) {
+	                    query += selectSQL + "count(1)" + fromSQl + tableName + " PPP " + join + tableMessage
+	                            + " QQQ ON PPP.MESSAGE = QQQ.EM_ID " + whereSQL + "ROW_ID ='" + stringConcat + "'";
+	                }
+	            } else {
+	                query += selectSQL + "count(1)" + fromSQl + tableName + " PPP " + join + tableMessage
+	                        + " QQQ ON PPP.MESSAGE = QQQ.EM_ID " + whereSQL + "ROW_ID ='" + stringConcat + "'";
+	            }
+	        } catch (Exception e) {
+	        	LogUtil.logException(logger, "", e);
+	        }
+
+	    } else {
+
+	        try { // ERRORI
+
+	            String campiSelect = "P.MESSAGE, P.DESCRIPTION, P.SEVERITY, COUNT(1) cc ";
+	            String campiSelectSub = "";
+	            String campiSelectSub0 = "";
+	            int countCampiSub = 0;
+	            String unionAll = "UNION ALL ";
+	            String groupBySQL = "GROUP BY P.MESSAGE, P.DESCRIPTION, P.SEVERITY ";
+	            String on2SQL = "ON B.MESSAGE = C.EM_ID ";
+	            String onSQL = "ON ";
+	            String where2SQL = "";
+	            String where2SQL2 = "";
+	            String leftJoin = "LEFT JOIN ";
+	            String extractionJoin = "";
+
+	            String tableScarti = formFlowDTO.getName() + "_REG_SCARTI_REGIONE b ";
+	            if (extTable) {
+	                tableScarti = flussoInterno + "_REG_SCARTI_REGIONE b ";
+	            }
+
+	            // =========================================================
+	            // ✅ NEW: parte "periodo" (al posto di MONTH/YEAR quando useDateFromTo)
+	            // NOTA: la applichiamo su alias A (e join chain aggiunta nel FROM dentro il loop)
+	            // =========================================================
+	            // costruisco la "base" comune (aziende + severity), poi dentro loop metto il filtro periodo corretto
+	            String baseSeverity = "b.severity = 'ERROR' ";
+	            if (region != null) {
+	                if ("WARNING".equals(region)) {
+	                    baseSeverity = "b.severity = 'WARNING' ";
+	                } else {
+	                    if ("SEGNALAZIONI_REG".equals(region) || "SEGNALAZIONI_REG_AGG".equals(region)) {
+	                        baseSeverity = "b.severity = 'SEGNALAZIONE' ";
+	                    } else {
+	                        baseSeverity = "b.severity = 'SCARTO' ";
+	                    }
+	                }
+	            }
+	            
+	            java.util.function.Function<String, String> truncIfNeeded =
+	                    (qualifiedField) -> "TRUNC(" + qualifiedField + ")";
+
+	            java.util.function.Function<String, String> dateBetween =
+	                    (qualifiedField) -> truncIfNeeded.apply(qualifiedField) + " BETWEEN :datada AND :dataa ";
+
+	                    
+	            // ✅ FIX: non catturo baseSeverity nella lambda → la passo come parametro
+	            java.util.function.BiFunction<String, String, String> buildWhere2 = (aliasA, severityClause) -> {
+	                StringBuilder w = new StringBuilder("WHERE ");
+
+	                if (useDateFromTo && refDateFinal != null) {
+	                    // filtro periodo
+	                	w.append(dateBetween.apply(aliasA + "." + refDateFinal.fieldName()));
+	                } else {
+	                    // filtro month/year originale
+	                    w.append("A.MONTH_RIF ").append(getWhereConditionMonthRif(flowViewFilterError)).append(" AND A.YEAR_RIF = :anni ");
+	                }
+
+	                if (!aziende.isEmpty()) {
+	                    // NB: uso sempre alias A per codiceazienda (come prima)
+	                    w.append(" AND A.CODICEAZIENDA IN ( :aziendeprofilate ) ");
+	                }
+
+	                w.append(" AND ").append(severityClause);
+	                return w.toString();
+	            };
+
+	            // set iniziale (può essere sovrascritto nei rami region)
+	            where2SQL = buildWhere2.apply("A", baseSeverity);
+
+	            // filtri addizionali (come prima)
+	            if (errorCode != null && !errorCode.equals("Tutte")) {
+	                if (region != null) where2SQL += "AND B.CODICEERRORE = :codiceerrore ";
+	                else where2SQL += "AND B.MESSAGE = :message ";
+	            }
+	            if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	            if (codicePresidio != null && !codicePresidio.equals("Tutte")) where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	            if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+
+	            // rami region (logica invariata, solo replace MONTH/YEAR -> periodo via buildWhere2)
+	            if (region != null && !"WARNING".equals(region)) {
+	                campiSelect = "P.CODICEERRORE, P.DESCRIZIONEERRORE, P.SEVERITY, COUNT(1) cc ";
+	                groupBySQL = "GROUP BY P.CODICEERRORE, P.DESCRIZIONEERRORE, P.SEVERITY ";
+
+	                String nomeFlusso = formFlowDTO.getName();
+	                if (extTable) nomeFlusso = flussoInterno;
+
+	                if ("SEGNALAZIONI_REG".equals(region) || "SEGNALAZIONI_REG_AGG".equals(region)) {
+
+	                	where2SQL = buildWhere2.apply("A", baseSeverity);
+	                    if (errorCode != null && !errorCode.equals("Tutte")) {
+	                        where2SQL += "AND B.CODICEERRORE = :codiceerrore ";
+	                    }
+	                    if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	                    if (codicePresidio != null && !codicePresidio.equals("Tutte")) where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	                    if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+
+	                    if (flowViewFilterError.getExtractionIdFromGrid() == null) {
+	                        where2SQL += " and e.END_EXTRACTION_DATE = (select max(e2.END_EXTRACTION_DATE) "
+	                                + "from FM_FLOW_" + nomeFlusso + "_REG_0 c2 , fm_flow_exporting_request e2 "
+	                                + "where e2.END_EXTRACTION_DATE is not null and c2.extraction_id = e2.id AND ";
+	                    }
+
+	                    if ("SEGNALAZIONI_REG_AGG".equals(region)) {
+	                        where2SQL += " A.STATUS_REGION = 'SEGNALAZIONE' AND ";
+	                    }
+
+	                } else {
+
+	                	where2SQL = buildWhere2.apply("A", baseSeverity);
+	                    if (errorCode != null && !errorCode.equals("Tutte")) {
+	                        where2SQL += "AND B.CODICEERRORE = :codiceerrore ";
+	                    }
+	                    if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	                    if (codicePresidio != null && !codicePresidio.equals("Tutte")) where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	                    if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+
+	                    if (flowViewFilterError.getExtractionIdFromGrid() == null) {
+	                        where2SQL += " and e.END_EXTRACTION_DATE = (select max(e2.END_EXTRACTION_DATE) "
+	                                + "from FM_FLOW_" + nomeFlusso + "_REG_0 c2 , fm_flow_exporting_request e2 "
+	                                + "where e2.END_EXTRACTION_DATE is not null and c2.extraction_id = e2.id and ";
+	                        where2SQL2 += " and b.RECEIVING_DATE = (SELECT MAX(b.RECEIVING_DATE) "
+	                                + "FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, " + tableScarti
+	                                + " WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id and ";
+	                    }
+
+	                    if ("ERRORI_REG_AGG".equals(region)) {
+	                        where2SQL += " A.STATUS_REGION = 'SCARTO' AND ";
+	                    }
+	                }
+	            } else if (region != null && "WARNING".equals(region)) {
+	                // WARNING region: ricostruisco where2SQL per sicurezza con buildWhere2 (che già mette severity WARNING)
+	            	where2SQL = buildWhere2.apply("A", baseSeverity);
+	                if (errorCode != null && !errorCode.equals("Tutte")) {
+	                    where2SQL += "AND B.CODICEERRORE = :codiceerrore ";
+	                }
+	                if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	                if (codicePresidio != null && !codicePresidio.equals("Tutte")) where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	                if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+	            }
+
+	            for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+
+	                String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection() + " A ";
+	                String tableNameMessage = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection() + "_MESSAGE B ";
+	                String tableErrors = "FM_ERROR_MESSAGE C ";
+	                String tableNative = "FM_FLOW_" + formFlowDTO.getName() + "_";
+	                String tableNativeExt = "FM_FLOW_" + flussoInterno + "_";
+
+	                // costruzione ON PK (come prima)
+	                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	                    if (field.isPk()) {
+	                        campiSelectSub += "A." + field.getName() + " , ";
+	                        if (region != null && !"WARNING".equals(region)) {
+	                            if (formFlowTableDTO.getSection() == 0) {
+	                                onSQL += buildNullableJoinCondition("A", "reg", field.getName());
+	                            }
+	                        } else {
+	                        	onSQL += buildNullableJoinCondition("A", "B", field.getName());
+	                        }
+	                    }
+	                }
+	                onSQL = trimTrailingAnd(onSQL);
+
+	                // =========================================================
+	                // ✅ NEW: aggiungo join chain nel FROM quando serve (useDateFromTo)
+	                // - per evitare stravolgimenti: aggiungo joins DOPO la FROM principale,
+	                //   e filtro su alias della chain (REFx) ma partendo da alias A (o A0)
+	                // =========================================================
+	                String extraDateJoinSqlForA = "";
+	                String dateAliasTmp = "A";
+	                if (useDateFromTo && refDateFinal != null && refDateFinal.section() != null) {
+	                    // se la refDate è su section diversa da quella corrente, creo alias0 e chain
+	                    JoinChain j0 = ensureAlias0.apply(formFlowTableDTO.getSection(), "A");
+	                    JoinChain chain = buildChainFrom0.apply(j0.targetAlias, refDateFinal.section());
+
+	                    extraDateJoinSqlForA = " " + j0.joinSql + " " + chain.joinSql + " ";
+	                    dateAliasTmp = chain.targetAlias;
+	                }
+	                final String dateAliasFinal = dateAliasTmp;
+
+	                if (region != null && !"WARNING".equals(region)) {
+
+	                    // join per scarti + extraction
+	                    innerOnScarti = "ON ";
+	                    extractionJoin = "";
+	                    for (int i = 0; i < resultTabgen.size(); i++) {
+	                        String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+
+	                        innerOnScarti += buildNullableJoinCondition("reg", "B", fieldName);
+	                        extractionJoin += buildNullableJoinCondition("c2", "reg", fieldName);
+	                    }
+	                    innerOnScarti = trimTrailingAnd(innerOnScarti);
+	                    if (extractionJoin.toUpperCase().endsWith(" AND ")) {
+	                        extractionJoin = extractionJoin.substring(0, extractionJoin.length() - 4);
+	                        extractionJoin += ")";
+	                    }
+
+	                    if (extTable) {
+	                        fromSQl += tableName
+	                                + join + tableNativeExt + "REG_0 reg " + onSQL
+	                                + join + tableScarti + innerOnScarti
+	                                + " join FM_FLOW_EXPORTING_REQUEST e ON reg.extraction_id = e.id ";
+	                    } else {
+	                        fromSQl += tableName
+	                                + join + tableNative + "REG_0 reg " + onSQL
+	                                + join + tableScarti + innerOnScarti
+	                                + " join FM_FLOW_EXPORTING_REQUEST e ON reg.extraction_id = e.id ";
+	                    }
+
+	                    // aggiungo i join chain per il filtro data (se attivo)
+	                    fromSQl += extraDateJoinSqlForA;
+
+	                } else {
+
+	                    if (formFlowTableDTO.getSection() == 0 && countCampiSub == 0) {
+	                        campiSelectSub0 += onSQL;
+	                        countCampiSub++;
+	                    }
+
+	                    fromSQl += tableName + join + tableNameMessage + onSQL;
+
+	                    // aggiungo i join chain per il filtro data (se attivo)
+	                    fromSQl += extraDateJoinSqlForA;
+	                }
+
+	                // === campi select sub (lasciati come prima; MONTH/YEAR restano solo in SELECT, non in filtro) ===
+	                if (region == null || "WARNING".equals(region)) {
+	                    campiSelectSub += "A.MONTH_RIF, A.YEAR_RIF, B.MESSAGE, nvl(c.description, 'DESCRIZIONE ERRORE NON DISPONIBILE, ERRORE NON CENSITO') as description, B.SEVERITY ";
+
+	                    // ✅ NEW: se useDateFromTo, sostituisco nel where2SQL il riferimento al campo data con alias corretto
+	                    String where2SQLLocal = where2SQL;
+	                    if (useDateFromTo && refDateFinal != null) {
+	                        // buildWhere2 ha scritto "A.<refField> BETWEEN..." oppure "A.MONTH_RIF..."
+	                        // qui forzo l'alias data (REFx) al posto di "A." solo per la colonna date
+	                        where2SQLLocal = where2SQLLocal.replace("A." + refDateFinal.fieldName(), dateAliasFinal + "." + refDateFinal.fieldName());
+	                    }
+
+	                    boolean found = false;
+	                    if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                        for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                            if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                                if (campiSelectSub0.endsWith(", ")) {
+	                                    campiSelectSub0 = campiSelectSub0.substring(0, campiSelectSub0.length() - 2);
+	                                }
+	                                campiSelectSub0 += " ";
+	                                found = true;
+
+	                                query += selectSQL + campiSelect + "from ( " + selectSQL + campiSelectSub + fromSQl;
+
+	                                query += " JOIN " + tableNative + "0" + " B0 "
+	                                        + campiSelectSub0.substring(campiSelectSub0.lastIndexOf("ON")).replace("B.", "B0.")
+	                                        + " AND B0." + filter.get("campo") + "='" + filter.get("selected") + "' ";
+
+	                                query += leftJoin + tableErrors + on2SQL + where2SQLLocal + ") P " + groupBySQL + unionAll;
+	                            }
+	                        }
+	                    }
+	                    if (!found) {
+	                        query += selectSQL + campiSelect + "from ( " + selectSQL + campiSelectSub + fromSQl + leftJoin
+	                                + tableErrors + on2SQL + where2SQLLocal + ") P " + groupBySQL + unionAll;
+	                    }
+
+	                    fromSQl = "FROM ";
+
+	                } else {
+
+	                    campiSelectSub += "A.MONTH_RIF, A.YEAR_RIF, B.CODICEERRORE, B.DESCRIZIONEERRORE, B.SEVERITY ";
+
+	                    String where2SQLLocal = where2SQL;
+	                    if (useDateFromTo && refDateFinal != null) {
+	                        where2SQLLocal = where2SQLLocal.replace("A." + refDateFinal.fieldName(), dateAliasFinal + "." + refDateFinal.fieldName());
+	                    }
+
+	                    where2SQLLocal += extractionJoin;
+	                    String where2SQL2Local = where2SQL2;
+	                    if (where2SQL2Local != null && !where2SQL2Local.isBlank()) {
+	                        where2SQL2Local += extractionJoin;
+	                    }
+
+	                    query += selectSQL + campiSelect + " from ( " + selectSQL + campiSelectSub + fromSQl
+	                            + where2SQLLocal + where2SQL2Local + ") P " + groupBySQL + unionAll;
+
+	                    break; // invariato
+	                }
+
+	                campiSelectSub = "";
+	                onSQL = "ON ";
+	            }
+
+	            if (query.endsWith(" UNION ALL ")) query = query.substring(0, query.length() - 11);
+
+	            query = selectSQL + "COUNT(1) from( " + query + " ) d order by cc desc";
+
+	        } catch (Exception e) {
+	        	LogUtil.logException(logger, "", e);
+//	            e.printStackTrace();
+	        }
+	    }
+
+	    // =========================================================
+	    // execute + parametri
+	    // =========================================================
+	    try {
+	        NativeQuery<?> query2 = entityManager.createNativeQuery(query).unwrap(NativeQuery.class);
+
+	        // ✅ NEW: parametri periodo vs month/year
+	        if (useDateFromTo && refDateFinal != null) {
+	            if (query.contains(":datada")) query2.setParameter("datada", flowViewFilterError.getExtraDateFrom());
+	            if (query.contains(":dataa")) query2.setParameter("dataa", flowViewFilterError.getExtraDateTo());
+	        } else {
+	            if (flowViewFilterError.getYear() != null && query.contains(":anni")) {
+	                query2.setParameter("anni", flowViewFilterError.getYear());
+	            }
+	            if (flowViewFilterError.getMonth() != null && query.contains(":mesi")) {
+	                query2.setParameterList("mesi", getMonthForQuery(flowViewFilterError.getMonth()));
+	            }
+	        }
+
+	        if (!aziende.isEmpty() && query.contains(":aziendeprofilate")) {
+	            query2.setParameterList("aziendeprofilate", aziende);
+	        }
+	        if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && query.contains(":tipoimportazione")) {
+	            query2.setParameter("tipoimportazione", tipoImportazione);
+	        }
+	        if (codicePresidio != null && !codicePresidio.equals("Tutte") && query.contains(":codicepresidio")) {
+	            query2.setParameter("codicepresidio", codicePresidio);
+	        }
+	        if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && query.contains(":codiceazienda")) {
+	            query2.setParameter("codiceazienda", codiceAzienda);
+	        }
+	        if (errorCode != null && !errorCode.equals("Tutte") && query.contains(":codiceerrore")) {
+	            query2.setParameter("codiceerrore", errorCode);
+	        }
+	        if (message != null && !message.equals("Tutte") && query.contains(":message")) {
+	            query2.setParameter("message", message);
+	        }
+
+	        result = (BigDecimal) query2.getSingleResult();
+
+	    } catch (Exception e) {
+	    	LogUtil.logException(logger, "", e);
+//	        e.printStackTrace();
+	    }
+
+	    return result;
+	}
+	
+	@Override
+	public List<Object> createQueryPratiche(FlowViewFilterError flowViewFilterError, List<String> aziende) {
+
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+	    String campiSelect = "";
+	    String region = flowViewFilterError.getRegion();
+	    HashMap<Integer, String> selectFields = new HashMap<Integer, String>();
+	    HashMap<Integer, String> selectDescriptions = new HashMap<Integer, String>();
+	    List<FormFlowTableFieldDTO> filters = new ArrayList<FormFlowTableFieldDTO>();
+	    List<String> pkNameList = new ArrayList<String>();
+	    String selectCount = "SELECT COUNT(1) ";
+	    String innerFrom = "FROM ";
+	    String innerWhere = "WHERE ";
+	    String query = "";
+	    String select = "SELECT ";
+	    String outerSelect = "SELECT * FROM (";
+	    String outerWhere = "WHERE tot <> 0";
+	    String from = "FROM ";
+	    String where = "WHERE ";
+	    String groupBy = "GROUP BY ";
+	    String onReg = "";
+	    String innerOnScarti = "";
+	    String flussoInterno = "";
+	    boolean extTable = false;
+	    boolean sez0and1are1toN = false;
+
+	    List<Object[]> resultTabgen = null;
+
+	    // =========================================================
+	    // 🔧 NEW: reference date per filtro datada/dataa (solo se CanViewDateFromToFilters=true)
+	    // =========================================================
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    // =========================================================
+	    // 🔧 NEW: PK map by section (serve per join chain 0 -> ... -> ref.section)
+	    // =========================================================
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) pks.add(f.getName());
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    // piccolo holder (locale) per catena join
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+
+	    java.util.function.BiFunction<String, Integer, JoinChain> buildChainFrom0 =
+	            (alias0, targetSection) -> {
+	                if (targetSection == null || targetSection <= 0) return new JoinChain("", alias0);
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = alias0;
+
+	                for (int s = 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + s;
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    List<String> pkPrev = pkBySection.getOrDefault(s - 1, Collections.emptyList());
+	                    if (pkPrev == null || pkPrev.isEmpty()) {
+	                        pkPrev = pkBySection.getOrDefault(s, Collections.emptyList());
+	                    }
+
+	                    for (String pk : pkPrev) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                          .append(" = ")
+	                          .append(curAlias).append(".").append(pk)
+	                          .append(" AND ");
+	                    }
+
+	                    if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+	                        sb.setLength(sb.length() - 5);
+	                    }
+
+	                    // spazio finale per non attaccare WHERE/altre JOIN
+	                    sb.append(" ");
+
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+	    java.util.function.Function<String, String> truncIfNeeded =
+	                    (qualifiedField) -> "TRUNC(" + qualifiedField + ")";
+	    java.util.function.Function<String, String> dateBetween =
+	            (qualifiedField) -> truncIfNeeded.apply(qualifiedField) + " BETWEEN :datada AND :dataa ";
+
+	    // =========================================================
+	    // tabgen/scarti (INVARIATO)
+	    // =========================================================
+	    if (region != null) {
+	        String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+	        String tableNameRegErrors = flowViewFilterError.getFlow().getName() + "_REG_" + cfgSuffixRegError;
+	        ConfigurationDO cfgObj = configuration.findByKeyId("flowWithExternalUpdate");
+	        if (cfgObj != null) {
+	            String cfg = cfgObj.getValue();
+	            String[] cfgSplitted = cfg.split("/");
+	            for (int i = 0; i < cfgSplitted.length; i++) {
+	                String value = cfgSplitted[i];
+	                int iend = value.indexOf("(");
+	                flussoInterno = value.substring(0, iend);
+	                String flussoCopia = value.substring(iend + 1, value.length() - 1);
+	                if (flussoInterno != null && !"".equals(flussoInterno) && flussoCopia.equals(formFlowDTO.getName())) {
+	                    tableNameRegErrors = flussoInterno + "_REG_" + cfgSuffixRegError;
+	                    extTable = true;
+	                }
+	            }
+	        }
+	        List<TabgenField> fields = tabgenDelegate.searchFieldsByTabgenId(tableNameRegErrors.toUpperCase());
+
+	        for (TabgenField field : fields) {
+	            if ("CAMPO_CHIAVE".equals(field.getDescription())) {
+	                String valueColumn = field.getTabgenValueColumn();
+	                String queryTabgen = "select * from fm_tabgen_value where tabgen_id = '" + tableNameRegErrors.toUpperCase()
+	                        + "' and " + valueColumn + " = '1'";
+	                Query queryTab = entityManager.createNativeQuery(queryTabgen);
+	                resultTabgen = queryTab.getResultList();
+	                break;
+	            }
+	        }
+	    }
+
+	    // sez0and1are1toN (INVARIATO)
+	    if (formFlowDTO.getFlowTableList().size() > 1) {
+	        int countPk = 0;
+	        for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+	            if (formFlowTableDTO.getSection() == 0 || formFlowTableDTO.getSection() == 1) {
+	                int countPkTable = 0;
+	                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	                    if (field.isPk()) {
+	                        countPkTable++;
+	                    }
+	                }
+	                if (countPk == 0) {
+	                    countPk = countPkTable;
+	                } else {
+	                    if (countPk != countPkTable) {
+	                        sez0and1are1toN = true;
+	                    }
+	                }
+	            }
+	        }
+	    }
+
+	    try { // ACCORDION ERRORI
+
+	        List<String> campi = new ArrayList<String>();
+	        List<String> campiDesc = new ArrayList<String>();
+	        String campiDescStr = "";
+	        String nomeFlusso = formFlowDTO.getName();
+
+	        String tipoImportazione = flowViewFilterError.getTipoImportazione();
+	        if (tipoImportazione == null) {
+	            flowViewFilterError.setTipoImportazione("Tutte");
+	        }
+	        String codicePresidio = flowViewFilterError.getCodicePresidio();
+	        if (codicePresidio == null) {
+	            flowViewFilterError.setCodicePresidio("Tutte");
+	        }
+	        String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+	        if (codiceAzienda == null) {
+	            flowViewFilterError.setCodiceAzienda("Tutte");
+	        }
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	            if (extTable) {
+	                nomeFlusso = flussoInterno;
+	            }
+	            if (region != null && !"WARNING".equals(region)) {
+	                innerFrom += nomeFlusso + "_REG_SCARTI_REGIONE" + " m ";
+	            } else {
+	                innerFrom += "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + "_MESSAGE" + " m ";
+	            }
+
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                if (table.getSection() == 0) {
+	                    if (field.getGroups()) {
+	                        campiSelect += "a." + field.getName() + " , ";
+	                        campiDescStr += field.getDescriptionsm() + " , ";
+	                        campi.add(field.getName());
+	                        campiDesc.add(field.getDescriptionsm());
+	                    }
+	                    if (field.isPk()) {
+	                        pkNameList.add(field.getName());
+	                        innerWhere += buildNullableJoinCondition("a", "m", field.getName());
+	            			onReg += buildNullableJoinCondition("a", "c", field.getName());
+	                    }
+	                } else if (table.getSection() == 1) {
+	                    if (field.isPk() && !sez0and1are1toN && !extTable) {
+	                        where += buildNullableJoinCondition("a", "b", field.getName());
+	                    }
+	                }
+
+	                if (table.getSection() == 1) {
+	                    if (field.getGroups()) {
+	                        if (campi.contains(field.getName())) {
+	                            campi.remove(field.getName());
+	                            campiDesc.remove(field.getDescriptionsm());
+	                        } else {
+	                            campiSelect += "b." + field.getName() + " , ";
+	                            campiDescStr += field.getDescriptionsm() + " , ";
+	                        }
+	                    }
+	                }
+
+	                if (field.isReferenceDate() && !field.isPk()) {
+	                    filters.add(field);
+	                }
+	            }
+
+	            if (table.getSection() == 0) {
+	                from += "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + " a ,";
+	                if (region != null && !"WARNING".equals(region) && sez0and1are1toN) {
+	                    from = from.substring(0, from.length() - 1);
+	                }
+	                if (region == null || "WARNING".equals(region)) {
+	                    innerWhere += "m.message = :message";
+	                }
+	            }
+
+	            if (table.getSection() == 1) {
+	                from += "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + " b ";
+	                if (region != null && !"WARNING".equals(region)) {
+	                    break;
+	                }
+	            }
+
+	            query += selectCount + innerFrom + innerWhere + " ) + (";
+	            innerFrom = "FROM ";
+
+	            if (region != null && !"WARNING".equals(region) && sez0and1are1toN) {
+	                break;
+	            }
+	        }
+
+	        if (region != null && !"WARNING".equals(region)) {
+	            from += ", " + nomeFlusso + "_REG_SCARTI_REGIONE" + " m ,"
+	                    + "FM_FLOW_" + nomeFlusso + "_REG_0 c , fm_flow_exporting_request e ";
+	        }
+
+	        if (campiSelect.isEmpty() && campiDescStr.isEmpty()) {
+	            return new ArrayList<Object>();
+	        }
+
+	        campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+	        campiDescStr = campiDescStr.substring(0, campiDescStr.length() - 2);
+
+	        // 🔧 NEW inizio: ordinamento per posizione con alias corretti (a./b.)
+	        Map<Integer, String> campiPerPosizione = new TreeMap<>();
+	        Map<Integer, String> descrPerPosizione = new TreeMap<>();
+
+	        Set<String> campiSez0 = new HashSet<>(campi); // groups della sezione 0 (già popolato)
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	            int section = table.getSection();
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                if (!Boolean.TRUE.equals(field.getGroups())) continue;
+
+	                String alias = null;
+	                if (section == 0) {
+	                    alias = "a.";
+	                } else if (section == 1) {
+	                    if (!campiSez0.contains(field.getName())) alias = "b.";
+	                    else continue;
+	                } else {
+	                    continue;
+	                }
+
+	                Integer pos = field.getPosition();
+	                if (pos != null && !campiPerPosizione.containsKey(pos)) {
+	                    campiPerPosizione.put(pos, alias + field.getName());
+	                    descrPerPosizione.put(pos, field.getDescriptionsm());
+	                }
+	            }
+	        }
+
+	        int maxPos = campiPerPosizione.keySet().stream().max(Integer::compareTo).orElse(0);
+	        campiPerPosizione.put(maxPos + 1, "a.import_type");
+	        descrPerPosizione.put(maxPos + 1, "Tipo Importazione");
+
+	        StringBuilder sbCampi = new StringBuilder();
+	        StringBuilder sbDesc = new StringBuilder();
+	        for (Integer pos : campiPerPosizione.keySet()) {
+	            sbCampi.append(campiPerPosizione.get(pos)).append(", ");
+	            sbDesc.append(descrPerPosizione.get(pos)).append(", ");
+	        }
+
+	        campiSelect = (sbCampi.length() > 0) ? sbCampi.substring(0, sbCampi.length() - 2) : "";
+	        campiDescStr = (sbDesc.length() > 0) ? sbDesc.substring(0, sbDesc.length() - 2) : "";
+
+	        selectFields.clear();
+	        selectDescriptions.clear();
+	        int position = 0;
+	        for (Integer pos : campiPerPosizione.keySet()) {
+	            String campo = campiPerPosizione.get(pos);
+	            String[] fieldPoint = campo.split("\\.");
+	            selectFields.put(position, fieldPoint[fieldPoint.length - 1].trim());
+	            selectDescriptions.put(position, descrPerPosizione.get(pos).trim());
+	            position++;
+	        }
+
+	        if (region != null && !"WARNING".equals(region)) {
+	            selectFields.put(position, "message");
+	            selectDescriptions.put(position, "message");
+	        }
+
+	        groupBy += campiSelect;
+	        campiSelect += ", ";
+
+	        if (query.endsWith("+ (")) {
+	            query = query.substring(0, query.length() - 3);
+	            query += " tot ";
+	        }
+
+	        if (from.endsWith(",")) {
+	            from = from.substring(0, from.length() - 1);
+	        }
+
+	        // =========================================================
+	        // ✅ MOD: filtro periodo MONTH/YEAR -> datada/dataa su reference date (se abilitato)
+	        // =========================================================
+	        if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	            where += "c.extraction_id = :extractionId ";
+	        } else {
+
+	            if (useDateFromTo && refDate != null) {
+
+	                // aggiungo eventuale chain da "a" (section 0) verso la section della reference date
+	                String dateAlias;
+	                if (refDate.section() != null && refDate.section() == 0) {
+	                    dateAlias = "a";
+	                } else if (refDate.section() != null && refDate.section() == 1) {
+	                    // se ref è in section 1 e la tabella b è presente nel FROM, uso b
+	                    dateAlias = "b";
+	                } else {
+	                    // se ref è in section >1 costruisco join chain da a
+	                    JoinChain chain = buildChainFrom0.apply("a", refDate.section());
+	                    if (chain.joinSql != null && !chain.joinSql.isEmpty()) {
+	                        from += chain.joinSql; // joinSql termina con spazio
+	                    }
+	                    dateAlias = (chain.targetAlias != null ? chain.targetAlias : "a");
+	                }
+
+	                where += dateBetween.apply(dateAlias + "." + refDate.fieldName());
+
+	                if (!aziende.isEmpty()) {
+	                    where += " AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                } else {
+	                    where += " ";
+	                }
+
+	            } else {
+	                if (!aziende.isEmpty()) {
+	                    where += "a.month_rif " + getWhereConditionMonthRif(flowViewFilterError)
+	                            + " and a.year_rif = :anni AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                } else {
+	                    where += "a.month_rif " + getWhereConditionMonthRif(flowViewFilterError)
+	                            + " and a.year_rif = :anni ";
+	                }
+	            }
+
+	            if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                where += " and a.import_type = :tipoimportazione ";
+	            }
+	            if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                where += " and a.CODICEPRESIDIO = :codicepresidio ";
+	            }
+	            if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                where += " and a.CODICEAZIENDA = :codiceazienda ";
+	            }
+	        }
+
+	        if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	            for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                    where += "and a." + filter.get("campo") + "=" + "'" + filter.get("selected") + "' ";
+	                }
+	            }
+	        }
+
+	        if (region != null && !"WARNING".equals(region)) {
+	            if ("SEGNALAZIONI_REG".equals(region) || "SEGNALAZIONI_REG_AGG".equals(region)) {
+	                where += " AND m.severity = 'SEGNALAZIONE' ";
+	            } else if ("ERRORI_REG".equals(region) || "ERRORI_REG_AGG".equals(region)) {
+	                where += " AND m.severity = 'SCARTO' ";
+	            }
+	            where += " and  m.codiceerrore = :codiceerrore and ";
+	            where += onReg;
+	            String extractionJoin = "";
+	            for (int i = 0; i < resultTabgen.size(); i++) {
+	            	String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+
+	    			innerOnScarti += buildNullableJoinCondition("c", "m", fieldName);
+	    			extractionJoin += buildNullableJoinCondition("c2", "c", fieldName);
+	            }
+	            if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                innerOnScarti += "c.extraction_id = m.extraction_id and ";
+	            }
+	            extractionJoin = trimTrailingAnd(extractionJoin);
+	            
+	            innerOnScarti += "c.EXTRACTION_ID = e.id ";
+	            if (flowViewFilterError.getExtractionIdFromGrid() == null) {
+	                innerOnScarti += " and e.END_EXTRACTION_DATE = (select max(e2.END_EXTRACTION_DATE) "
+	                        + "from " + "FM_FLOW_" + nomeFlusso + "_REG_0 c2 , fm_flow_exporting_request e2  where "
+	                        + "e2.END_EXTRACTION_DATE is not null and c2.extraction_id = e2.id and " + extractionJoin + ") ";
+	                innerOnScarti += " and m.RECEIVING_DATE = (SELECT "
+	                        + "MAX(b2.RECEIVING_DATE) FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, "
+	                        + nomeFlusso + "_REG_SCARTI_REGIONE b2 where "
+	                        + "b2.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b2.extraction_id and " + extractionJoin + " ) ";
+	            }
+	            where += innerOnScarti;
+	            groupBy += ",m.codiceerrore";
+	            campiSelect += " m.codiceerrore,COUNT(1) tot ";
+	            query = select + campiSelect + from + where + groupBy + " ) ";
+	        } else {
+	            query = select + campiSelect + " ( " + query + from + where + groupBy + " ) ";
+	        }
+
+	        query = outerSelect + query + outerWhere;
+
+	    } catch (Exception e) {
+	    	LogUtil.logException(logger, "", e);
+//	        e.printStackTrace();
+	    }
+
+	    List<Object> result = new ArrayList<Object>();
+	    result.add(query);
+	    result.add(selectFields);
+	    result.add(selectDescriptions);
+	    result.add(filters);
+	    result.add(pkNameList);
+	    result.add(false);//indico che si tratta di una query statica
+
+	    return result;
+	}
+
+	
+	public List<Object[]> searchErrors(FlowViewFilterError flowViewFilterError) throws ValidationFlowException  {
+		List<Object[]> result = new ArrayList<>();
+//		Query query = null;
+		NativeQuery<?> query = null;
+		FormFlowDTO flow = flowViewFilterError.getFlow();
+        FlowDO flowDO = new FlowDO();
+    	formFlowDTOtoFlowDO.convert(flow, flowDO, new ConversionContext(conversionService));
+		String queryDetailHeader = null;
+		String fieldAcceptedQueryDetail = null;
+		List<Object> resultList = new ArrayList<>();
+		List<String> errors = new ArrayList<>();
+		
+		try {
+			TabgenUtility.initMonthFilter(flowViewFilterError);
+			String mesi = flowViewFilterError.getMonth();
+			String anni = flowViewFilterError.getYear();
+			Date extraDateFrom = flowViewFilterError.getExtraDateFrom();
+			Date extraDateTo = flowViewFilterError.getExtraDateTo();
+			String message = flowViewFilterError.getMessage();
+			String errorCode = flowViewFilterError.getErrorCode();
+			String tipoImportazione = flowViewFilterError.getTipoImportazione();
+			String codicePresidio = flowViewFilterError.getCodicePresidio();
+			String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+	//		if (month != null && month.length() < 2) {
+	//			month = "0" + month;
+	//		}
+			if (errorCode == null) {
+				flowViewFilterError.setErrorCode("Tutte");
+			}
+			if (tipoImportazione == null) {
+				flowViewFilterError.setTipoImportazione("Tutte");
+			}
+			if (codicePresidio == null) {
+				flowViewFilterError.setCodicePresidio("Tutte");
+			}
+			if (codiceAzienda == null) {
+				flowViewFilterError.setCodiceAzienda("Tutte");
+			}
+			//caricamento lista aziende visibili dall'utente
+			List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+			List<DashboardConfigDO> dashboardConfigListFor = new ArrayList<>();
+			if (!aziende.isEmpty()) {
+				dashboardConfigListFor = dashboardConfigDAO.findAllByFlowAndCodiceAziendaIn(flowDO, aziende);
+				dashboardConfigListFor.addAll(dashboardConfigDAO.findAllByFlowAndCodiceAziendaIsNull(flowDO));
+				//Raggruppamento per "name" tenendo priorità a quelli con codiceAzienda valorizzato
+				Map<String, DashboardConfigDO> groupedMap = new LinkedHashMap<>();
+				for (DashboardConfigDO cfg : dashboardConfigListFor) {
+				    String key = cfg.getName();
+				    if (!groupedMap.containsKey(key)) {
+				        groupedMap.put(key, cfg);
+				    } else {
+				        DashboardConfigDO existing = groupedMap.get(key);
+				        // Se il nuovo ha codiceAzienda valorizzato e l’esistente no → sovrascrivi
+				        if (existing.getCodiceAzienda() == null && cfg.getCodiceAzienda() != null) {
+				            groupedMap.put(key, cfg);
+				        }
+				    }
+				}
+				//Ricrea la lista finale filtrata
+				dashboardConfigListFor = new ArrayList<>(groupedMap.values());
+			} else {
+				dashboardConfigListFor = dashboardConfigDAO.findAllByFlow(flowDO);
+			}
+			
+			for (DashboardConfigDO dashboardConfig : dashboardConfigListFor) {
+				if (dashboardConfig.getFlow() != null && flow.getCode().equalsIgnoreCase(dashboardConfig.getFlow().getCode()) && (dashboardConfig.getName().equalsIgnoreCase(flowViewFilterError.getRegion()) || dashboardConfig.getName().equalsIgnoreCase(flowViewFilterError.getDashboardName()))) {					
+					if (null != dashboardConfig.getQueryDetailHeader()) {
+						queryDetailHeader=dashboardConfig.getQueryDetailHeader();
+						flowViewFilterError.setQueryDetail(queryDetailHeader);
+					}
+					if (dashboardConfig.getFieldAcceptedQueryDetail() != null) {
+		                fieldAcceptedQueryDetail = dashboardConfig.getFieldAcceptedQueryDetail();
+		                flowViewFilterError.setFieldAcceptedQueryDetail(fieldAcceptedQueryDetail);
+		            }
+					break;
+				}
+			}
+			
+			if (flowViewFilterError.getQueryDetail() != null) {
+				//imposto i parametri in minuscolo per non avere problemi nel setting
+				queryDetailHeader = TabgenUtility.normalizeAllParamsToLowerCase(flowViewFilterError.getQueryDetail());
+				
+				//elimino eventuali parametri non obbligatori e non settabili per azienda tipoImportazione codicePresidio
+				if (aziende.isEmpty() && queryDetailHeader.contains(":aziendeprofilate")) {
+					queryDetailHeader = queryDetailHeader.replace(":aziendeprofilate", TabgenUtility.getFieldForParameter(queryDetailHeader, ":aziendeprofilate"));
+				}
+				if ((tipoImportazione == null || tipoImportazione.equals("Tutte")) && queryDetailHeader.contains(":tipoimportazione")) {
+					queryDetailHeader = queryDetailHeader.replace(":tipoimportazione", TabgenUtility.getFieldForParameter(queryDetailHeader, ":tipoimportazione"));
+				}
+				if ((codicePresidio == null || codicePresidio.equals("Tutte")) && queryDetailHeader.contains(":codicepresidio")) {
+					queryDetailHeader = queryDetailHeader.replace(":codicepresidio", TabgenUtility.getFieldForParameter(queryDetailHeader, ":codicepresidio"));
+				}
+				if ((codiceAzienda == null || codiceAzienda.equals("Tutte")) && queryDetailHeader.contains(":codiceazienda")) {
+					queryDetailHeader = queryDetailHeader.replace(":codiceazienda", TabgenUtility.getFieldForParameter(queryDetailHeader, ":codiceazienda"));
+				}
+				if ((errorCode == null || errorCode.equals("Tutte")) && queryDetailHeader.contains(":codiceerrore")) {
+					queryDetailHeader = queryDetailHeader.replace(":codiceerrore", TabgenUtility.getFieldForParameter(queryDetailHeader, ":codiceerrore"));
+				}
+				if ((message == null || message.equals("Tutte")) && queryDetailHeader.contains(":message")) {
+					queryDetailHeader = queryDetailHeader.replace(":message", TabgenUtility.getFieldForParameter(queryDetailHeader, ":message"));
+				}
+				if (anni == null && queryDetailHeader.contains(":anni")) {
+					queryDetailHeader = queryDetailHeader.replace(":anni", TabgenUtility.getFieldForParameter(queryDetailHeader, ":anni"));
+				}
+				if (mesi == null && queryDetailHeader.contains(":mesi")) {
+					queryDetailHeader = queryDetailHeader.replace(":mesi", TabgenUtility.getFieldForParameter(queryDetailHeader, ":mesi"));
+				}
+				if (extraDateFrom == null && queryDetailHeader.contains(":datada")) {
+					queryDetailHeader = queryDetailHeader.replace(":datada", TabgenUtility.getFieldForParameter(queryDetailHeader, ":datada"));
+				}
+				if (extraDateTo == null && queryDetailHeader.contains(":dataa")) {
+					queryDetailHeader = queryDetailHeader.replace(":dataa", TabgenUtility.getFieldForParameter(queryDetailHeader, ":dataa"));
+				}
+				flowViewFilterError.setQueryDetail(queryDetailHeader);
+				resultList = createQueryDetail(flowViewFilterError);
+				errors = (List<String>) resultList.get(6);
+			} else {
+				resultList = createQueryErrors(flowViewFilterError, aziende);
+			}
+			
+			if (!errors.isEmpty()) {
+				//restituisco la lista errori per visualizzarlo a FE
+				flowViewFilterError.setErrors(errors);
+			} else {
+				String sqlQuery = (String) resultList.get(0);
+				query = entityManager.createNativeQuery(sqlQuery).unwrap(NativeQuery.class);
+				
+				if (flowViewFilterError.getPkList() == null) {
+					if (flowViewFilterError.getQueryDetail() != null) {
+						if (flowViewFilterError.getQueryDetail().contains(":anni")) {
+							query.setParameter("anni", anni);
+						}
+						if (flowViewFilterError.getQueryDetail().contains(":mesi")) {
+							query.setParameterList("mesi", getMonthForQuery(mesi));
+						}
+						if (flowViewFilterError.getQueryDetail().contains(":datada")) {
+							query.setParameter("datada", flowViewFilterError.getExtraDateFrom());
+						}
+						if (flowViewFilterError.getQueryDetail().contains(":dataa")) {
+							query.setParameter("dataa", flowViewFilterError.getExtraDateTo());
+						}
+						if (!aziende.isEmpty() && flowViewFilterError.getQueryDetail().contains(":aziendeprofilate")) {
+							query.setParameterList("aziendeprofilate", aziende);
+						}
+						if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && flowViewFilterError.getQueryDetail().contains(":tipoimportazione")) {
+							query.setParameter("tipoimportazione", tipoImportazione);
+						}
+						if (codicePresidio != null && !codicePresidio.equals("Tutte") && flowViewFilterError.getQueryDetail().contains(":codicepresidio")) {
+							query.setParameter("codicepresidio", codicePresidio);
+						}
+						if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && flowViewFilterError.getQueryDetail().contains(":codiceazienda")) {
+							query.setParameter("codiceazienda", codiceAzienda);
+						}
+						if (errorCode != null && !errorCode.equals("Tutte") && flowViewFilterError.getQueryDetail().contains(":codiceerrore")) {
+							query.setParameter("codiceerrore", errorCode);
+						}
+						if (message != null && !message.equals("Tutte")  && flowViewFilterError.getQueryDetail().contains(":message")) {
+							query.setParameter("message", message);
+						}
+					} else {
+						if (flowViewFilterError.getCanViewDateFromToFilters()) {
+							query.setParameter("datada", flowViewFilterError.getExtraDateFrom());
+							query.setParameter("dataa", flowViewFilterError.getExtraDateTo());
+						} else {
+							query.setParameter("anni", anni);
+							query.setParameterList("mesi", getMonthForQuery(mesi));
+						}
+						
+						if (!aziende.isEmpty() && sqlQuery.contains(":aziendeprofilate")) {
+							query.setParameterList("aziendeprofilate", aziende);
+						}
+						if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && sqlQuery.contains(":tipoimportazione")) {
+							query.setParameter("tipoimportazione", tipoImportazione);
+						}
+						if (codicePresidio != null && !codicePresidio.equals("Tutte") && sqlQuery.contains(":codicepresidio")) {
+							query.setParameter("codicepresidio", codicePresidio);
+						}
+						if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && sqlQuery.contains(":codiceazienda")) {
+							query.setParameter("codiceazienda", codiceAzienda);
+						}
+						if (errorCode != null && !errorCode.equals("Tutte") && sqlQuery.contains(":codiceerrore")) {
+							query.setParameter("codiceerrore", errorCode);
+						}
+						if (message != null && !message.equals("Tutte") && sqlQuery.contains(":message")) {
+							query.setParameter("message", message);
+						}
+					}
+				}
+				
+				if (!flowViewFilterError.isView()) {
+//					if (!flowViewFilterError.isTopFive()) {
+//						query.setFirstResult(flowViewFilterError.getFirstResult());
+//						query.setMaxResults(flowViewFilterError.getMaxResult());
+//					} else {
+//						query.setMaxResults(5);
+//					}
+					int max;
+					int first;
+					first = flowViewFilterError.getFirstResult();
+					max   = flowViewFilterError.getMaxResult();
+					query.setFirstResult(Math.max(0, first));
+					if (flowViewFilterError.isTopFive()) {
+					    query.setMaxResults(5);
+					} else {
+					    if (max <= 0) {
+					        max = 1000; // limite di sicurezza
+					    }
+					    query.setMaxResults(max);
+					}
+				}
+		
+				result = (List<Object[]>) query.getResultList();
+		
+				if(result != null && result.size() > 0) {
+					for(Object[] row : result) {
+						String fieldName = (String) row[2];
+						
+						if(flowViewFilterError.getFlow() != null) {
+							for(FormFlowTableDTO table : flowViewFilterError.getFlow().getFlowTableList()) {
+								for(FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+									if(field.isCrypto() && field.getName().equalsIgnoreCase(fieldName)) {
+										row[3] = cryptoManager.decryptObject(row[3]);
+									}
+								}
+							}
+						}
+						
+					}
+				}
+			}
+			
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			//restituisco la lista errori per visualizzarlo a FE
+			errors.add("Errore nel metodo PraticaViewDAOQueryByBaseSearchInput.searchErrors : "+e);
+			flowViewFilterError.setErrors(errors);
+//			e.printStackTrace();
+		}
+		return result;
+	}
+	
+	@Override
+	public List<Object> createQueryErrors(FlowViewFilterError flowViewFilterError, List<String> aziende) {
+
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+	    String[] pkList = flowViewFilterError.getPkList();
+
+	    String errorCode = flowViewFilterError.getErrorCode();
+	    if (errorCode == null) flowViewFilterError.setErrorCode("Tutte");
+
+	    String message = flowViewFilterError.getMessage();
+	    if (message == null) flowViewFilterError.setMessage("Tutte");
+
+	    String tipoImportazione = flowViewFilterError.getTipoImportazione();
+	    if (tipoImportazione == null) flowViewFilterError.setTipoImportazione("Tutte");
+
+	    String codicePresidio = flowViewFilterError.getCodicePresidio();
+	    if (codicePresidio == null) flowViewFilterError.setCodicePresidio("Tutte");
+
+	    String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+	    if (codiceAzienda == null) flowViewFilterError.setCodiceAzienda("Tutte");
+
+	    String selectSQL = "SELECT ";
+	    String fromSQl = "FROM ";
+	    String whereSQL = "WHERE ";
+	    String join = "JOIN ";
+
+	    String query = "";
+	    String stringConcat = "";
+	    String tableMessage = "FM_ERROR_MESSAGE ";
+
+	    String region = flowViewFilterError.getRegion();
+	    List<Object[]> resultTabgen = null;
+	    String innerOnScarti = "";
+	    boolean extTable = false;
+	    String flussoInterno = "";
+
+	    // =========================================================
+	    // ✅ NEW (mirata): supporto datada/dataa al posto di MONTH/YEAR
+	    // =========================================================
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    // ⚠️ FIX: uso solo variabili final dentro helper/lambda
+	    final boolean useDateFromToFinal = useDateFromTo;
+	    final ReferenceDateFieldDTO refDateFinal = refDate;
+
+	    // PK map by section
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) pks.add(f.getName());
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    // pk0 final
+	    List<String> pk0tmp = new ArrayList<>(pkBySection.getOrDefault(0, Collections.emptyList()));
+	    if (pk0tmp.isEmpty()) {
+	        for (List<String> pks : pkBySection.values()) {
+	            if (pks != null && !pks.isEmpty()) {
+	                pk0tmp = new ArrayList<>(pks);
+	                break;
+	            }
+	        }
+	    }
+	    final List<String> pk0 = Collections.unmodifiableList(pk0tmp);
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+
+	    // helper: condizione tra date (TRUNC per giorno intero)
+	    final String buildDateBetweenSql = "TRUNC(%s) BETWEEN :datada AND :dataa ";
+
+	    // helper: costruisce chain "JOIN FM_FLOW_<flow>_<s> REFs ON <pk0>"
+	    java.util.function.BiFunction<String, Integer, JoinChain> buildChainFrom0 =
+	            (alias0, targetSection) -> {
+	                if (targetSection == null || targetSection <= 0) return new JoinChain("", alias0);
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = alias0;
+
+	                for (int s = 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + s;
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+	                    for (String pk : pk0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                          .append(" = ")
+	                          .append(curAlias).append(".").append(pk)
+	                          .append(" AND ");
+	                    }
+	                    if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+	                        sb.setLength(sb.length() - 5);
+	                    }
+	                    sb.append(" ");
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+         // chain per alias A
+        String aDateJoinSql = "";
+        String aDateAliasTmp = "A";
+        if (useDateFromToFinal && refDateFinal != null && refDateFinal.section() != null && refDateFinal.section() > 0) {
+            JoinChain chainA = buildChainFrom0.apply("A", refDateFinal.section());
+            aDateJoinSql = chainA.joinSql;
+            aDateAliasTmp = chainA.targetAlias;
+        }
+        final String aDateAliasFinal = aDateAliasTmp;
+
+	    // chain per alias reg
+        String regDateJoinSql = "";
+        String regDateAliasTmp = "reg";
+        if (useDateFromToFinal && refDateFinal != null && refDateFinal.section() != null && refDateFinal.section() > 0) {
+            JoinChain chainReg = buildChainFrom0.apply("reg", refDateFinal.section());
+            regDateJoinSql = chainReg.joinSql;
+            regDateAliasTmp = chainReg.targetAlias;
+        }
+        final String regDateAliasFinal = regDateAliasTmp;
+
+
+	    // helper: periodo per NORMAL (A/REFx)
+	    java.util.function.Supplier<String> normalPeriodWhere = () -> {
+	        if (useDateFromToFinal && refDateFinal != null) {
+	        	String alias = (refDateFinal.section() != null && refDateFinal.section() > 0) ? aDateAliasFinal : "A";
+	            return "WHERE " + String.format(buildDateBetweenSql, alias + "." + refDateFinal.fieldName()) + " ";
+	        }
+	        return "WHERE A.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError) + " AND A.YEAR_RIF = :anni ";
+	    };
+
+	    // helper: periodo per REG (reg/REFx)
+	    java.util.function.Supplier<String> regPeriodWhere = () -> {
+	        if (useDateFromToFinal && refDateFinal != null) {
+	        	String alias = (refDateFinal.section() != null && refDateFinal.section() > 0) ? regDateAliasFinal : "reg";
+	            return String.format(buildDateBetweenSql, alias + "." + refDateFinal.fieldName()) + " ";
+	        }
+	        return "A.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError) + " AND A.YEAR_RIF = :anni ";
+	    };
+
+	    // =========================================================
+	    // tabgen/scarti (INVARIATO)
+	    // =========================================================
+	    if (region != null && !"WARNING".equals(region)) {
+	        String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+	        String tableNameRegErrors = flowViewFilterError.getFlow().getName() + "_REG_" + cfgSuffixRegError;
+	        ConfigurationDO cfgObj = configuration.findByKeyId("flowWithExternalUpdate");
+	        if (cfgObj != null) {
+	            String cfg = cfgObj.getValue();
+	            String[] cfgSplitted = cfg.split("/");
+	            for (int i = 0; i < cfgSplitted.length; i++) {
+	                String value = cfgSplitted[i];
+	                int iend = value.indexOf("(");
+	                flussoInterno = value.substring(0, iend);
+	                String flussoCopia = value.substring(iend + 1, value.length() - 1);
+	                if (flussoInterno != null && !"".equals(flussoInterno) && flussoCopia.equals(formFlowDTO.getName())) {
+	                    tableNameRegErrors = flussoInterno + "_REG_" + cfgSuffixRegError;
+	                    extTable = true;
+	                }
+	            }
+	        }
+
+	        List<TabgenField> fields = tabgenDelegate.searchFieldsByTabgenId(tableNameRegErrors.toUpperCase());
+	        for (TabgenField field : fields) {
+	            if ("CAMPO_CHIAVE".equals(field.getDescription())) {
+	                String valueColumn = field.getTabgenValueColumn();
+	                String queryTabgen = "select * from fm_tabgen_value where tabgen_id = '" + tableNameRegErrors.toUpperCase()
+	                        + "' and " + valueColumn + " = '1'";
+	                Query queryTab = entityManager.createNativeQuery(queryTabgen);
+	                resultTabgen = queryTab.getResultList();
+	                break;
+	            }
+	        }
+	    }
+
+	    String tableScarti = formFlowDTO.getName() + "_REG_SCARTI_REGIONE b ";
+	    if (extTable) tableScarti = flussoInterno + "_REG_SCARTI_REGIONE b ";
+
+	    if (pkList != null) { // ACCORDION FLOW VIEW (INVARIATO)
+
+	        String campiSelect2 = "PPP.MESSAGE, QQQ.DESCRIPTION, PPP.FIELD, PPP.VALUE, PPP.CREATION_DATE, PPP.SEVERITY ";
+	        int index = flowViewFilterError.getIndex();
+
+	        try {
+	            String nativeTableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + index;
+	            String tableName = nativeTableName + "_MESSAGE ";
+
+	            for (int i = 0; i < pkList.length; i++) {
+	                stringConcat += pkList[i];
+	            }
+
+	            if (index == 0) {
+	                boolean found = false;
+	                if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                    for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                        if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                            found = true;
+	                            query += selectSQL + campiSelect2 + fromSQl + tableName + " PPP ";
+	                            query += join + nativeTableName + " PRA2 ON PRA2." + filter.get("campo") + "='" + filter.get("selected")
+	                                    + "' AND PPP.codicestruttura = PRA2.codicestruttura AND PPP.codiceaccessops = PRA2.codiceaccessops ";
+	                            query += join + tableMessage + " QQQ ON PPP.MESSAGE = QQQ.EM_ID " + whereSQL + "ROW_ID ='" + stringConcat + "' ";
+	                        }
+	                    }
+	                }
+	                if (!found) {
+	                    query += selectSQL + campiSelect2 + fromSQl + tableName + " PPP " + join + tableMessage
+	                            + " QQQ ON PPP.MESSAGE = QQQ.EM_ID " + whereSQL + "ROW_ID ='" + stringConcat + "'";
+	                }
+	            } else {
+	                query += selectSQL + campiSelect2 + fromSQl + tableName + " PPP " + join + tableMessage
+	                        + " QQQ ON PPP.MESSAGE = QQQ.EM_ID " + whereSQL + "ROW_ID ='" + stringConcat + "'";
+	            }
+
+	        } catch (Exception e) {
+	        	LogUtil.logException(logger, "", e);
+	        }
+
+	    } else {
+
+	        try { // ERRORI
+
+	            String campiSelect = "P.MESSAGE, P.DESCRIPTION, P.SEVERITY, COUNT(1) cc ";
+	            String campiSelectSub = "";
+	            String campiSelectSub0 = "";
+	            int countCampiSub = 0;
+
+	            String unionAll = "UNION ALL ";
+	            String groupBySQL = "GROUP BY P.MESSAGE, P.DESCRIPTION, P.SEVERITY ";
+	            String on2SQL = "ON B.MESSAGE = C.EM_ID ";
+	            String onSQL = "ON ";
+
+	            String leftJoin = "LEFT JOIN ";
+	            String extractionJoin = "";
+
+	            // ✅ base NORMAL: periodo o month/year
+	            String basePeriodNormal = normalPeriodWhere.get();
+
+	            String where2SQL = basePeriodNormal;
+	            if (!aziende.isEmpty()) where2SQL += "AND A.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	            where2SQL += "AND b.severity = 'ERROR' ";
+
+	            if (errorCode != null && !errorCode.equals("Tutte")) {
+	                if (region != null) where2SQL += "AND B.CODICEERRORE = :codiceerrore ";
+	                else where2SQL += "AND B.MESSAGE = :message ";
+	            }
+	            if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	            if (codicePresidio != null && !codicePresidio.equals("Tutte")) where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	            if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+
+	            String where2SQL2 = "";
+
+	            if (region != null) {
+
+	                if ("WARNING".equals(region)) {
+
+	                    where2SQL = basePeriodNormal;
+	                    if (!aziende.isEmpty()) where2SQL += "AND A.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                    where2SQL += "AND b.severity = 'WARNING' ";
+
+	                    if (errorCode != null && !errorCode.equals("Tutte")) where2SQL += "AND B.CODICEERRORE = :codiceerrore ";
+	                    if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	                    if (codicePresidio != null && !codicePresidio.equals("Tutte")) where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	                    if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+
+	                } else {
+	                    campiSelect = "P.CODICEERRORE, P.DESCRIZIONEERRORE, P.SEVERITY, COUNT(1) cc ";
+	                    groupBySQL = "GROUP BY P.CODICEERRORE, P.DESCRIZIONEERRORE, P.SEVERITY ";
+
+	                    String nomeFlusso = formFlowDTO.getName();
+	                    if (extTable) nomeFlusso = flussoInterno;
+
+	                    where2SQL = " WHERE ";
+	                    boolean isSegnalazioni = ("SEGNALAZIONI_REG".equals(region) || "SEGNALAZIONI_REG_AGG".equals(region));
+
+	                    if (isSegnalazioni) {
+	                        if ("SEGNALAZIONI_REG_AGG".equals(region)) {
+	                            if (!aziende.isEmpty()) where2SQL += " A.STATUS_REGION = 'SEGNALAZIONE' AND A.CODICEAZIENDA IN ( :aziendeprofilate ) AND ";
+	                            else where2SQL += " A.STATUS_REGION = 'SEGNALAZIONE' AND ";
+	                        }
+
+	                        if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                            where2SQL += "reg.extraction_id = :extractionId AND b.severity = 'SEGNALAZIONE' AND ";
+	                        } else {
+	                            // ✅ periodo REG (al posto di month/year)
+	                            where2SQL += regPeriodWhere.get();
+	                            if (!aziende.isEmpty()) where2SQL += "AND A.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                            where2SQL += "AND b.severity = 'SEGNALAZIONE' ";
+
+	                            if (errorCode != null && !errorCode.equals("Tutte")) where2SQL += "AND B.CODICEERRORE = :codiceerrore ";
+	                            if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	                            if (codicePresidio != null && !codicePresidio.equals("Tutte")) where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	                            if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+
+	                            where2SQL += " and e.END_EXTRACTION_DATE = (select max(e2.END_EXTRACTION_DATE) "
+	                                    + "from FM_FLOW_" + nomeFlusso + "_REG_0 c2 , fm_flow_exporting_request e2"
+	                                    + " where e2.END_EXTRACTION_DATE is not null and c2.extraction_id = e2.id and ";
+
+	                            where2SQL2 += " and b.RECEIVING_DATE = (SELECT MAX(b.RECEIVING_DATE) "
+	                                    + "FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, " + tableScarti
+	                                    + " WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id and ";
+	                        }
+
+	                    } else {
+	                        if ("ERRORI_REG_AGG".equals(region)) {
+	                            if (!aziende.isEmpty()) where2SQL += " A.STATUS_REGION = 'SCARTO' AND A.CODICEAZIENDA IN ( :aziendeprofilate ) AND ";
+	                            else where2SQL += " A.STATUS_REGION = 'SCARTO' AND ";
+	                        }
+
+	                        if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                            where2SQL += "reg.extraction_id = :extractionId AND b.severity = 'SCARTO' AND ";
+	                        } else {
+	                            // ✅ periodo REG (al posto di month/year)
+	                            where2SQL += regPeriodWhere.get();
+	                            if (!aziende.isEmpty()) where2SQL += "AND A.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	                            where2SQL += "AND b.severity = 'SCARTO' ";
+
+	                            if (errorCode != null && !errorCode.equals("Tutte")) where2SQL += "AND B.CODICEERRORE = :codiceerrore ";
+	                            if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	                            if (codicePresidio != null && !codicePresidio.equals("Tutte")) where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	                            if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+
+	                            where2SQL += " and e.END_EXTRACTION_DATE = (select max(e2.END_EXTRACTION_DATE) "
+	                                    + "from FM_FLOW_" + nomeFlusso + "_REG_0 c2 , fm_flow_exporting_request e2"
+	                                    + " where e2.END_EXTRACTION_DATE is not null and c2.extraction_id = e2.id and ";
+
+	                            where2SQL2 += " and b.RECEIVING_DATE = (SELECT MAX(b.RECEIVING_DATE) "
+	                                    + "FROM FM_FLOW_" + nomeFlusso + "_REG_0 c2, " + tableScarti
+	                                    + " WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id and ";
+	                        }
+	                    }
+	                }
+	            }
+
+	            for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+
+	                String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection() + " A ";
+	                String tableNameMessage = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection() + "_MESSAGE B ";
+	                String tableErrors = "FM_ERROR_MESSAGE C ";
+	                String tableNative = "FM_FLOW_" + formFlowDTO.getName() + "_";
+	                String tableNativeExt = "FM_FLOW_" + flussoInterno + "_";
+
+	                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	                    if (field.isPk()) {
+	                        campiSelectSub += "A." + field.getName() + " , ";
+	                        if (region != null && !"WARNING".equals(region)) {
+	                            if (formFlowTableDTO.getSection() == 0) {
+	                                onSQL += buildNullableJoinCondition("A", "reg", field.getName());
+	                            }
+	                        } else {
+	                        	onSQL += buildNullableJoinCondition("A", "B", field.getName());
+	                        }
+	                    }
+	                }
+	                
+	                onSQL = trimTrailingAnd(onSQL);
+
+	                if (region != null && !"WARNING".equals(region)) {
+
+	                    innerOnScarti += "ON ";
+	                    for (int i = 0; i < resultTabgen.size(); i++) {
+	                    	String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+
+	                    	innerOnScarti += buildNullableJoinCondition("reg", "B", fieldName);
+	                    	extractionJoin += buildNullableJoinCondition("c2", "reg", fieldName);
+	                    }
+	                    innerOnScarti = trimTrailingAnd(innerOnScarti);
+	                    if (extractionJoin.toUpperCase().endsWith(" AND ")) {
+	                        extractionJoin = extractionJoin.substring(0, extractionJoin.length() - 4);
+	                        extractionJoin += ")";
+	                    }
+
+	                    if (extTable) {
+	                        fromSQl += tableName
+	                                + join + tableNativeExt + "REG_0 reg " + onSQL
+	                                + join + tableScarti + innerOnScarti
+	                                + "join FM_FLOW_EXPORTING_REQUEST e ON reg.extraction_id = e.id ";
+	                    } else {
+	                        fromSQl += tableName
+	                                + join + tableNative + "REG_0 reg " + onSQL
+	                                + join + tableScarti + innerOnScarti
+	                                + "join FM_FLOW_EXPORTING_REQUEST e ON reg.extraction_id = e.id ";
+	                    }
+
+	                    // ✅ aggiungo chain reg solo se serve
+	                    if (useDateFromToFinal && refDateFinal != null && regDateJoinSql != null && !regDateJoinSql.isEmpty()) {
+	                        fromSQl += regDateJoinSql;
+	                    }
+
+	                } else {
+	                    if (formFlowTableDTO.getSection() == 0 && countCampiSub == 0) {
+	                        campiSelectSub0 += onSQL;
+	                        countCampiSub++;
+	                    }
+	                    fromSQl += tableName + join + tableNameMessage + onSQL;
+
+	                    // ✅ aggiungo chain A solo se serve
+	                    if (useDateFromToFinal && refDateFinal != null && aDateJoinSql != null && !aDateJoinSql.isEmpty()) {
+	                        fromSQl += aDateJoinSql;
+	                    }
+	                }
+	                
+	                fromSQl = trimTrailingAnd(fromSQl);
+	                
+	                if (region == null || "WARNING".equals(region)) {
+
+	                    campiSelectSub += "A.MONTH_RIF, A.YEAR_RIF, B.MESSAGE, nvl(c.description, 'DESCRIZIONE ERRORE NON DISPONIBILE, ERRORE NON CENSITO') as description, B.SEVERITY ";
+
+	                    boolean found = false;
+	                    if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	                        for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                            if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                                if (campiSelectSub0.endsWith(", ")) campiSelectSub0 = campiSelectSub0.substring(0, campiSelectSub0.length() - 2);
+	                                campiSelectSub0 += " ";
+	                                found = true;
+
+	                                query += selectSQL + campiSelect + "from ( " + selectSQL + campiSelectSub + fromSQl;
+
+	                                query += " JOIN " + tableNative + "0" + " B0 "
+	                                        + campiSelectSub0.substring(campiSelectSub0.lastIndexOf("ON")).replace("B.", "B0.")
+	                                        + " AND B0." + filter.get("campo") + "='" + filter.get("selected") + "' ";
+
+	                                query += leftJoin + tableErrors + on2SQL + where2SQL + ") P " + groupBySQL + unionAll;
+	                            }
+	                        }
+	                    }
+	                    if (!found) {
+	                        query += selectSQL + campiSelect + "from ( " + selectSQL + campiSelectSub + fromSQl + leftJoin
+	                                + tableErrors + on2SQL + where2SQL + ") P " + groupBySQL + unionAll;
+	                    }
+
+	                    fromSQl = "FROM ";
+
+	                } else {
+
+	                    campiSelectSub += "A.MONTH_RIF, A.YEAR_RIF, B.CODICEERRORE, B.DESCRIZIONEERRORE, B.SEVERITY ";
+	                    where2SQL += extractionJoin;
+	                    where2SQL2 += extractionJoin;
+
+	                    query += selectSQL + campiSelect + " from ( " + selectSQL + campiSelectSub + fromSQl
+	                            + where2SQL + where2SQL2 + ") P " + groupBySQL + unionAll;
+	                    break;
+	                }
+
+	                campiSelectSub = "";
+	                onSQL = "ON ";
+	            }
+
+	            if (query.endsWith(" UNION ALL ")) query = query.substring(0, query.length() - 11);
+
+	            query = selectSQL + "* from ( " + query + " ) d order by cc desc";
+
+	        } catch (Exception e) {
+	        	LogUtil.logException(logger, "", e);
+//	            e.printStackTrace();
+	        }
+	    }
+
+	    List<Object> result = new ArrayList<>();
+	    result.add(query);
+	    return result;
+	}
+
+	
+	public List<Object> searchBadgeDownloadXLS(FlowViewFilterError flowViewFilterError) {
+		List<Object> resultList = null;
+		String month = flowViewFilterError.getMonth();
+		String year = flowViewFilterError.getYear();
+		String errorCode = flowViewFilterError.getErrorCode();
+		if (errorCode == null) {
+			flowViewFilterError.setErrorCode("Tutte");
+		}
+		String message = flowViewFilterError.getMessage();
+		if (message == null) {
+			flowViewFilterError.setMessage("Tutte");
+		}
+		String tipoImportazione = flowViewFilterError.getTipoImportazione();
+		if (tipoImportazione == null) {
+			flowViewFilterError.setTipoImportazione("Tutte");
+		}
+		String codicePresidio = flowViewFilterError.getCodicePresidio();
+		if (codicePresidio == null) {
+			flowViewFilterError.setCodicePresidio("Tutte");
+		}
+		String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+		if (codiceAzienda == null) {
+			flowViewFilterError.setCodiceAzienda("Tutte");
+		}
+		//caricamento lista aziende visibili dall'utente
+		List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+		//caricamento aziende configurate per il flusso e widget di riferimento visualizzando solo i dettagli delle aziende configurate rispetto al profilo flussi dell'utente
+		if (flowViewFilterError.getName()!=null) {
+			TabgenValueFilter filter = new TabgenValueFilter();
+			filter.setTabgenId("FM_DASHBOARD_CONFIG");
+			filter.setField2(flowViewFilterError.getFlow().getId());
+			filter.setField3(flowViewFilterError.getName());
+			List<TabgenValueDO> tabgenValueFlussi = tabgenService.searchTabgenValueByFilter(filter);
+			List<String> aziendeDashConfig = tabgenValueFlussi.stream().map(TabgenValueDO::getField14).distinct().filter(Objects::nonNull).collect(Collectors.toList());
+			if(!aziendeDashConfig.isEmpty()) {
+				List<String> aziendeNew = new ArrayList<>();
+				for (String az : aziende) {
+				    for (String azdash : aziendeDashConfig) {
+				        if (az.contains(azdash))
+				        	aziendeNew.add(az);
+				    }
+				}
+				aziende.clear();
+				aziende = aziendeNew;
+			}	
+		}
+		
+		Boolean check = flowManagerProfileService.checkFlowByName(flowViewFilterError.getFlow().getName());
+        if(!check) {
+            return resultList;
+        }
+		
+        if ("PRATICHE_NOT_SEND_REG".equals(flowViewFilterError.getName()) || "PRATICHE_REG".equals(flowViewFilterError.getName()) || "PRATICHE_RIC_REG".equals(flowViewFilterError.getName())) {
+        	resultList = createQueryPraticheXLS(flowViewFilterError, aziende);
+	     } 
+	     else if ("PRATICHE".equals(flowViewFilterError.getName())) {
+	    	 resultList = createQueryPraticheXLS(flowViewFilterError, aziende);
+	     } 
+	     else if ("PRATICHE_ERRATE".equals(flowViewFilterError.getName())) {
+	    	 resultList = createQueryErrorXLS(flowViewFilterError, aziende);
+	     }
+	     else if ("PRATICHE_ERRATE_REG".equals(flowViewFilterError.getName()) || "PRATICHE_SEGNALAZIONI_REG".equals(flowViewFilterError.getName())) {
+	    	 resultList = createQueryXLS(flowViewFilterError, aziende);
+	     }
+	     else if ("ERRORI".equals(flowViewFilterError.getName()) || "ERRORI_REG".equals(flowViewFilterError.getName())) {
+	    	 resultList=createQueryErrorsXLS(flowViewFilterError, aziende);
+	     }
+
+		return resultList;
+	}
+	
+	@Override
+	public List<Object> createQueryErrorsXLS(FlowViewFilterError flowViewFilterError, List<String> aziende) {
+
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+	    String[] pkList = flowViewFilterError.getPkList();
+	    String region = flowViewFilterError.getRegion();
+	    String errorCode = flowViewFilterError.getErrorCode();
+	    String message = flowViewFilterError.getMessage();
+	    String tipoImportazione = flowViewFilterError.getTipoImportazione();
+	    String codicePresidio = flowViewFilterError.getCodicePresidio();
+	    String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+
+	    if (errorCode == null) {
+	        flowViewFilterError.setErrorCode("Tutte");
+	        errorCode = "Tutte";
+	    }
+	    if (message == null) {
+	        flowViewFilterError.setMessage("Tutte");
+	        message = "Tutte";
+	    }
+	    if (tipoImportazione == null) {
+	        flowViewFilterError.setTipoImportazione("Tutte");
+	        tipoImportazione = "Tutte";
+	    }
+	    if (codicePresidio == null) {
+	        flowViewFilterError.setCodicePresidio("Tutte");
+	        codicePresidio = "Tutte";
+	    }
+	    if (codiceAzienda == null) {
+	        flowViewFilterError.setCodiceAzienda("Tutte");
+	        codiceAzienda = "Tutte";
+	    }
+
+	    int contaSezioni = (formFlowDTO.getFlowTableList() != null) ? formFlowDTO.getFlowTableList().size() : 0;
+
+	    String selectSQL = "SELECT ";
+	    String fromSQl = "FROM ";
+	    String whereSQL = "WHERE ";
+	    String join = "JOIN ";
+	    String query = "";
+	    String stringConcat = "";
+	    String tableMessage = "FM_ERROR_MESSAGE ";
+	    List<Object[]> resultTabgen = null;
+	    String innerOnScarti = "";
+
+	    HashMap<Integer, String> selectFields = new HashMap<>();
+	    HashMap<Integer, String> selectDescriptions = new HashMap<>();
+	    List<FormFlowTableFieldDTO> filters = new ArrayList<>();
+	    List<String> pkNameList = new ArrayList<>();
+
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) pks.add(f.getName());
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    List<String> pk0tmp = new ArrayList<>(pkBySection.getOrDefault(0, Collections.emptyList()));
+	    if (pk0tmp.isEmpty()) {
+	        for (List<String> pks : pkBySection.values()) {
+	            if (pks != null && !pks.isEmpty()) {
+	                pk0tmp = new ArrayList<>(pks);
+	                break;
+	            }
+	        }
+	    }
+	    final List<String> pk0 = Collections.unmodifiableList(pk0tmp);
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+
+	    java.util.function.Function<String, String> rtrimAnd = (s) -> {
+	        if (s != null && s.toUpperCase().endsWith(" AND ")) return s.substring(0, s.length() - 5);
+	        return s;
+	    };
+
+	    java.util.function.Function<String, String> truncIfNeeded =
+	            (qualified) -> "TRUNC(" + qualified + ")";
+	    java.util.function.Function<String, String> dateBetween = (qualified) ->
+	            truncIfNeeded.apply(qualified) + " BETWEEN :datada AND :dataa ";
+
+	    java.util.function.BiFunction<Integer, String, java.util.function.Function<Integer, JoinChain>> buildJoinChainFrom =
+	            (startSection, startAlias) -> (targetSection) -> {
+
+	                if (targetSection == null || targetSection <= startSection) {
+	                    return new JoinChain("", startAlias);
+	                }
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = startAlias;
+
+	                for (int s = startSection + 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + s;
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    for (String pk : pk0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                                .append(" = ")
+	                                .append(curAlias).append(".").append(pk)
+	                                .append(" AND ");
+	                    }
+
+	                    sb = new StringBuilder(rtrimAnd.apply(sb.toString()));
+	                    sb.append(" ");
+
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+	    java.util.function.BiFunction<Integer, Integer, String> aliasForSectionInThisSubquery =
+	            (currentSection, wantedSection) -> {
+	                if (wantedSection == null) return null;
+	                if (wantedSection == currentSection) return "A";
+	                if (currentSection == 0 && wantedSection == 1) return "p";
+	                if (currentSection == 1 && wantedSection == 0) return "p";
+	                if (currentSection >= 2 && wantedSection == 0) return "p";
+	                if (currentSection >= 2 && wantedSection == 1) return "q";
+	                if (wantedSection == 0 && region != null) return "reg";
+	                return null;
+	            };
+
+	    if (region != null) {
+	        String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+	        String tableNameRegErrors =
+	                flowViewFilterError.getFlow().getName() + "_REG_" + cfgSuffixRegError;
+
+	        List<TabgenField> fields =
+	                tabgenDelegate.searchFieldsByTabgenId(tableNameRegErrors.toUpperCase());
+
+	        for (TabgenField field : fields) {
+	            if ("CAMPO_CHIAVE".equals(field.getDescription())) {
+	                String valueColumn = field.getTabgenValueColumn();
+	                String queryTabgen = "select * from fm_tabgen_value where tabgen_id = '"
+	                        + tableNameRegErrors.toUpperCase() + "' and " + valueColumn + " = '1'";
+	                Query queryTab = entityManager.createNativeQuery(queryTabgen);
+	                resultTabgen = queryTab.getResultList();
+	                break;
+	            }
+	        }
+	    }
+
+	    String tableScarti = formFlowDTO.getName() + "_REG_SCARTI_REGIONE b ";
+
+	    try {
+	        String campiSelect = "*";
+	        String campiSelectSub = "";
+	        String campiSelectDescrSub = "";
+	        String campiSelectSub2 =
+	                "A.IMPORT_TYPE, A.MONTH_RIF, A.YEAR_RIF, B.MESSAGE, nvl(c.description, 'DESCRIZIONE ERRORE NON DISPONIBILE, ERRORE NON CENSITO'), B.SEVERITY ";
+	        String campiSelectSub1 = "";
+	        String campiSelectDescrSub1 = "";
+	        String leftJoin = "LEFT JOIN ";
+	        String unionAll = "UNION ALL ";
+	        String on2SQL = "ON B.MESSAGE = C.EM_ID ";
+	        String onSQL = "ON ";
+	        String where2SQL = "";
+	        String where2SQL2 = "";
+
+	        String where2SQLTemplate = "";
+	        String whereSQLTemplate = "";
+
+	        if (!useDateFromTo) {
+	            if (!aziende.isEmpty()) {
+	                where2SQL = "WHERE A.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError)
+	                        + " AND A.YEAR_RIF = :anni AND A.CODICEAZIENDA IN ( :aziendeprofilate ) "
+	                        + "AND B.SEVERITY = 'ERROR' ";
+	            } else {
+	                where2SQL = "WHERE A.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError)
+	                        + " AND A.YEAR_RIF = :anni AND B.SEVERITY = 'ERROR' ";
+	            }
+	        } else {
+	            if (!aziende.isEmpty()) {
+	                where2SQL = "WHERE /*DATE_FILTER*/ AND A.CODICEAZIENDA IN ( :aziendeprofilate ) AND B.SEVERITY = 'ERROR' ";
+	            } else {
+	                where2SQL = "WHERE /*DATE_FILTER*/ AND B.SEVERITY = 'ERROR' ";
+	            }
+	        }
+
+	        if (errorCode != null && !errorCode.equals("Tutte")) {
+	            if (region != null) {
+	                where2SQL += " AND B.CODICEERRORE = :codiceerrore ";
+	            } else {
+	                where2SQL += " AND B.MESSAGE = :message ";
+	            }
+	        }
+
+	        if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	            where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	        }
+	        if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	            where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	        }
+	        if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	            where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+	        }
+
+	        if (!useDateFromTo) {
+	            if (!aziende.isEmpty()) {
+	                whereSQL = " WHERE PRA.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError)
+	                        + " AND PRA.YEAR_RIF = :anni AND PRA.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	            } else {
+	                whereSQL = " WHERE PRA.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError)
+	                        + " AND PRA.YEAR_RIF = :anni ";
+	            }
+	        } else {
+	            if (!aziende.isEmpty()) {
+	                whereSQL = " WHERE /*DATE_FILTER*/ AND PRA.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	            } else {
+	                whereSQL = " WHERE /*DATE_FILTER*/ ";
+	            }
+	        }
+
+	        where2SQLTemplate = where2SQL;
+	        whereSQLTemplate  = whereSQL;
+
+	        String innerOn = "ON ";
+	        String innerOn2 = "ON ";
+	        String innerOn3 = "ON ";
+	        String innerOn4 = "ON ";
+	        String innerJoin = "JOIN ";
+	        String innerFrom = "FROM ";
+	        String extractionJoin = "";
+
+	        List<String> campi = new ArrayList<>();
+	        List<String> campiDescr = new ArrayList<>();
+	        List<String> campiDate = new ArrayList<>();
+	        List<String> campiDescrDate = new ArrayList<>();
+	        List<String> campiDate0 = new ArrayList<>();
+	        List<String> campiPraticaDate = new ArrayList<>();
+	        List<String> campiPraticaDate1 = new ArrayList<>();
+	        List<String> campiDescrDate0 = new ArrayList<>();
+	        List<String> campiDescrPraticaDate = new ArrayList<>();
+	        List<String> campiDescrPraticaDate1 = new ArrayList<>();
+	        List<String> campiPratica = new ArrayList<>();
+	        List<String> campiPratica0 = new ArrayList<>();
+	        List<String> campiPratica1 = new ArrayList<>();
+	        List<String> campiDescrPratica = new ArrayList<>();
+	        List<String> campiDescrPratica0 = new ArrayList<>();
+	        List<String> campiDescrPratica1 = new ArrayList<>();
+
+	        if(region != null) {
+	            campiSelectSub2 = "A.IMPORT_TYPE, A.MONTH_RIF, A.YEAR_RIF, B.CODICEERRORE, B.DESCRIZIONEERRORE, B.SEVERITY ";
+	            if (flowViewFilterError.getExtractionIdFromGrid() != null) {
+	                where2SQL = "WHERE reg.extraction_id = :extractionId AND B.SEVERITY = 'SCARTO' and ";
+	            } else {
+	                if (!useDateFromTo) {
+	                    if (!aziende.isEmpty()) {
+	                        where2SQL = "WHERE A.MONTH_RIF "+getWhereConditionMonthRif(flowViewFilterError)+" AND A.YEAR_RIF = :anni AND A.CODICEAZIENDA IN ( :aziendeprofilate ) AND B.SEVERITY = 'SCARTO' ";
+	                    } else {
+	                        where2SQL = "WHERE A.MONTH_RIF "+getWhereConditionMonthRif(flowViewFilterError)+" AND A.YEAR_RIF = :anni AND B.SEVERITY = 'SCARTO' ";
+	                    }
+	                } else {
+	                    if (!aziende.isEmpty()) {
+	                        where2SQL = "WHERE /*DATE_FILTER*/ AND A.CODICEAZIENDA IN ( :aziendeprofilate ) AND B.SEVERITY = 'SCARTO' ";
+	                    } else {
+	                        where2SQL = "WHERE /*DATE_FILTER*/ AND B.SEVERITY = 'SCARTO' ";
+	                    }
+	                }
+
+	                if (errorCode != null && !errorCode.equals("Tutte")){
+	                    if(region != null) {
+	                        where2SQL += " AND B.CODICEERRORE = :codiceerrore ";
+	                    }else {
+	                        where2SQL += " AND B.MESSAGE = :message ";
+	                    }
+	                }
+	                if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                    where2SQL += " AND A.IMPORT_TYPE = :tipoimportazione ";
+	                }
+	                if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                    where2SQL += " AND A.CODICEPRESIDIO = :codicepresidio ";
+	                }
+	                if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                    where2SQL += " AND A.CODICEAZIENDA = :codiceazienda ";
+	                }
+
+	                where2SQL += " and e.END_EXTRACTION_DATE = (select max(e2.END_EXTRACTION_DATE) "
+	                        + "from " + "FM_FLOW_" + formFlowDTO.getName() + "_REG_0 c2 , fm_flow_exporting_request e2"
+	                        + " where e2.END_EXTRACTION_DATE is not null and c2.extraction_id = e2.id and ";
+	                where2SQL2 += " and b.RECEIVING_DATE = (SELECT "
+	                        + "MAX(b.RECEIVING_DATE) FROM FM_FLOW_" + formFlowDTO.getName() + "_REG_0 c2, "+tableScarti+
+	                        "  WHERE b.RECEIVING_DATE IS NOT NULL AND c2.extraction_id = b.extraction_id and ";
+	            }
+
+	            where2SQLTemplate = where2SQL;
+	        }
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	                if (table.getSection() == 0) {
+	                    if (field.getGroups()) {
+	                        if ("Date".equals(field.getFieldType())) {
+	                            campiPraticaDate.add("a." + field.getName() + " , ");
+	                            campiDescrPraticaDate.add(field.getDescriptionsm()+ " , ");
+	                        } else {
+	                            campiPratica0.add(field.getName());
+	                            campiDescrPratica0.add(field.getDescriptionsm());
+	                        }
+	                    }
+	                } else if (table.getSection() == 1) {
+	                    if (field.getGroups()) {
+	                        if ("Date".equals(field.getFieldType())) {
+	                            campiPraticaDate1.add("p." + field.getName() + " , ");
+	                            campiDescrPraticaDate1.add(field.getDescriptionsm()+ " , ");
+	                        } else {
+	                            campiPratica1.add(field.getName());
+	                            campiDescrPratica1.add(field.getDescriptionsm());
+	                        }
+	                    }
+	                }
+	            }
+	        }
+
+	        for (String campo0 : campiPratica0) {
+	            campiPratica.add("a." + campo0 + " , ");
+	        }
+	        for (String campo1 : campiPratica1) {
+	            if (!campiPratica0.contains(campo1)) {
+	                campiPratica.add("p." + campo1 + " , ");
+	            }
+	        }
+	        for (String campoDescr0 : campiDescrPratica0) {
+	            campiDescrPratica.add(campoDescr0+ " , ");
+	        }
+	        for (String campoDescr1 : campiDescrPratica1) {
+	            if (!campiDescrPratica0.contains(campoDescr1)) {
+	                campiDescrPratica.add(campoDescr1+ " , ");
+	            }
+	        }
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	            String where2SQLLocal = where2SQLTemplate;
+	            String whereSQLLocal  = whereSQLTemplate;
+
+	            List<String> campiNew = new ArrayList<>();
+	            List<String> descrNew = new ArrayList<>();
+
+	            String tableName =
+	                    "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + " A ";
+	            String tableNameMessage =
+	                    "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + "_MESSAGE B ";
+	            String tableErrors = "FM_ERROR_MESSAGE C ";
+	            String tableErrorsReg = formFlowDTO.getName() + "_REG_SCARTI_REGIONE B ";
+	            String tableNative = "FM_FLOW_" + formFlowDTO.getName() + "_";
+
+	            String joinRefChainSql = "";
+	            String refAliasForWhere = null;
+	            if (useDateFromTo && refDate != null) {
+	                Integer refSec = refDate.section();
+	                Integer curSec = table.getSection();
+
+	                refAliasForWhere = aliasForSectionInThisSubquery.apply(curSec, refSec);
+
+	                if (refAliasForWhere == null && refSec != null) {
+	                    int startSec = 0;
+	                    String startAlias = (curSec != null && curSec >= 1) ? "p" : "A";
+	                    if (curSec != null && curSec == 0) {
+	                        startSec = 0;
+	                        startAlias = "A";
+	                    }
+
+	                    JoinChain chain = buildJoinChainFrom.apply(startSec, startAlias).apply(refSec);
+	                    joinRefChainSql = chain.joinSql;
+	                    refAliasForWhere = chain.targetAlias;
+	                }
+
+	                if (refAliasForWhere == null && refSec != null && refSec == 0 && curSec != null && curSec == 0) {
+	                    refAliasForWhere = "A";
+	                }
+	            }
+
+	            if (table.getSection() == 0) {
+	                for (String campo : campiPratica) {
+	                    campiSelectSub += campo;
+	                }
+	                for (String campoData1 : campiPraticaDate1) {
+	                    campiSelectSub += campoData1;
+	                }
+	                for (String campoData0 : campiPraticaDate) {
+	                    campiSelectSub += campoData0;
+	                }
+	                for (String campoDescr : campiDescrPratica) {
+	                    campiSelectDescrSub += campoDescr;
+	                }
+	                for (String campoDescrData1 : campiDescrPraticaDate1) {
+	                    campiSelectDescrSub += campoDescrData1;
+	                }
+	                for (String campoDescrData0 : campiDescrPraticaDate) {
+	                    campiSelectDescrSub += campoDescrData0;
+	                }
+	            }
+
+	            onSQL = "ON ";
+	            for (String pk : pk0) {
+	            	onSQL += buildNullableJoinCondition("A", "B", pk);
+	            }
+
+	            innerOn = "ON ";
+	            if (region != null) {
+	                for (String pk : pk0) {
+	                	innerOn += buildNullableJoinCondition("reg", "b", pk);
+	                }
+	            } else {
+	                for (String pk : pk0) {
+	                	innerOn += buildNullableJoinCondition("a", "b", pk);
+	                }
+	            }
+
+	            innerOn2 = "ON ";
+	            for (String pk : pk0) {
+	            	innerOn2 += buildNullableJoinCondition("a", "p", pk);
+	            }
+
+	            innerOn3 = "ON ";
+	            for (String pk : pk0) {
+	            	innerOn3 += buildNullableJoinCondition("a", "q", pk);
+	            }
+
+	            innerOn4 = "ON ";
+	            for (String pk : pk0) {
+	            	innerOn4 += buildNullableJoinCondition("a", "reg", pk);
+	            }
+	            
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                if (table.getSection() == 0) {
+
+	                    if (field.getGroups()) {
+	                        if ("Date".equals(field.getFieldType())) {
+	                            campiDate0.add(field.getName());
+	                            campiDescrDate0.add(field.getDescriptionsm());
+	                        } else {
+	                            campi.add(field.getName());
+	                            campiDescr.add(field.getDescriptionsm());
+	                        }
+	                    }
+
+	                    if (field.isPk()) {
+	                        pkNameList.add(field.getName());
+	                        filters.add(field);
+	                    }
+	                }
+
+	                if (table.getSection() == 1) {
+
+	                    if (field.getGroups()) {
+	                        if (campi.contains(field.getName())) {
+	                            campiSelectSub1 += "q." + field.getName() + " , ";
+	                            campiSelectDescrSub1 += field.getDescriptionsm() + " , ";
+	                            campi.remove(field.getName());
+	                            campiDescr.remove(field.getDescriptionsm());
+	                        } else {
+	                            if ("Date".equals(field.getFieldType())) {
+	                                campiDate.add(field.getName());
+	                                campiDescrDate.add(field.getName());
+	                            } else {
+	                                campiSelectSub += "a." + field.getName() + " , ";
+	                                campiSelectSub1 += "q." + field.getName() + " , ";
+	                                campiSelectDescrSub += field.getDescriptionsm() + " , ";
+	                                campiSelectDescrSub1 += field.getDescriptionsm() + " , ";
+	                            }
+	                        }
+	                    }
+	                }
+
+	                if (field.getGroups() && field.isPk() && table.getSection() == 1) {
+	                    campiSelectSub += "a." + field.getName() + " , ";
+	                    campiSelectDescrSub += field.getDescriptionsm()+ " , ";
+	                }
+	            }
+	            
+	            innerOn = trimTrailingAnd(innerOn);
+	            innerOn2 = trimTrailingAnd(innerOn2);
+	            innerOn3 = trimTrailingAnd(innerOn3);
+	            onSQL = trimTrailingAnd(onSQL);
+
+	            if (region != null) {
+	            	innerOn4 = trimTrailingAnd(innerOn4);
+
+	                innerJoin += tableNative + "REG_0 reg " + innerOn4 + " join " + tableErrorsReg;
+	                innerOnScarti = "ON ";
+	                extractionJoin = "";
+	                for (int i = 0; i < resultTabgen.size(); i++) {
+	                	String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+
+	                    innerOnScarti += buildNullableJoinCondition("reg", "B", fieldName);
+	                    extractionJoin += buildNullableJoinCondition("c2", "reg", fieldName);
+	                }
+	                innerOnScarti = trimTrailingAnd(innerOnScarti);
+	                if (extractionJoin.toUpperCase().endsWith(" AND ")) {
+	                    extractionJoin =
+	                            extractionJoin.substring(0, extractionJoin.length() - 4);
+	                    extractionJoin += ")";
+	                }
+	            } else {
+	                innerJoin += tableNameMessage;
+	            }
+
+	            if (table.getSection() == 0) {
+
+	                if (region != null) {
+	                    if (contaSezioni > 1) {
+	                        innerFrom += tableName + innerJoin + innerOnScarti + "JOIN " + tableNative
+	                                + "1 p " + innerOn2
+	                                + "JOIN fm_flow_exporting_request e ON reg.extraction_id = e.id ";
+	                    } else {
+	                        innerFrom += tableName + innerJoin + innerOnScarti
+	                                + "JOIN fm_flow_exporting_request e ON reg.extraction_id = e.id ";
+	                    }
+	                } else {
+	                    if (contaSezioni > 1) {
+	                        innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "1 p "
+	                                + innerOn2;
+	                    } else {
+	                        innerFrom += tableName + innerJoin + innerOn;
+	                    }
+	                }
+
+	                if (useDateFromTo && refDate != null && joinRefChainSql != null && !joinRefChainSql.isEmpty()) {
+	                    innerFrom += joinRefChainSql;
+	                }
+
+	            } else if (table.getSection() == 1) {
+
+	                if (!campi.isEmpty()) {
+	                    for (String fieldd : campi) {
+	                        campiSelectSub += "p." + fieldd + " , ";
+	                        campiSelectSub1 += "p." + fieldd + " , ";
+	                    }
+	                    for (String fielddescr : campiDescr) {
+	                        campiSelectDescrSub += fielddescr+ " , ";
+	                        campiSelectDescrSub1 += fielddescr+ " , ";
+	                    }
+	                }
+
+	                if (!campiDate.isEmpty()) {
+	                    for (String campoData : campiDate) {
+	                        campiSelectSub += "a." + campoData + " , ";
+	                        campiSelectSub1 += "q." + campoData + " , ";
+	                    }
+	                    for (String campoDescrData : campiDescrDate) {
+	                        campiSelectDescrSub += campoDescrData+ " , ";
+	                        campiSelectDescrSub1 += campoDescrData+ " , ";
+	                    }
+	                    campiDate.clear();
+	                    campiDescrDate.clear();
+	                }
+
+	                if (!campiDate0.isEmpty()) {
+	                    for (String campoData0 : campiDate0) {
+	                        campiSelectSub += "p." + campoData0 + " , ";
+	                        campiSelectSub1 += "p." + campoData0 + " , ";
+	                    }
+	                    for (String campoDescrData0 : campiDescrDate0) {
+	                        campiSelectDescrSub += campoDescrData0+ " , ";
+	                        campiSelectDescrSub1 += campoDescrData0+ " , ";
+	                    }
+	                    campiDate0.clear();
+	                    campiDescrDate0.clear();
+	                }
+
+	                innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "0 p "
+	                        + innerOn2;
+
+	                if (useDateFromTo && refDate != null && joinRefChainSql != null && !joinRefChainSql.isEmpty()) {
+	                    innerFrom += joinRefChainSql;
+	                }
+
+	            } else {
+	                innerFrom += tableName + innerJoin + innerOn + "JOIN " + tableNative + "0 p "
+	                        + innerOn2
+	                        + "JOIN " + tableNative + "1 q " + innerOn3;
+
+	                if (useDateFromTo && refDate != null && joinRefChainSql != null && !joinRefChainSql.isEmpty()) {
+	                    innerFrom += joinRefChainSql;
+	                }
+	            }
+
+	            if (campiSelectSub.endsWith(" , ")) {
+	                campiSelectSub =
+	                        campiSelectSub.substring(0, campiSelectSub.length() - 2);
+	            }
+	            if (campiSelectSub1.endsWith(" , ")) {
+	                campiSelectSub1 =
+	                        campiSelectSub1.substring(0, campiSelectSub1.length() - 2);
+	            }
+	            if (campiSelectDescrSub.endsWith(" , ")) {
+	                campiSelectDescrSub =
+	                        campiSelectDescrSub.substring(0, campiSelectDescrSub.length() - 2);
+	            }
+	            if (campiSelectDescrSub1.endsWith(" , ")) {
+	                campiSelectDescrSub1 =
+	                        campiSelectDescrSub1.substring(0, campiSelectDescrSub1.length() - 2);
+	            }
+
+	            if (useDateFromTo && refDate != null && refAliasForWhere != null) {
+	                String dateFilter = dateBetween.apply(refAliasForWhere + "." + refDate.fieldName());
+	                where2SQLLocal = where2SQLLocal.replace("/*DATE_FILTER*/", dateFilter);
+	                whereSQLLocal  = whereSQLLocal.replace("/*DATE_FILTER*/",  dateFilter);
+	            } else {
+	                where2SQLLocal = where2SQLLocal.replace("/*DATE_FILTER*/", "1=1");
+	                whereSQLLocal  = whereSQLLocal.replace("/*DATE_FILTER*/",  "1=1");
+	            }
+
+	            if (table.getSection() < 2) {
+	                String[] nuoviCampi = campiSelectSub.split(",");
+	                String[] nuoviDescrCampi = campiSelectDescrSub.split(",");
+
+	                for (String nc : nuoviCampi) campiNew.add(nc);
+	                for (String ncd : nuoviDescrCampi) descrNew.add(ncd);
+
+	                campiNew.sort((o1, o2) -> o1.split("\\.")[1].compareTo(o2.split("\\.")[1]));
+	                descrNew.sort(String::compareToIgnoreCase);
+
+	                campiSelectSub = String.join(",", campiNew);
+
+	                if (region != null) {
+	                    where2SQLLocal += extractionJoin;
+	                    where2SQL2 += extractionJoin;
+	                    query += selectSQL + campiSelect + fromSQl + "( " + selectSQL + "DISTINCT "
+	                            + campiSelectSub + ", "
+	                            + campiSelectSub2 + innerFrom + where2SQLLocal + where2SQL2 + ") P "
+	                            + unionAll;
+	                } else {
+	                    query += selectSQL + campiSelect + fromSQl + "( " + selectSQL + campiSelectSub
+	                            + ", "
+	                            + campiSelectSub2 + innerFrom + leftJoin
+	                            + tableErrors + on2SQL + where2SQLLocal + ") P " + unionAll;
+	                }
+
+	            } else {
+	                String[] nuoviCampi = campiSelectSub1.split(",");
+	                String[] nuoviDescrCampi = campiSelectDescrSub1.split(",");
+
+	                for (String nc : nuoviCampi) campiNew.add(nc);
+	                for (String ncd : nuoviDescrCampi) descrNew.add(ncd);
+
+	                campiNew.sort((o1, o2) -> o1.split("\\.")[1].compareTo(o2.split("\\.")[1]));
+	                descrNew.sort(String::compareToIgnoreCase);
+
+	                campiSelectSub1 = String.join(",", campiNew);
+
+	                query += selectSQL + campiSelect + fromSQl + "( " + selectSQL + campiSelectSub1
+	                        + ", "
+	                        + campiSelectSub2 + innerFrom + leftJoin
+	                        + tableErrors + on2SQL + where2SQLLocal + ") P " + unionAll;
+	            }
+
+	            selectFields.clear();
+	            selectDescriptions.clear();
+	            for (int pos = 0; pos < campiNew.size(); pos++) {
+	                String campo = campiNew.get(pos);
+	                String[] parts = campo.split("\\.");
+	                String col = parts[parts.length - 1].trim();
+	                if (col.contains(" ")) col = col.substring(0, col.indexOf(" "));
+	                selectFields.put(pos, col);
+	                selectDescriptions.put(pos, descrNew.get(pos));
+	            }
+
+	            if (region != null && table.getSection() == 0) break;
+
+	            onSQL = "ON ";
+	            innerFrom = "FROM ";
+	            innerJoin = "JOIN ";
+	            campiSelectSub = "";
+	            innerOn = "ON ";
+	            innerOn2 = "ON ";
+	            innerOn3 = "ON ";
+	            innerOn4 = "ON ";
+	        }
+
+	        query = query.substring(0, query.length() - unionAll.length());
+
+	    } catch (Exception e) {
+	        LogUtil.logException(logger, "", e);
+	    }
+
+	    List<Object> result = new ArrayList<>();
+	    result.add(query);
+	    result.add(selectFields);
+	    result.add(selectDescriptions);
+	    result.add(filters);
+	    result.add(pkNameList);
+	    result.add(false);
+
+	    return result;
+	}
+	
+	@Override
+	@SuppressWarnings("unchecked")
+	public HashMap<String, Object> checkState(List<String> pkList, String section0, Map<String, Object> values) {
+
+	    String selectSQL = "SELECT ";
+	    String fromSQl = "FROM ";
+	    String whereSQL = "WHERE ";
+	    String campiSelect2 = "STATE_RECEVIED_APP, STATE_SEND_REGION, STATUS_REGION, LAST_STATE_REGION ";
+	    String query = "";
+	    String where = "";
+
+	    try {
+	        for (int i = 0; i < pkList.size(); i++) {
+	            where += pkList.get(i) + " = :" + pkList.get(i) + " AND ";
+	        }
+
+	        query += selectSQL + campiSelect2 + fromSQl + section0 + " " + whereSQL + where;
+	        query = trimTrailingAnd(query);
+
+	    } catch (Exception e) {
+	        LogUtil.logException(logger, "", e);
+	    }
+
+	    Query queryEx = entityManager.createNativeQuery(query);
+
+	    for (String pk : pkList) {
+	        queryEx.setParameter(pk, values.get(pk));
+	    }
+
+	    List<Object[]> results = queryEx.getResultList();
+
+	    if (results == null || results.isEmpty()) {
+	        return null;
+	    }
+
+	    Object[] row = results.get(0);
+
+	    HashMap<String, Object> app_region = new HashMap<String, Object>();
+	    app_region.put("app", row[0] != null ? String.valueOf(row[0]) : null);
+	    app_region.put("region", row[1] != null ? String.valueOf(row[1]) : null);
+	    app_region.put("statusRegion", row[2] != null ? String.valueOf(row[2]) : null);
+
+	    // se è valorizzato STATUS_REGION allora LAST_STATE_REGION = STATUS_REGION,
+	    // altrimenti mantengo il LAST_STATE_REGION presente su DB
+	    app_region.put(
+	            "lastStateRegion",
+	            row[2] != null
+	                    ? String.valueOf(row[2])
+	                    : (row[3] != null ? String.valueOf(row[3]) : null)
+	    );
+
+	    app_region.put("pk", values);
+
+	    if (values.get("codiceazienda") != null) {
+	        app_region.put("codiceazienda", String.valueOf(values.get("codiceazienda")));
+	    }
+
+	    return app_region;
+	}
+	
+	@Override
+	public List<Object[]> searchPratica(List<String> whereFields, List<String> whereParams, HashMap<String,String> fields, FlowViewFilterError flowViewFilterError) {
+		
+		Query query = null;
+	    
+		String queryString = "SELECT ";
+		String where = "";
+		String whereSQL = "";
+		
+		for(Map.Entry me : fields.entrySet()) {
+			queryString += me.getValue() + ", ";
+		}
+		if(queryString.endsWith(", ")) {
+			queryString = queryString.substring(0,queryString.length()-2);
+		}
+		for(String param: whereParams) {
+			if (whereFields.size()>1) {
+				for (int c = 0; c < whereFields.size(); c++) {
+					if (c == 0) {
+						where += "CONCAT( " + whereFields.get(c) + ", ";
+					} else if (c == 1) {
+						where += whereFields.get(c) + ")";
+					} else {
+						where += ", " + whereFields.get(c) + ")";
+						where = "CONCAT ( " + where;
+					}
+				}
+			} else {
+				where += "" + whereFields.get(0) + "";
+			}
+			where += " = '" + param + "' OR ";
+			whereSQL += where;
+			where = "";
+		}
+		if(whereSQL.endsWith(" OR ")) {
+			whereSQL = whereSQL.substring(0, whereSQL.length() -3);
+		}
+		
+		boolean found = false;
+		if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+			for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+				if (filter.get("selected") != null && !filter.get("selected").isEmpty() ) {
+					found = true;
+					queryString = queryString + " from FM_FLOW_" + flowViewFilterError.getFlow().getName() + "_0 where (" + whereSQL +") AND " 
+					+ filter.get("campo") + "='"+filter.get("selected")+"' ";
+				}
+			}
+		}  
+		
+		if (!found) {
+			queryString = queryString + " from FM_FLOW_" + flowViewFilterError.getFlow().getName() + "_0 where " + whereSQL;
+		}
+		query = entityManager.createNativeQuery((String) queryString);
+		
+		List<Object[]> result = query.getResultList();
+		
+		return result;
+	}
+	
+	@Override
+	public BigDecimal praticheCountQueryDetail(FlowViewFilterError flowViewFilterError) {
+		BigDecimal result = BigDecimal.ZERO;
+		String region = flowViewFilterError.getRegion();
+		String anni = flowViewFilterError.getYear();
+    	String mesi = flowViewFilterError.getMonth();
+    	Date extraDateFrom = flowViewFilterError.getExtraDateFrom();
+    	Date extraDateTo = flowViewFilterError.getExtraDateTo();
+		String query = "";
+		String outerSelect = "SELECT COUNT(1) FROM ";
+		
+		//caricamento lista aziende visibili dall'utente
+		List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+		String message = flowViewFilterError.getMessage();
+		String errorCode = flowViewFilterError.getErrorCode();
+		String tipoImportazione = flowViewFilterError.getTipoImportazione();
+		if (tipoImportazione == null) {
+			flowViewFilterError.setTipoImportazione("Tutte");
+		}
+		String codicePresidio = flowViewFilterError.getCodicePresidio();
+		if (codicePresidio == null) {
+			flowViewFilterError.setCodicePresidio("Tutte");
+		}
+		String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+		if (codiceAzienda == null) {
+			flowViewFilterError.setCodiceAzienda("Tutte");
+		}
+		try {
+			//imposto i parametri in minuscolo per non avere problemi nel setting
+			String queryDetail = TabgenUtility.normalizeAllParamsToLowerCase(flowViewFilterError.getQueryDetail());
+			
+			//elimino eventuali parametri non obbligatori e non settabili per azienda tipoImportazione codicePresidio
+			if (aziende.isEmpty() && queryDetail.contains(":aziendeprofilate")) {
+				queryDetail = queryDetail.replace(":aziendeprofilate", TabgenUtility.getFieldForParameter(queryDetail, ":aziendeprofilate"));
+			}
+			if ((tipoImportazione == null || tipoImportazione.equals("Tutte")) && queryDetail.contains(":tipoimportazione")) {
+				queryDetail = queryDetail.replace(":tipoimportazione", TabgenUtility.getFieldForParameter(queryDetail, ":tipoimportazione"));
+			}
+			if ((codicePresidio == null || codicePresidio.equals("Tutte")) && queryDetail.contains(":codicepresidio")) {
+				queryDetail = queryDetail.replace(":codicepresidio", TabgenUtility.getFieldForParameter(queryDetail, ":codicepresidio"));
+			}
+			if ((message == null || message.equals("Tutte")) && queryDetail.contains(":message")) {
+				queryDetail = queryDetail.replace(":message", TabgenUtility.getFieldForParameter(queryDetail, ":message"));
+			}
+			if ((errorCode == null || errorCode.equals("Tutte")) && queryDetail.contains(":codiceerrore")) {
+				queryDetail = queryDetail.replace(":codiceerrore", TabgenUtility.getFieldForParameter(queryDetail, ":codiceerrore"));
+			}
+			if ((codiceAzienda == null || codiceAzienda.equals("Tutte")) && queryDetail.contains(":codiceazienda")) {
+				queryDetail = queryDetail.replace(":codiceazienda", TabgenUtility.getFieldForParameter(queryDetail, ":codiceazienda"));
+			}
+			if (anni == null && queryDetail.contains(":anni")) {
+				queryDetail = queryDetail.replace(":anni", TabgenUtility.getFieldForParameter(queryDetail, ":anni"));
+			}
+			if (mesi == null && queryDetail.contains(":mesi")) {
+				queryDetail = queryDetail.replace(":mesi", TabgenUtility.getFieldForParameter(queryDetail, ":mesi"));
+			}
+			if (extraDateFrom == null && queryDetail.contains(":datada")) {
+				queryDetail = queryDetail.replace(":datada", TabgenUtility.getFieldForParameter(queryDetail, ":datada"));
+			}
+			if (extraDateTo == null && queryDetail.contains(":dataa")) {
+				queryDetail = queryDetail.replace(":dataa", TabgenUtility.getFieldForParameter(queryDetail, ":dataa"));
+			}
+			
+			query = outerSelect + "(" + queryDetail + ")";
+		
+//			Query query2 = null;
+//			query2 = entityManager.createNativeQuery(query);
+			NativeQuery<?> query2 = null;
+			query2 = entityManager.createNativeQuery(query).unwrap(NativeQuery.class);
+			//Settings Parameters Query
+			if (anni!=null && queryDetail.contains(":anni")) {
+				query2.setParameter("anni", anni);
+			}
+			if (mesi!=null && queryDetail.contains(":mesi")) {
+				query2.setParameterList("mesi", getMonthForQuery(mesi));
+			}
+			if (extraDateFrom!=null && queryDetail.contains(":datada")) {
+				query2.setParameter("datada", extraDateFrom);
+			}
+			if (extraDateTo!=null && queryDetail.contains(":dataa")) {
+				query2.setParameter("dataa", extraDateTo);
+			}
+			if (!aziende.isEmpty() && queryDetail.contains(":aziendeprofilate")) {
+				query2.setParameterList("aziendeprofilate", aziende);
+			}
+			if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && queryDetail.contains(":tipoimportazione")) {
+				query2.setParameter("tipoimportazione", tipoImportazione);
+			}
+			if (codicePresidio != null && !codicePresidio.equals("Tutte") && queryDetail.contains(":codicepresidio")) {
+				query2.setParameter("codicepresidio", codicePresidio);
+			}
+			if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && queryDetail.contains(":codiceazienda")) {
+				query2.setParameter("codiceazienda", codiceAzienda);
+			}
+			if (message != null && !message.equals("Tutte") && queryDetail.contains(":message")) {
+				query2.setParameter("message", message);
+			}
+			if (errorCode != null && !errorCode.equals("Tutte") && queryDetail.contains(":codiceerrore")) {
+				query2.setParameter("codiceerrore", errorCode);
+			}
+			
+			result = (BigDecimal) query2.getSingleResult();
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+//			e.printStackTrace();
+		}
+		
+		return result;
+		
+	}
+	
+	@Override
+	public BigDecimal praticheErrorAccordionCount(FlowViewFilterError flowViewFilterError) {
+
+	    BigDecimal result = BigDecimal.ZERO;
+
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+	    String region = flowViewFilterError.getRegion();
+
+	    String campiSelect = "";
+	    HashMap<Integer, String> selectFields = new HashMap<>();
+
+	    String selectCount = "SELECT COUNT(1) ";
+	    String innerFrom = " FROM ";
+	    String innerWhere = " WHERE ";
+	    String query = "";
+	    String select = "SELECT ";
+	    String outerSelect = "SELECT COUNT(1) FROM (";
+	    String outerWhere = "WHERE tot <> 0";
+	    String from = "FROM ";
+	    String where = "WHERE ";
+	    String groupBy = "GROUP BY ";
+	    String onReg = "";
+	    String innerOnScarti = "";
+
+	    String flussoInterno = "";
+	    boolean extTable = false;
+	    boolean sez0and1are1toN = false;
+
+	    String tipoImportazione = flowViewFilterError.getTipoImportazione();
+	    if (tipoImportazione == null) {
+	        flowViewFilterError.setTipoImportazione("Tutte");
+	        tipoImportazione = "Tutte";
+	    }
+	    String codicePresidio = flowViewFilterError.getCodicePresidio();
+	    if (codicePresidio == null) {
+	        flowViewFilterError.setCodicePresidio("Tutte");
+	        codicePresidio = "Tutte";
+	    }
+	    String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+	    if (codiceAzienda == null) {
+	        flowViewFilterError.setCodiceAzienda("Tutte");
+	        codiceAzienda = "Tutte";
+	    }
+	    String errorCode = flowViewFilterError.getErrorCode();
+	    if (errorCode == null) {
+	        flowViewFilterError.setErrorCode("Tutte");
+	        errorCode = "Tutte";
+	    }
+	    String message = flowViewFilterError.getMessage();
+	    if (message == null) {
+	        flowViewFilterError.setMessage("Tutte");
+	        message = "Tutte";
+	    }
+
+	    List<Object[]> resultTabgen = null;
+
+	    // caricamento lista aziende visibili dall'utente
+	    List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+
+	    // aziende configurate per regione (come prima)
+	    if (flowViewFilterError.getRegion() != null) {
+	        TabgenValueFilter filterAz = new TabgenValueFilter();
+	        filterAz.setTabgenId("FM_DASHBOARD_CONFIG");
+	        filterAz.setField2(flowViewFilterError.getFlow().getId());
+	        filterAz.setField3(flowViewFilterError.getRegion());
+	        List<TabgenValueDO> tabgenValueFlussi = tabgenService.searchTabgenValueByFilter(filterAz);
+	        List<String> aziendeDashConfig = tabgenValueFlussi.stream()
+	                .map(TabgenValueDO::getField14)
+	                .distinct()
+	                .filter(Objects::nonNull)
+	                .collect(Collectors.toList());
+
+	        if (!aziendeDashConfig.isEmpty()) {
+	            List<String> aziendeNew = new ArrayList<>();
+	            for (String az : aziende) {
+	                for (String azdash : aziendeDashConfig) {
+	                    if (az.contains(azdash)) aziendeNew.add(az);
+	                }
+	            }
+	            aziende.clear();
+	            aziende = aziendeNew;
+	        }
+	    }
+
+	    // =========================================================
+	    // ✅ reference date per filtro datada/dataa (solo se CanViewDateFromToFilters=true)
+	    // =========================================================
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    // =========================================================
+	    // ✅ PK map by section + PK sezione 0 (poi FINAL per lambda)
+	    // =========================================================
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) pks.add(f.getName());
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    // calcolo la pk0 definitiva senza riassegnarla dentro lambda
+	    List<String> pk0tmp = new ArrayList<>(pkBySection.getOrDefault(0, Collections.emptyList()));
+	    if (pk0tmp.isEmpty()) {
+	        for (List<String> pks : pkBySection.values()) {
+	            if (pks != null && !pks.isEmpty()) {
+	                pk0tmp = new ArrayList<>(pks);
+	                break;
+	            }
+	        }
+	    }
+	    final List<String> pk0 = Collections.unmodifiableList(pk0tmp);
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+
+	    java.util.function.Function<String, String> truncIfNeeded =
+                (qualifiedField) -> "TRUNC(" + qualifiedField + ")";
+	    java.util.function.Function<String, String> dateBetween =
+	            (qualifiedField) -> truncIfNeeded.apply(qualifiedField) + " BETWEEN :datada AND :dataa ";
+
+	    // JOIN chain da alias "a"(section0) fino a refDate.section usando SOLO PK sezione 0
+	    java.util.function.BiFunction<String, Integer, JoinChain> buildChainFrom0 =
+	            (alias0, targetSection) -> {
+	                if (targetSection == null || targetSection <= 0) return new JoinChain("", alias0);
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = alias0;
+
+	                for (int s = 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + s;
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    for (String pk : pk0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                                .append(" = ")
+	                                .append(curAlias).append(".").append(pk)
+	                                .append(" AND ");
+	                    }
+
+	                    if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+	                        sb.setLength(sb.length() - 5);
+	                    }
+
+	                    sb.append(" ");
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+	    // =========================================================
+	    // tabgen campi chiave per REG (come prima)
+	    // =========================================================
+	    if (region != null) {
+	        String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+	        String tableNameRegErrors = flowViewFilterError.getFlow().getName() + "_REG_" + cfgSuffixRegError;
+	        ConfigurationDO cfgObj = configuration.findByKeyId("flowWithExternalUpdate");
+	        if (cfgObj != null) {
+	            String cfg = cfgObj.getValue();
+	            String[] cfgSplitted = cfg.split("/");
+	            for (String value : cfgSplitted) {
+	                int iend = value.indexOf("(");
+	                flussoInterno = value.substring(0, iend);
+	                String flussoCopia = value.substring(iend + 1, value.length() - 1);
+	                if (flussoInterno != null && !"".equals(flussoInterno) && flussoCopia.equals(formFlowDTO.getName())) {
+	                    tableNameRegErrors = flussoInterno + "_REG_" + cfgSuffixRegError;
+	                    extTable = true;
+	                }
+	            }
+	        }
+
+	        List<TabgenField> fields = tabgenDelegate.searchFieldsByTabgenId(tableNameRegErrors.toUpperCase());
+	        for (TabgenField field : fields) {
+	            if ("CAMPO_CHIAVE".equals(field.getDescription())) {
+	                String valueColumn = field.getTabgenValueColumn();
+	                String queryTabgen = "select * from fm_tabgen_value where tabgen_id = '"
+	                        + tableNameRegErrors.toUpperCase() + "' and " + valueColumn + " = '1'";
+	                Query queryTab = entityManager.createNativeQuery(queryTabgen);
+	                resultTabgen = queryTab.getResultList();
+	                break;
+	            }
+	        }
+	    }
+
+	    // verifica sez0/sez1 1..N (come prima)
+	    if (formFlowDTO.getFlowTableList().size() > 1) {
+	        int countPk = 0;
+	        for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+	            if (formFlowTableDTO.getSection() == 0 || formFlowTableDTO.getSection() == 1) {
+	                int countPkTable = 0;
+	                for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	                    if (field.isPk()) countPkTable++;
+	                }
+	                if (countPk == 0) {
+	                    countPk = countPkTable;
+	                } else {
+	                    if (countPk != countPkTable) {
+	                        sez0and1are1toN = true;
+	                    }
+	                }
+	            }
+	        }
+	    }
+
+	    try { // ACCORDION ERRORI
+
+	        List<String> campi = new ArrayList<>();
+	        List<String> campiDesc = new ArrayList<>();
+	        String campiDescStr = "";
+
+	        String nomeFlusso = formFlowDTO.getName();
+	        if (extTable) nomeFlusso = flussoInterno;
+
+	        for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	            if (region != null && !"WARNING".equals(region)) {
+	                innerFrom += nomeFlusso + "_REG_SCARTI_REGIONE" + " m ";
+	            } else {
+	                innerFrom += "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + "_MESSAGE" + " m ";
+	            }
+
+	            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	                if (table.getSection() == 0) {
+	                    if (field.getGroups()) {
+	                        campiSelect += "a." + field.getName() + " , ";
+	                        campiDescStr += field.getDescriptionsm() + " , ";
+	                        campi.add(field.getName());
+	                        campiDesc.add(field.getDescriptionsm());
+	                    }
+	                    if (field.isPk()) {
+	                    	innerWhere += buildNullableJoinCondition("a", "m", field.getName());
+	                        onReg += buildNullableJoinCondition("a", "c", field.getName());
+	                    }
+	                } else if (table.getSection() == 1) {
+	                    if (field.isPk() && !sez0and1are1toN) {
+	                    	where += buildNullableJoinCondition("a", "b", field.getName());
+	                    }
+	                }
+
+	                if (table.getSection() == 1) {
+	                    if (field.getGroups()) {
+	                        if (campi.contains(field.getName())) {
+	                            campi.remove(field.getName());
+	                            campiDesc.remove(field.getDescriptionsm());
+	                        } else {
+	                            campiSelect += "b." + field.getName() + " , ";
+	                            campiDescStr += field.getDescriptionsm() + " , ";
+	                        }
+	                    }
+	                }
+	            }
+
+	            if (table.getSection() == 0) {
+	                from += "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + " a ,";
+	                if (region == null || "WARNING".equals(region)) {
+	                    innerWhere += "m.message = :message";
+	                }
+	            }
+
+	            if (table.getSection() == 1) {
+	                from += "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection() + " b ";
+	                if (region != null && !"WARNING".equals(region)) {
+	                    break;
+	                }
+	            }
+
+	            query += selectCount + innerFrom + innerWhere + " ) + (";
+	            innerFrom = "FROM ";
+
+	            if (region != null && !"WARNING".equals(region) && sez0and1are1toN) {
+	                from = from.substring(0, from.length() - 1);
+	                break;
+	            }
+	        }
+
+	        if (region != null && !"WARNING".equals(region)) {
+	            if (sez0and1are1toN && from.endsWith(",")) {
+	                from = from.substring(0, from.length() - 1);
+	            }
+	            from += ", " + nomeFlusso + "_REG_SCARTI_REGIONE" + " m ,"
+	                    + "FM_FLOW_" + nomeFlusso + "_REG_0 c ";
+	        }
+
+	        campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+	        campiDescStr = campiDescStr.substring(0, campiDescStr.length() - 2);
+
+	        String[] nuoviCampi = campiSelect.split(",");
+	        List<String> campiNew = new ArrayList<>();
+	        for (String s : nuoviCampi) campiNew.add(s);
+
+	        Collections.sort(campiNew, (o1, o2) -> o1.split("\\.")[1].compareTo(o2.split("\\.")[1]));
+
+	        campiSelect = "";
+	        campiNew = campiNew.stream().map(String::trim).distinct().collect(Collectors.toList());
+	        for (String campo : campiNew) campiSelect += campo + ",";
+	        campiSelect = campiSelect.substring(0, campiSelect.length() - 1);
+
+	        if (campiSelect.endsWith("+ ")) {
+	            campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+	        }
+
+	        String[] selectFieldsApp = campiSelect.split(",");
+	        int position = 0;
+	        for (String s : selectFieldsApp) {
+	            String fieldCopy = s.trim();
+	            String[] fieldPoint = fieldCopy.split("\\.");
+	            selectFields.put(position, fieldPoint[fieldPoint.length - 1]);
+	            position++;
+	        }
+
+	        groupBy += campiSelect;
+	        campiSelect += ", ";
+
+	        if (query.endsWith("+ (")) {
+	            query = query.substring(0, query.length() - 3);
+	            query += " tot ";
+	        }
+
+	        if (from.endsWith(",")) {
+	            from = from.substring(0, from.length() - 1);
+	        }
+
+	        // ✅ filtro periodo
+	        String dateJoinSql = "";
+	        String dateAlias = "a";
+
+	        if (useDateFromTo && refDate != null) {
+	            Integer refSection = refDate.section();
+	            if (refSection != null && refSection > 0) {
+	                if (refSection == 1 && from.contains("FM_FLOW_" + formFlowDTO.getName() + "_1 b")) {
+	                    dateAlias = "b";
+	                } else {
+	                    JoinChain chain = buildChainFrom0.apply("a", refSection);
+	                    dateJoinSql = chain.joinSql;
+	                    dateAlias = chain.targetAlias;
+	                }
+	            }
+	        }
+
+	        if (useDateFromTo && refDate != null && dateJoinSql != null && !dateJoinSql.isEmpty()) {
+	            if (!from.contains(" REF" + refDate.section() + " ")) {
+	                from += " " + dateJoinSql + " ";
+	            }
+	        }
+
+	        if (useDateFromTo && refDate != null) {
+	            where += dateBetween.apply(dateAlias + "." + refDate.fieldName());
+	        } else {
+	            if (!aziende.isEmpty()) {
+	                where += "a.month_rif " + getWhereConditionMonthRif(flowViewFilterError)
+	                        + " and a.year_rif = :anni AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	            } else {
+	                where += "a.month_rif " + getWhereConditionMonthRif(flowViewFilterError)
+	                        + " and a.year_rif = :anni ";
+	            }
+	        }
+
+	        if (useDateFromTo && refDate != null) {
+	            if (!aziende.isEmpty()) {
+	                where += " AND a.CODICEAZIENDA IN ( :aziendeprofilate ) ";
+	            }
+	        }
+
+	        if (tipoImportazione != null && !"Tutte".equals(tipoImportazione)) {
+	            where += " and a.import_type = :tipoimportazione ";
+	        }
+	        if (codicePresidio != null && !"Tutte".equals(codicePresidio)) {
+	            where += " and a.CODICEPRESIDIO = :codicepresidio ";
+	        }
+	        if (codiceAzienda != null && !"Tutte".equals(codiceAzienda)) {
+	            where += " and a.CODICEAZIENDA = :codiceazienda ";
+	        }
+
+	        if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+	            for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                    where += "and a." + filter.get("campo") + "='" + filter.get("selected") + "' ";
+	                }
+	            }
+	        }
+
+	        if (region != null && !"WARNING".equals(region)) {
+
+	            if ("SEGNALAZIONI_REG".equals(region) || "SEGNALAZIONI_REG_AGG".equals(region)) {
+	                where += " AND m.severity = 'SEGNALAZIONE' ";
+	            } else if ("ERRORI_REG".equals(region) || "ERRORI_REG_AGG".equals(region)) {
+	                where += " AND m.severity = 'SCARTO' ";
+	            }
+
+	            where += " and m.codiceerrore = :codiceerrore and ";
+	            where += onReg;
+
+	            if (resultTabgen != null) {
+	                for (int i = 0; i < resultTabgen.size(); i++) {
+	                	String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+	                    innerOnScarti += buildNullableJoinCondition("c", "m", fieldName);
+	                }
+	                innerOnScarti = trimTrailingAnd(innerOnScarti);
+	                where += innerOnScarti;
+	            }
+	            
+	            groupBy += ",m.codiceerrore";
+	            campiSelect += " m.codiceerrore,COUNT(1) tot ";
+	            query = select + campiSelect + from + where + groupBy + " ) ";
+
+	        } else {
+	            query = select + campiSelect + " ( " + query + from + where + groupBy + " ) ";
+	        }
+
+	        query = outerSelect + query + outerWhere;
+
+	        NativeQuery<?> query2 = entityManager.createNativeQuery(query).unwrap(NativeQuery.class);
+
+	        // set parametri
+	        if (useDateFromTo && refDate != null) {
+	            if (query.contains(":datada")) query2.setParameter("datada", flowViewFilterError.getExtraDateFrom());
+	            if (query.contains(":dataa")) query2.setParameter("dataa", flowViewFilterError.getExtraDateTo());
+	        } else {
+	            if (query.contains(":anni")) query2.setParameter("anni", flowViewFilterError.getYear());
+	            if (query.contains(":mesi")) query2.setParameterList("mesi", getMonthForQuery(flowViewFilterError.getMonth()));
+	        }
+
+	        if (!aziende.isEmpty() && query.contains(":aziendeprofilate")) {
+	            query2.setParameterList("aziendeprofilate", aziende);
+	        }
+	        if (tipoImportazione != null && !"Tutte".equals(tipoImportazione) && query.contains(":tipoimportazione")) {
+	            query2.setParameter("tipoimportazione", tipoImportazione);
+	        }
+	        if (codicePresidio != null && !"Tutte".equals(codicePresidio) && query.contains(":codicepresidio")) {
+	            query2.setParameter("codicepresidio", codicePresidio);
+	        }
+	        if (codiceAzienda != null && !"Tutte".equals(codiceAzienda) && query.contains(":codiceazienda")) {
+	            query2.setParameter("codiceazienda", codiceAzienda);
+	        }
+	        if (errorCode != null && !"Tutte".equals(errorCode) && query.contains(":codiceerrore")) {
+	            query2.setParameter("codiceerrore", errorCode);
+	        }
+	        if (message != null && !"Tutte".equals(message) && query.contains(":message")) {
+	            query2.setParameter("message", message);
+	        }
+
+	        result = (BigDecimal) query2.getSingleResult();
+
+	    } catch (Exception e) {
+	    	LogUtil.logException(logger, "", e);
+//	        e.printStackTrace();
+	    }
+
+	    return result;
+	}	
+	
+	@Override
+	public BigDecimal praticheAccordionCount(FlowViewFilterError flowViewFilterError) {
+
+	    BigDecimal result = BigDecimal.ZERO;
+
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+
+	    String tipoImportazione = flowViewFilterError.getTipoImportazione();
+	    if (tipoImportazione == null) {
+	        flowViewFilterError.setTipoImportazione("Tutte");
+	        tipoImportazione = "Tutte";
+	    }
+
+	    String codicePresidio = flowViewFilterError.getCodicePresidio();
+	    if (codicePresidio == null) {
+	        flowViewFilterError.setCodicePresidio("Tutte");
+	        codicePresidio = "Tutte";
+	    }
+
+	    String codiceAzienda = flowViewFilterError.getCodiceAzienda();
+	    if (codiceAzienda == null) {
+	        flowViewFilterError.setCodiceAzienda("Tutte");
+	        codiceAzienda = "Tutte";
+	    }
+
+	    String[] pkList = flowViewFilterError.getPkList();
+	    String[] pkListName = flowViewFilterError.getPkNameList();
+
+	    String selectSQL = "SELECT ";
+	    String fromSQl = " FROM ";
+	    String whereSQL = " WHERE ";
+	    String joinSQL = "JOIN ";
+	    String leftJoinSQL = "LEFT JOIN ";
+
+	    String whereConcat = "";
+	    String tableMessage = "FM_ERROR_MESSAGE ";
+	    String querySQL = "";
+	    String unionAllSQL = " UNION ALL ";
+
+	    String fieldPk = "";
+	    String join2SQL = "";
+	    String innerOnScarti = "";
+
+	    String region = flowViewFilterError.getRegion();
+
+	    String campiSelect =
+	            "MESS.MESSAGE, " +
+	            "nvl(COD.DESCRIPTION,'DESCRIZIONE ERRORE NON DISPONIBILE, ERRORE NON CENSITO'), " +
+	            "MESS.VALUE, MESS.CREATION_DATE, MESS.SEVERITY ";
+
+	    String flussoInterno = "";
+	    boolean extTable = false;
+	    List<Object[]> resultTabgen = null;
+	    String nomeFlusso = formFlowDTO.getName();
+
+	    // caricamento lista aziende visibili dall'utente
+	    List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+
+	    // caricamento aziende configurate per il flusso e widget di riferimento
+	    if (flowViewFilterError.getRegion() != null) {
+	        TabgenValueFilter filterAz = new TabgenValueFilter();
+	        filterAz.setTabgenId("FM_DASHBOARD_CONFIG");
+	        filterAz.setField2(flowViewFilterError.getFlow().getId());
+	        filterAz.setField3(flowViewFilterError.getRegion());
+
+	        List<TabgenValueDO> tabgenValueFlussi = tabgenService.searchTabgenValueByFilter(filterAz);
+	        List<String> aziendeDashConfig = tabgenValueFlussi.stream()
+	                .map(TabgenValueDO::getField14)
+	                .distinct()
+	                .filter(Objects::nonNull)
+	                .collect(Collectors.toList());
+
+	        if (!aziendeDashConfig.isEmpty()) {
+	            List<String> aziendeNew = new ArrayList<>();
+	            for (String az : aziende) {
+	                for (String azdash : aziendeDashConfig) {
+	                    if (az.contains(azdash)) aziendeNew.add(az);
+	                }
+	            }
+	            aziende.clear();
+	            aziende = aziendeNew;
+	        }
+	    }
+
+	    // =========================================================
+	    // reference date per filtro datada/dataa
+	    // =========================================================
+	    ReferenceDateFieldDTO refDate = null;
+	    boolean useDateFromTo = Boolean.TRUE.equals(flowViewFilterError.getCanViewDateFromToFilters());
+	    if (useDateFromTo) {
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(formFlowDTO.getName());
+	        if (refs != null && !refs.isEmpty()) {
+	            refDate = refs.stream()
+	                    .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+	                    .orElse(null);
+	        }
+	    }
+
+	    // =========================================================
+	    // PK map + pk0 FINAL
+	    // =========================================================
+	    Map<Integer, List<String>> pkBySection = new HashMap<>();
+	    for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	        List<String> pks = new ArrayList<>();
+	        for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	            if (f.isPk()) pks.add(f.getName());
+	        }
+	        pkBySection.put(t.getSection(), pks);
+	    }
+
+	    List<String> pk0tmp = new ArrayList<>(pkBySection.getOrDefault(0, Collections.emptyList()));
+	    if (pk0tmp.isEmpty()) {
+	        for (List<String> pks : pkBySection.values()) {
+	            if (pks != null && !pks.isEmpty()) {
+	                pk0tmp = new ArrayList<>(pks);
+	                break;
+	            }
+	        }
+	    }
+	    final List<String> pk0 = Collections.unmodifiableList(pk0tmp);
+
+	    class JoinChain {
+	        final String joinSql;
+	        final String targetAlias;
+
+	        JoinChain(String joinSql, String targetAlias) {
+	            this.joinSql = joinSql;
+	            this.targetAlias = targetAlias;
+	        }
+	    }
+
+	    java.util.function.BiFunction<String, Integer, String> tableNameBySectionNormal =
+	            (flowName, section) -> "FM_FLOW_" + flowName + "_" + section;
+
+	    java.util.function.Function<String, String> dateBetween =
+	            (qualifiedField) -> "TRUNC(" + qualifiedField + ") BETWEEN :datada AND :dataa ";
+
+	    // JOIN da alias0(section0) -> targetSection usando SEMPRE pk0
+	    java.util.function.BiFunction<String, Integer, JoinChain> buildChainFrom0 =
+	            (alias0, targetSection) -> {
+	                if (targetSection == null || targetSection <= 0) return new JoinChain("", alias0);
+
+	                StringBuilder sb = new StringBuilder();
+	                String prevAlias = alias0;
+
+	                for (int s = 1; s <= targetSection; s++) {
+	                    String curAlias = "REF" + s;
+	                    String tableName = tableNameBySectionNormal.apply(formFlowDTO.getName(), s);
+
+	                    sb.append(" JOIN ").append(tableName).append(" ").append(curAlias).append(" ON ");
+
+	                    for (String pk : pk0) {
+	                        sb.append(prevAlias).append(".").append(pk)
+	                          .append(" = ")
+	                          .append(curAlias).append(".").append(pk)
+	                          .append(" AND ");
+	                    }
+
+	                    if (sb.length() >= 5 && sb.substring(sb.length() - 5).equals(" AND ")) {
+	                        sb.setLength(sb.length() - 5);
+	                    }
+	                    sb.append(" ");
+	                    prevAlias = curAlias;
+	                }
+
+	                return new JoinChain(sb.toString(), "REF" + targetSection);
+	            };
+
+	    // se PRA non è section0, join a section0 con alias PRA0 usando pk0
+	    java.util.function.BiFunction<Integer, String, JoinChain> ensureAlias0 =
+	            (currentSection, currentAlias) -> {
+	                if (currentSection == null || currentSection == 0) return new JoinChain("", currentAlias);
+
+	                String alias0 = currentAlias + "0";
+	                String table0 = tableNameBySectionNormal.apply(formFlowDTO.getName(), 0);
+
+	                StringBuilder j0 = new StringBuilder();
+	                j0.append(" JOIN ").append(table0).append(" ").append(alias0).append(" ON ");
+
+	                for (String pk : pk0) {
+	                    j0.append(currentAlias).append(".").append(pk)
+	                      .append(" = ")
+	                      .append(alias0).append(".").append(pk)
+	                      .append(" AND ");
+	                }
+	                if (j0.length() >= 5 && j0.substring(j0.length() - 5).equals(" AND ")) {
+	                    j0.setLength(j0.length() - 5);
+	                }
+	                j0.append(" ");
+
+	                return new JoinChain(j0.toString(), alias0);
+	            };
+
+	    // =========================================================
+	    // REG setup + tabgen chiavi
+	    // =========================================================
+	    if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+
+	        campiSelect = "MESS.CODICEERRORE, MESS.DESCRIZIONEERRORE, MESS.RECEIVING_DATE, MESS.SEVERITY";
+
+	        String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+	        String tableNameRegErrors = flowViewFilterError.getFlow().getName() + "_REG_" + cfgSuffixRegError;
+
+	        ConfigurationDO cfgObj = configuration.findByKeyId("flowWithExternalUpdate");
+	        if (cfgObj != null) {
+	            String cfg = cfgObj.getValue();
+	            String[] cfgSplitted = cfg.split("/");
+	            for (int i = 0; i < cfgSplitted.length; i++) {
+	                String value = cfgSplitted[i];
+	                int iend = value.indexOf("(");
+	                flussoInterno = value.substring(0, iend);
+	                String flussoCopia = value.substring(iend + 1, value.length() - 1);
+	                if (flussoInterno != null && !"".equals(flussoInterno) && flussoCopia.equals(formFlowDTO.getName())) {
+	                    tableNameRegErrors = flussoInterno + "_REG_" + cfgSuffixRegError;
+	                    extTable = true;
+	                }
+	            }
+	        }
+	        if (extTable) {
+	            nomeFlusso = flussoInterno;
+	        }
+
+	        List<TabgenField> fields = tabgenDelegate.searchFieldsByTabgenId(tableNameRegErrors.toUpperCase());
+	        for (TabgenField field : fields) {
+	            if ("CAMPO_CHIAVE".equals(field.getDescription())) {
+	                String valueColumn = field.getTabgenValueColumn();
+	                String queryTabgen = "select * from fm_tabgen_value where tabgen_id = '" + tableNameRegErrors.toUpperCase()
+	                        + "' and " + valueColumn + " = '1'";
+	                Query queryTab = entityManager.createNativeQuery(queryTabgen);
+	                resultTabgen = queryTab.getResultList();
+	                break;
+	            }
+	        }
+	    }
+
+	    // =========================================================
+	    // ACCORDION PRATICHE ERRATE + POPUP PRATICHE DA ERRORI
+	    // =========================================================
+	    try {
+
+	        for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+
+	            String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection();
+	            String tableNative = "FM_FLOW_" + nomeFlusso + "_";
+	            String tableNameError = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection() + "_MESSAGE";
+	            String tableScarti = nomeFlusso + "_REG_SCARTI_REGIONE";
+
+	            fieldPk = "ON ";
+	            innerOnScarti = ""; // reset per sezione
+
+	            // whereConcat su PK selezionate
+	            for (int i = 0; i < pkList.length; i++) {
+	                if (pkList[i] != null) {
+	                    whereConcat += "PRA." + pkListName[i] + " = '" + pkList[i] + "' AND ";
+	                }
+	            }
+
+	            // =========================================================
+	            // JOIN PRA -> MESS / reg SEMPRE usando pk0
+	            // =========================================================
+	            for (String pk : pk0) {
+	                if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	                    if (formFlowTableDTO.getSection() == 0) {
+	                    	fieldPk += buildNullableJoinCondition("PRA", "reg", pk);
+	                    }
+	                } else {
+	                	fieldPk += buildNullableJoinCondition("PRA", "MESS", pk);
+	                }
+	            }
+
+	            fieldPk = fieldPk.substring(0, fieldPk.length() - 4);
+
+	            join2SQL = leftJoinSQL + tableMessage + " COD ON MESS.MESSAGE = COD.EM_ID";
+
+	            // FROM base
+	            if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+
+	                innerOnScarti = "ON ";
+	                for (int i = 0; i < resultTabgen.size(); i++) {
+	                	String fieldName = String.valueOf(resultTabgen.get(i)[1]);
+	                    innerOnScarti += buildNullableJoinCondition("reg", "MESS", fieldName);
+	                }
+	                innerOnScarti = trimTrailingAnd(innerOnScarti);
+	                
+	                fromSQl += tableName + " PRA " +
+	                        joinSQL + tableNative + "REG_0 reg " + fieldPk +
+	                        " join " + tableScarti + " MESS " + innerOnScarti;
+
+	            } else {
+	                fromSQl += tableName + " PRA " + joinSQL + tableNameError + " MESS " + fieldPk;
+	            }
+
+	            // =========================================================
+	            // extraFilter: JOIN PRA -> PRA2 SEMPRE usando pk0
+	            // =========================================================
+	            if (flowViewFilterError.getExtraFilter() != null && !flowViewFilterError.getExtraFilter().isEmpty()) {
+
+	                String fieldPkFilterPra2 = "ON ";
+	                for (String pk : pk0) {
+	                	fieldPkFilterPra2 += buildNullableJoinCondition("PRA", "PRA2", pk);
+	                }
+	                fieldPkFilterPra2 = fieldPkFilterPra2.substring(0, fieldPkFilterPra2.length() - 4);
+
+	                for (Map<String, String> filter : flowViewFilterError.getExtraFilter()) {
+	                    if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                        fromSQl += " " + joinSQL + tableNative + "0 PRA2 " + fieldPkFilterPra2 +
+	                                " AND PRA2." + filter.get("campo") + " = '" + filter.get("selected") + "' ";
+	                    }
+	                }
+	            }
+
+	            // filtro periodo
+	            if (useDateFromTo && refDate != null) {
+
+	                JoinChain j0 = ensureAlias0.apply(formFlowTableDTO.getSection(), "PRA");
+	                fromSQl += j0.joinSql;
+
+	                JoinChain chain = buildChainFrom0.apply(j0.targetAlias, refDate.section());
+	                fromSQl += chain.joinSql;
+
+	                whereSQL += whereConcat + dateBetween.apply(chain.targetAlias + "." + refDate.fieldName()) + " AND ";
+
+	                if (!aziende.isEmpty()) {
+	                    whereSQL += "PRA.CODICEAZIENDA IN ( :aziendeprofilate ) AND ";
+	                }
+
+	            } else {
+	                if (!aziende.isEmpty()) {
+	                    whereSQL += whereConcat + " PRA.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError) +
+	                            " AND PRA.YEAR_RIF = :anni AND PRA.CODICEAZIENDA IN ( :aziendeprofilate ) AND ";
+	                } else {
+	                    whereSQL += whereConcat + " PRA.MONTH_RIF " + getWhereConditionMonthRif(flowViewFilterError) +
+	                            " AND PRA.YEAR_RIF = :anni AND ";
+	                }
+	            }
+
+	            // filtri import/presidio/azienda
+	            if (tipoImportazione != null && !tipoImportazione.equals("Tutte")) {
+	                whereSQL += " PRA.IMPORT_TYPE = :tipoimportazione AND ";
+	            }
+	            if (codicePresidio != null && !codicePresidio.equals("Tutte")) {
+	                whereSQL += " PRA.CODICEPRESIDIO = :codicepresidio AND ";
+	            }
+	            if (codiceAzienda != null && !codiceAzienda.equals("Tutte")) {
+	                whereSQL += " PRA.CODICEAZIENDA = :codiceazienda AND ";
+	            }
+
+	            // severity
+	            if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	                if ("PRATICHE_SEGNALAZIONI_REG".equals(region) || "SEGNALAZIONI_REG".equals(region)
+	                        || "PRATICHE_SEGNALAZIONI_REG_AGG".equals(region) || "SEGNALAZIONI_REG_AGG".equals(region)) {
+	                    whereSQL += " mess.severity = 'SEGNALAZIONE' AND ";
+	                } else {
+	                    whereSQL += " mess.severity = 'SCARTO' AND ";
+	                }
+	            } else {
+	                if ("WARNING".equals(region) || "PRATICHE_WARNING".equals(region)) {
+	                    whereSQL += " mess.severity = 'WARNING' AND ";
+	                } else {
+	                    whereSQL += " mess.severity = 'ERROR' AND ";
+	                }
+	            }
+
+	            // filtro errore
+	            if (flowViewFilterError.getErrorCode() != null) {
+	                if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	                    whereSQL += " MESS.codiceerrore = '" + flowViewFilterError.getErrorCode() + "'";
+	                } else {
+	                    whereSQL += " MESS.MESSAGE = '" + flowViewFilterError.getErrorCode() + "'";
+	                }
+	            }
+
+	            if (whereSQL.endsWith("AND ")) {
+	                whereSQL = whereSQL.substring(0, whereSQL.length() - 4);
+	            }
+
+	            if (region != null && !"WARNING".equals(region) && !"PRATICHE_WARNING".equals(region)) {
+	                querySQL += selectSQL + "distinct " + campiSelect + fromSQl + whereSQL + unionAllSQL;
+	                break;
+	            } else {
+	                querySQL += selectSQL + campiSelect + fromSQl + join2SQL + whereSQL + unionAllSQL;
+	            }
+
+	            // reset per prossima sezione
+	            fromSQl = " FROM ";
+	            whereSQL = " WHERE ";
+	            whereConcat = "";
+	            fieldPk = "";
+	        }
+
+	        if (querySQL.endsWith("UNION ALL ")) {
+	            querySQL = querySQL.substring(0, querySQL.length() - 10);
+	        }
+
+	        querySQL = "SELECT COUNT(1) FROM ( " + querySQL + ")";
+
+	        NativeQuery<?> query2 = entityManager.createNativeQuery(querySQL).unwrap(NativeQuery.class);
+
+	        // parametri date vs mesi/anni
+	        if (useDateFromTo && refDate != null) {
+	            if (querySQL.contains(":datada")) query2.setParameter("datada", flowViewFilterError.getExtraDateFrom());
+	            if (querySQL.contains(":dataa")) query2.setParameter("dataa", flowViewFilterError.getExtraDateTo());
+	        } else {
+	            if (querySQL.contains(":anni")) query2.setParameter("anni", flowViewFilterError.getYear());
+	            if (querySQL.contains(":mesi")) query2.setParameterList("mesi", getMonthForQuery(flowViewFilterError.getMonth()));
+	        }
+
+	        if (!aziende.isEmpty() && querySQL.contains(":aziendeprofilate")) {
+	            query2.setParameterList("aziendeprofilate", aziende);
+	        }
+	        if (tipoImportazione != null && !tipoImportazione.equals("Tutte") && querySQL.contains(":tipoimportazione")) {
+	            query2.setParameter("tipoimportazione", tipoImportazione);
+	        }
+	        if (codicePresidio != null && !codicePresidio.equals("Tutte") && querySQL.contains(":codicepresidio")) {
+	            query2.setParameter("codicepresidio", codicePresidio);
+	        }
+	        if (codiceAzienda != null && !codiceAzienda.equals("Tutte") && querySQL.contains(":codiceazienda")) {
+	            query2.setParameter("codiceazienda", codiceAzienda);
+	        }
+
+	        result = (BigDecimal) query2.getSingleResult();
+
+	    } catch (Exception e) {
+	        LogUtil.logException(logger, "", e);
+//	      e.printStackTrace();
+	    }
+
+	    return result;
+	}
+	
+	PaginatedPraticaDTO generateSelectFieldsPraticheAccordion(List<Object[]> queryResult, FlowViewFilterError flowViewFilterError){
+		
+		PaginatedPraticaDTO pratiche = new PaginatedPraticaDTO();
+		pratiche.setErrors(new ArrayList<>());
+		HashMap<Integer, String> selectFields = new HashMap<Integer,String>();
+		
+		for(int i=0; i<queryResult.size(); i++) {
+			selectFields.put(0,(String)queryResult.get(i)[3]);
+		}
+		
+		
+		for(int i=0; i<selectFields.size(); i++) {
+			boolean founded = false;
+			for(FormFlowTableDTO table : flowViewFilterError.getFlow().getFlowTableList()) {
+				for(FormFlowTableFieldDTO field: table.getFlowTableFieldList()) {
+					if(selectFields.get(i)!=null && selectFields.get(i).equalsIgnoreCase(field.getName()) && field.isCrypto()) {
+						for(int k=0; k<queryResult.size(); k++) {
+							if("Date".equals(field.getFieldType())) {
+								try {
+									queryResult.get(k)[2] = cryptoManager.decryptDate((String)queryResult.get(k)[2]);
+								} catch (ParseException e) {
+									LogUtil.logException(logger, "", e);
+//									e.printStackTrace();
+								}
+							}else {
+								queryResult.get(k)[2] = cryptoManager.decryptString((String)queryResult.get(k)[2]);
+							}
+						}
+						founded = true;
+					}
+					if(founded) break;
+				}
+				if(founded) break;
+			}
+		}
+		
+		pratiche.setPraticaViewFields(selectFields);
+		
+		pratiche.setObjectList(queryResult);
+		
+		return pratiche;
+	}
+	
+	@Override
+	public BigDecimal praticheDisallineateCount(FlowViewFilterError flowViewFilter) {
+		FormFlowDTO formFlowDTO = flowViewFilter.getFlow();
+		Query query = null;
+		String querySQL = "";
+		String selectSQL = "SELECT ";
+		String campiWhere = "";
+		List<String> campi = new ArrayList<String>();
+		String tableNameNative = "FM_FLOW_" + formFlowDTO.getName() + "_";
+		String whereSQL =" WHERE ";
+		String campiSelect = "";
+		String fromSQl = " FROM ";
+		String onSQL = "";
+		String filtersSQL = "";
+		
+		for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+			String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_REG_" + table.getSection();
+			String tableNameExist =  "FM_FLOW_" + formFlowDTO.getName() + "_" + table.getSection();						
+
+			if (table.getSection() == 0) {
+				campiWhere += tableName + ".DATE_PROCESSING < f.DATE_PROCESSING ";
+				fromSQl += tableName;
+				onSQL += tableName + ".extraction_id = SEZIONE1.extraction_id AND ";
+				if (flowViewFilter.getExtraFilter() != null && !flowViewFilter.getExtraFilter().isEmpty()) {
+					for (Map<String, String> filter : flowViewFilter.getExtraFilter()) {
+						if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+							campiWhere += "AND f."+filter.get("campo")+ "='"+filter.get("selected")+"' ";
+						}
+					}
+				}
+			}else if(table.getSection() == 1) {
+				fromSQl += " LEFT JOIN " + tableName + " ON (";
+			}
+				
+			for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+				
+				if (table.getSection() == 0) {
+					if (field.getGroups()) {
+						campi.add(field.getName());
+					}
+					if (field.isPk()) {
+						
+						campiWhere += " and " + tableName + "." + field.getName() + "= "
+								+ "f." + field.getName();
+						
+						if (flowViewFilter.getFilters().get(field.getName()) != null
+								&& flowViewFilter.getFilters().get(field.getName()) != "") {
+
+							filtersSQL += " and " + tableName + "." + field.getName() + "= '"
+									+ flowViewFilter.getFilters().get(field.getName()) + "'";
+						}
+						onSQL += tableName + "." + field.getName() + " = SEZIONE1." + field.getName() + " AND ";
+					}
+				}
+				if (table.getSection() == 1) {
+					if (field.getGroups()) {
+						if (campi.contains(field.getName())) {
+							campiSelect += tableNameNative + "REG_0." + field.getName() + " , ";
+							campi.remove(field.getName());
+						} else {
+							campiSelect += tableName + "." + field.getName() + " , ";
+						}
+					}
+				}
+				if (field.isReferenceDate() && !field.isPk()) {
+					if (flowViewFilter.getFilters().get(field.getName()) != null
+							&& flowViewFilter.getFilters().get(field.getName()) != "") {
+						
+							SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
+							String data = dateFormat.format(flowViewFilter.getFilters().get(field.getName()));
+							filtersSQL += " and " + tableName + "." + field.getName() + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and "
+							+ tableName + "." + field.getName() + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+					}
+				}
+			}
+				
+			if (table.getSection() == 0) {
+				whereSQL += tableName + ".EXTRACTION_ID = :extractionId filtri AND EXISTS (" +
+		                " SELECT 1 FROM " + tableNameExist + " f WHERE " + campiWhere + ")";
+			
+			}
+			if (table.getSection() == 1) {
+				onSQL = onSQL.replaceAll("SEZIONE1", tableName);
+				fromSQl += onSQL;
+				break;
+			}
+		}
+		
+		if (fromSQl.toUpperCase().endsWith(" AND ")) {
+			fromSQl = fromSQl.substring(0, fromSQl.length() - 4);
+			fromSQl += ") ";
+		}
+		
+		if(filtersSQL != null && !"".equals(filtersSQL)) {
+			whereSQL = whereSQL.replaceAll("filtri", filtersSQL);
+		}else {
+			whereSQL = whereSQL.replaceAll("filtri", "");
+		}
+
+		if (campi.size() > 0) {
+			for(int i=0; i<campi.size(); i++) {
+				campiSelect += tableNameNative + "REG_0." + campi.get(i) + " , ";
+			}
+		}
+
+		campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+
+		String[] nuoviCampi = campiSelect.split(",");
+		List<String> campiNew = new ArrayList<String>();
+		for (int i = 0; i < nuoviCampi.length; i++) {
+			campiNew.add(nuoviCampi[i]);
+		}
+
+		Collections.sort(campiNew, new Comparator<String>() {
+
+			@Override
+			public int compare(String o1, String o2) {
+				return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+			}
+		});
+
+		campiSelect = "";
+		campiNew = campiNew.stream().map(String :: trim).distinct().collect(Collectors.toList());
+		for (String campo : campiNew) {
+			campiSelect += campo + ",";
+		}
+		campiSelect = campiSelect.substring(0, campiSelect.length() - 1);
+
+		querySQL += selectSQL + campiSelect + fromSQl + whereSQL;
+		
+		querySQL = "SELECT COUNT(1) FROM ( " + querySQL + ")"; 
+		query = entityManager.createNativeQuery(querySQL);
+		
+		query.setParameter("extractionId", flowViewFilter.getExtractionId());
+
+		BigDecimal result = (BigDecimal) query.getSingleResult();
+
+		return result;
+
+	}
+	
+	@Override
+	public BigDecimal praticheGiaConsolidateInviateCount(FlowViewFilterError flowViewFilter) {
+	    FormFlowDTO formFlowDTO = flowViewFilter.getFlow();
+	    Query query = null;
+	    String querySQL = "";
+	    String selectSQL = "SELECT ";
+	    String whereSQL = " WHERE ";
+	    String campiSelect = "";
+	    String fromSQl = " FROM ";
+	    String onSQL = "";
+	    String filtersSQL = "";
+
+	    List<String> campi = new ArrayList<>();
+	    String tableNameNative = "FM_FLOW_" + formFlowDTO.getName() + "_";
+	    List<String> pkFieldsSectionZero = getPkFieldsSectionZero(formFlowDTO);
+
+	    for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+
+	        String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_REG_" + table.getSection();
+
+	        if (table.getSection() == 0) {
+	            fromSQl += tableName;
+	            onSQL += tableName + ".extraction_id = SEZIONE1.extraction_id AND ";
+
+	            if (flowViewFilter.getExtraFilter() != null && !flowViewFilter.getExtraFilter().isEmpty()) {
+	                for (Map<String, String> filter : flowViewFilter.getExtraFilter()) {
+	                    if (filter.get("selected") != null && !filter.get("selected").isEmpty()) {
+	                        filtersSQL += " and " + tableName + "." + filter.get("campo") + "='"
+	                                + filter.get("selected") + "' ";
+	                    }
+	                }
+	            }
+	        } else if (table.getSection() == 1) {
+	            fromSQl += " LEFT JOIN " + tableName + " ON (";
+	        }
+
+	        for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+
+	            if (table.getSection() == 0) {
+	                if (field.getGroups()) {
+	                    campi.add(field.getName());
+	                }
+
+	                if (field.isPk()) {
+	                    if (flowViewFilter.getFilters() != null
+	                            && flowViewFilter.getFilters().get(field.getName()) != null
+	                            && !flowViewFilter.getFilters().get(field.getName()).toString().isEmpty()) {
+
+	                        filtersSQL += " and " + tableName + "." + field.getName() + "= '"
+	                                + flowViewFilter.getFilters().get(field.getName()) + "'";
+	                    }
+
+	                    onSQL += tableName + "." + field.getName() + " = SEZIONE1." + field.getName() + " AND ";
+	                }
+	            }
+
+	            if (table.getSection() == 1) {
+	                if (field.getGroups()) {
+	                    if (campi.contains(field.getName())) {
+	                        campiSelect += tableNameNative + "REG_0." + field.getName() + " , ";
+	                        campi.remove(field.getName());
+	                    } else {
+	                        campiSelect += tableName + "." + field.getName() + " , ";
+	                    }
+	                }
+	            }
+
+	            if (field.isReferenceDate() && !field.isPk()) {
+	                if (flowViewFilter.getFilters() != null
+	                        && flowViewFilter.getFilters().get(field.getName()) != null
+	                        && !flowViewFilter.getFilters().get(field.getName()).toString().isEmpty()) {
+
+	                    SimpleDateFormat dateFormat = new SimpleDateFormat("dd-MMM-yyyy");
+	                    String data = dateFormat.format(flowViewFilter.getFilters().get(field.getName()));
+	                    filtersSQL += " and " + tableName + "." + field.getName()
+	                            + " >= to_date('" + data + " 00:00:00','dd-mm-yyyy HH24:MI:SS') and "
+	                            + tableName + "." + field.getName()
+	                            + " <= to_date('" + data + " 23:59:59','dd-mm-yyyy HH24:MI:SS') ";
+	                }
+	            }
+	        }
+
+	        if (table.getSection() == 0) {
+	            whereSQL += tableName + ".EXTRACTION_ID = :extractionId filtri "
+	                    + buildExistsGiaConsolidataInviataSql(
+	                            tableName,
+	                            formFlowDTO.getName(),
+	                            pkFieldsSectionZero,
+	                            flowViewFilter
+	                    );
+	        }
+
+	        if (table.getSection() == 1) {
+	            onSQL = onSQL.replaceAll("SEZIONE1", tableName);
+	            fromSQl += onSQL;
+	            break;
+	        }
+	    }
+
+	    if (fromSQl.toUpperCase().endsWith(" AND ")) {
+	        fromSQl = fromSQl.substring(0, fromSQl.length() - 4);
+	        fromSQl += ") ";
+	    }
+
+	    if (filtersSQL != null && !"".equals(filtersSQL)) {
+	        whereSQL = whereSQL.replaceAll("filtri", filtersSQL);
+	    } else {
+	        whereSQL = whereSQL.replaceAll("filtri", "");
+	    }
+
+	    if (campi.size() > 0) {
+	        for (String campo : campi) {
+	            campiSelect += tableNameNative + "REG_0." + campo + " , ";
+	        }
+	    }
+
+	    campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+
+	    String[] nuoviCampi = campiSelect.split(",");
+	    List<String> campiNew = new ArrayList<>();
+	    for (String c : nuoviCampi) {
+	        campiNew.add(c);
+	    }
+
+	    Collections.sort(campiNew, new Comparator<String>() {
+	        @Override
+	        public int compare(String o1, String o2) {
+	            return o1.split("\\.")[1].compareTo(o2.split("\\.")[1]);
+	        }
+	    });
+
+	    campiSelect = "";
+	    campiNew = campiNew.stream().map(String::trim).distinct().collect(Collectors.toList());
+	    for (String campo : campiNew) {
+	        campiSelect += campo + ",";
+	    }
+	    campiSelect = campiSelect.substring(0, campiSelect.length() - 1);
+
+	    querySQL += selectSQL + campiSelect + fromSQl + whereSQL;
+	    querySQL = "SELECT COUNT(1) FROM (" + querySQL + ")";
+
+	    query = entityManager.createNativeQuery(querySQL);
+	    query.setParameter("extractionId", flowViewFilter.getExtractionId());
+
+	    return (BigDecimal) query.getSingleResult();
+	}
+	
+	@Override
+	public String getContextValue(List<List<String>> keys, String flow, String section, String param) {
+		
+		String querySQL = "";
+		String whereSQL = " WHERE ";
+	
+		try {
+			 
+			for (List<String> key : keys) {
+				whereSQL += key.get(0) + " = '" + key.get(1) + "' AND ";
+			}
+			
+			whereSQL = trimTrailingAnd(whereSQL);
+			
+			querySQL = "SELECT " + param + " FROM FM_FLOW_" + flow + "_" + section + whereSQL;
+
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+//			e.printStackTrace();
+		}
+		
+		Query query2 = null;
+		query2 = entityManager.createNativeQuery(querySQL);
+
+		String result = (String) query2.getSingleResult();
+
+		return result;
+	}	
+	
+	private String getWhereConditionMonthRif(FlowViewFilterError flowViewFilter) {
+		if (flowViewFilter!= null && flowViewFilter.getMonth() != null && flowViewFilter.getMonth().contains(",")) {
+			return " IN ( :mesi ) ";
+		} else {
+			return " = :mesi ";
+		}
+	}
+	
+	private List<Object> getMonthForQuery(String month) {
+		if (month!= null && month.contains(",")) {
+			List<Object> months =  Arrays.asList(month.split("\\s*,\\s*"));
+			months.forEach(m -> {
+				if (((String) m) != null && ((String) m).length() < 2) {
+					 m = "0" + ((String) m);
+				}
+			});
+			return months;
+		} else {
+			if (month != null && month.length() < 2) {
+				month = "0" + month;
+			}
+			return Collections.singletonList(month);
+		}
+	}
+	
+	@Override
+	public List<Object> createQueryDetail(FlowViewFilterError flowViewFilterError) throws ValidationFlowException {
+	    List<String> errors = new ArrayList<>();
+	    FormFlowDTO formFlowDTO = flowViewFilterError.getFlow();
+
+	    // --- Output ---
+	    HashMap<Integer, String> selectFieldsDetail = new HashMap<>();
+	    HashMap<Integer, String> selectDescriptionsDetail = new HashMap<>();
+	    List<FormFlowTableFieldDTO> filters = new ArrayList<>();
+	    List<String> pkNameList = new ArrayList<>();
+
+	    // --- Mappa campi/descrizioni del flusso ---
+	    Map<String, String> campiDescrAll = new HashMap<>();
+	    Set<String> campiAll = new HashSet<>();
+	    for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	        for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	            String nomeCampo = field.getName().toUpperCase().trim();
+	            campiAll.add(nomeCampo);
+	            campiDescrAll.put(nomeCampo, field.getDescriptionsm());
+	            if (table.getSection() == 0 && field.isPk()) {
+	                pkNameList.add(nomeCampo);
+	                filters.add(field);
+	            }
+	            if (field.isReferenceDate() && !field.isPk()) {
+	                filters.add(field);
+	            }
+	        }
+	    }
+
+	    // --- Campi eccezione dinamici ---
+	    Set<String> campiEccezione = new HashSet<>();
+	    String fieldAcceptedQueryDetail = flowViewFilterError.getFieldAcceptedQueryDetail();
+	    if (fieldAcceptedQueryDetail != null && !fieldAcceptedQueryDetail.trim().isEmpty()) {
+	        for (String f : fieldAcceptedQueryDetail.split(",")) {
+	            String cleaned = f.trim().toUpperCase();
+	            if (!cleaned.isEmpty()) campiEccezione.add(cleaned);
+	        }
+	    }
+	    if (campiEccezione.isEmpty()) {
+	        campiEccezione.addAll(Arrays.asList("MONTH_RIF", "YEAR_RIF", "CODICEERRORE", "DESCRIZIONEERRORE", "SEVERITY"));
+	    }
+
+	    // --- Query ---
+	    String queryDetail = flowViewFilterError.getQueryDetail();
+	    if (queryDetail == null || queryDetail.trim().isEmpty()) {
+	        String msg = "Errore sul metodo createQueryDetail : QueryDetail non valorizzata";
+	        logger.error(msg); errors.add(msg);
+	        return buildResult(queryDetail, selectFieldsDetail, selectDescriptionsDetail, filters, pkNameList, errors);
+	    }
+
+	    // (opzionale ma utile, come fai negli altri metodi)
+	    queryDetail = TabgenUtility.normalizeAllParamsToLowerCase(queryDetail);
+
+	    String qUpper = queryDetail.toUpperCase(Locale.ROOT);
+	    if (!qUpper.contains("SELECT") || !qUpper.contains("FROM")) {
+	        String msg = "Errore sul metodo createQueryDetail : La query non contiene SELECT o FROM";
+	        logger.error(msg); errors.add(msg);
+	    }
+	    
+	    // --- Parametri obbligatori ---
+	    List<String> missingParams = new ArrayList<>();
+	    String qLower = queryDetail.toLowerCase(Locale.ROOT);
+	    if (flowViewFilterError.getCanViewDateFromToFilters()) {
+	    	if (!qLower.contains(":datada"))  missingParams.add(":datada");
+		    if (!qLower.contains(":dataa")) missingParams.add(":dataa");
+	    } else {
+	    	if (!qLower.contains(":anni"))  missingParams.add(":anni");
+		    if (!qLower.contains(":mesi")) missingParams.add(":mesi");
+	    }
+	    if (!missingParams.isEmpty()) {
+	    	String msg = "Errore nella definizione di una delle query personalizzate QUERY_DETAIL/QUERY_DETAIL_HEADER/QUERY_DETAIL_EXP. ";
+	    	if (flowViewFilterError.getCanViewDateFromToFilters()) {
+	    		msg += "E' impostata una parametrizzazione filtro Dashboard per range di Date : ";
+	    	} else {
+	    		msg += "E' impostata una parametrizzazione filtro Dashboard per Mese/Range di Mesi : ";
+	    	}
+	        msg += "Parametri mancanti -> " + missingParams;
+	        logger.error("Errore sul metodo createQueryDetail. "+msg); errors.add(msg);
+	    }
+
+	    // --- ① Estrae la select-list che determina il result set finale (ricorsivo su SELECT *) ---
+	    String selectPart = extractEffectiveSelectList(queryDetail);
+	    if (selectPart == null || selectPart.trim().isEmpty()) {
+	        String msg = "Errore sul metodo createQueryDetail : Impossibile determinare la lista SELECT effettiva";
+	        logger.error(msg); errors.add(msg);
+	        return buildResult(queryDetail, selectFieldsDetail, selectDescriptionsDetail, filters, pkNameList, errors);
+	    }
+
+	    // --- ② Split robusto della select-list (evita virgole dentro funzioni) ---
+	    List<String> rawFields = splitSelectList(selectPart);
+
+	    // --- ③ Elabora ogni item (campo/expr + alias) ---
+	    List<String> campiValidi = new ArrayList<>();
+	    List<String> descrValidi = new ArrayList<>();
+
+	    for (String campo : rawFields) {
+	        String cleanCampo = campo.trim();
+	        if (cleanCampo.isEmpty()) continue;
+
+	        // Estrae alias con o senza AS, anche dopo funzioni
+	        String alias = null;
+	        Matcher m = Pattern.compile("(?i)^(.*?)(?:\\s+AS\\s+|\\s+)([A-Z0-9_]+)\\s*$").matcher(cleanCampo);
+	        if (m.find()) {
+	            cleanCampo = m.group(1).trim();
+	            alias = m.group(2).trim();
+	        }
+
+	        // Nome "grezzo" del campo (senza schema/tabella e senza simboli)
+	        String[] pointSplit = cleanCampo.split("\\.");
+	        String finalCampo = pointSplit.length > 1 ? pointSplit[pointSplit.length - 1].trim() : cleanCampo.trim();
+	        finalCampo = finalCampo.replaceAll("[^A-Za-z0-9_]", "");
+	        if (finalCampo.isEmpty() && alias == null) continue;
+
+	        String nomeCampoFinale = (alias != null ? alias : finalCampo).toUpperCase(Locale.ROOT);
+
+	        // Descrizione
+	        String descr = null;
+	        if (alias != null) {
+	            descr = alias.toUpperCase(Locale.ROOT);
+	        } else {
+	            String key = finalCampo.toUpperCase(Locale.ROOT);
+	            descr = campiDescrAll.get(key);
+	            if (descr == null && campiEccezione.contains(key)) {
+	                descr = key.substring(0,1) + key.substring(1).toLowerCase(Locale.ROOT);
+	            }
+	        }
+
+	        // Validazione
+	        String keyUpper = finalCampo.toUpperCase(Locale.ROOT);
+	        if (alias == null && !campiAll.contains(keyUpper) && !campiEccezione.contains(keyUpper)) {
+	            errors.add("Campo '" + finalCampo + "' non riconosciuto per il flusso " + formFlowDTO.getName()
+	                    + " - Aggiungere il campo '" + finalCampo + "' (separato da una virgola) nel parmetro FIELD_ACCEPTED_QUERY_DETAIL della tabella generica FM_DASHBOARD_CONFIG");
+	            continue;
+	        }
+
+	        campiValidi.add(nomeCampoFinale);
+	        descrValidi.add((descr != null ? descr : nomeCampoFinale).toUpperCase(Locale.ROOT));
+	    }
+
+	    // --- ④ Popola mappe output ---
+	    for (int i = 0; i < campiValidi.size(); i++) {
+	        selectFieldsDetail.put(i, campiValidi.get(i));
+	        selectDescriptionsDetail.put(i, descrValidi.get(i));
+	    }
+
+	    return buildResult(queryDetail, selectFieldsDetail, selectDescriptionsDetail, filters, pkNameList, errors);
+	}
+
+
+	/** Costruisce l’array risultato nel tuo formato. */
+	private List<Object> buildResult(String queryDetail,
+	                                 HashMap<Integer, String> selectFieldsDetail,
+	                                 HashMap<Integer, String> selectDescriptionsDetail,
+	                                 List<FormFlowTableFieldDTO> filters,
+	                                 List<String> pkNameList,
+	                                 List<String> errors) {
+	    List<Object> result = new ArrayList<>();
+	    result.add(queryDetail);                 // 0 - query originale
+	    result.add(selectFieldsDetail);          // 1 - mappa campi
+	    result.add(selectDescriptionsDetail);    // 2 - mappa descrizioni
+	    result.add(filters);                     // 3 - filtri (PK + referenceDate)
+	    result.add(pkNameList);                  // 4 - PK sezione 0
+	    result.add(true);                        // 5 - query personalizzata
+	    result.add(errors);                      // 6 - errori riscontrati
+	    return result;
+	}
+	
+	/** Estrae la select-list che determina le colonne finali.
+	 * Se la SELECT esterna ha "*", scende nella subquery immediatamente dopo il FROM (...) e ripete.
+	 * Gestisce annidamenti multipli, commenti, stringhe, hint e DISTINCT/ALL/UNIQUE.
+	 */
+	private String extractEffectiveSelectList(String sqlOriginal) {
+	    if (sqlOriginal == null) return null;
+
+	    // Trova la coppia SELECT/FROM più esterna (depth 0)
+	    int[] pair = findTopLevelSelectFrom(sqlOriginal);
+	    if (pair == null) return null;
+
+	    int selStart = pair[0]; // subito dopo "SELECT"
+	    int fromPos  = pair[1]; // alla 'F' di "FROM"
+
+	    // selectList candidata
+	    String selectList = sqlOriginal.substring(selStart, fromPos).trim();
+	    // Pulisci hint/commenti iniziali e DISTINCT/ALL/UNIQUE
+	    selectList = stripLeadingHintsAndQualifiers(selectList);
+
+	    // Se non è "*", è la lista effettiva
+	    if (!selectList.equalsIgnoreCase("*")) {
+	        return selectList;
+	    }
+
+	    // È SELECT *: scendi dentro la subquery immediatamente dopo FROM
+	    int afterFrom = fromPos + 4; // salta "FROM"
+	    int n = sqlOriginal.length();
+	    int i = afterFrom;
+
+	    // Skippa spazi/commenti dopo FROM
+	    while (i < n) {
+	        char c = sqlOriginal.charAt(i);
+	        if (Character.isWhitespace(c)) { i++; continue; }
+	        // commento di linea
+	        if (c == '-' && i + 1 < n && sqlOriginal.charAt(i+1) == '-') {
+	            i += 2;
+	            while (i < n && sqlOriginal.charAt(i) != '\n') i++;
+	            continue;
+	        }
+	        // commento /* ... */
+	        if (c == '/' && i + 1 < n && sqlOriginal.charAt(i+1) == '*') {
+	            i += 2;
+	            while (i + 1 < n && !(sqlOriginal.charAt(i) == '*' && sqlOriginal.charAt(i+1) == '/')) i++;
+	            if (i + 1 < n) i += 2;
+	            continue;
+	        }
+	        break;
+	    }
+
+	    // Deve esserci una subquery tra parentesi
+	    if (i >= n || sqlOriginal.charAt(i) != '(') {
+	        // Non c'è subquery immediata: con SELECT * non possiamo dedurre i campi
+	        return "*";
+	    }
+
+	    int close = matchingParen(sqlOriginal, i);
+	    if (close < 0) return "*";
+
+	    // Contenuto della subquery
+	    String inner = sqlOriginal.substring(i + 1, close);
+	    return extractEffectiveSelectList(inner); // ricorsione
+	}
+
+	/** Split della select-list rispettando le parentesi. */
+	private List<String> splitSelectList(String selectList) {
+	    List<String> out = new ArrayList<>();
+	    StringBuilder current = new StringBuilder();
+	    int depth = 0;
+	    boolean inSingle = false, inDouble = false;
+
+	    for (int i = 0; i < selectList.length(); i++) {
+	        char c = selectList.charAt(i);
+
+	        // gestione quote basilare (per sicurezza)
+	        if (c == '\'' && !inDouble) inSingle = !inSingle;
+	        if (c == '"'  && !inSingle) inDouble = !inDouble;
+
+	        if (!inSingle && !inDouble) {
+	            if (c == '(') depth++;
+	            else if (c == ')') depth--;
+	            else if (c == ',' && depth == 0) {
+	                out.add(current.toString());
+	                current.setLength(0);
+	                continue;
+	            }
+	        }
+	        current.append(c);
+	    }
+	    if (current.length() > 0) out.add(current.toString());
+	    return out;
+	}
+	
+	/** Trova la coppia SELECT/FROM a profondità 0, ignorando stringhe e commenti. Ritorna {posDopoSELECT, posF_di_FROM}. */
+	private int[] findTopLevelSelectFrom(String sql) {
+	    String upper = sql.toUpperCase(Locale.ROOT);
+	    int n = sql.length();
+
+	    boolean inSingle = false, inDouble = false, inLineComment = false, inBlockComment = false;
+	    int depth = 0;
+	    int selectStartAfterKeyword = -1;
+
+	    for (int i = 0; i < n; i++) {
+	        char c = sql.charAt(i);
+
+	        // Gestione commenti
+	        if (!inSingle && !inDouble) {
+	            if (!inLineComment && !inBlockComment) {
+	                if (c == '-' && i + 1 < n && sql.charAt(i + 1) == '-') { inLineComment = true; i++; continue; }
+	                if (c == '/' && i + 1 < n && sql.charAt(i + 1) == '*') { inBlockComment = true; i++; continue; }
+	            } else if (inLineComment) {
+	                if (c == '\n') inLineComment = false;
+	                continue;
+	            } else if (inBlockComment) {
+	                if (c == '*' && i + 1 < n && sql.charAt(i + 1) == '/') { inBlockComment = false; i++; }
+	                continue;
+	            }
+	        }
+
+	        // Gestione stringhe
+	        if (!inLineComment && !inBlockComment) {
+	            if (!inDouble && c == '\'') { inSingle = !inSingle; continue; }
+	            if (!inSingle && c == '"')  { inDouble = !inDouble; continue; }
+	        }
+	        if (inSingle || inDouble || inLineComment || inBlockComment) continue;
+
+	        // Profondità parentesi
+	        if (c == '(') { depth++; continue; }
+	        if (c == ')') { if (depth > 0) depth--; continue; }
+
+	        // Cerca SELECT a depth 0
+	        if (depth == 0 && selectStartAfterKeyword < 0) {
+	            if (regionMatchesWord(upper, i, "SELECT")) {
+	                selectStartAfterKeyword = i + "SELECT".length();
+	                // salta spazi/hint/qualificatori per posizionare l'inizio select-list
+	                // (li puliremo comunque in stripLeadingHintsAndQualifiers)
+	                continue;
+	            }
+	        }
+
+	        // Dopo aver trovato SELECT, cerca FROM a depth 0
+	        if (depth == 0 && selectStartAfterKeyword >= 0) {
+	            if (regionMatchesWord(upper, i, "FROM")) {
+	                return new int[]{ selectStartAfterKeyword, i };
+	            }
+	        }
+	    }
+
+	    return null;
+	}
+
+	/** Verifica che upper-case string contenga "word" in posizione i con boundary non alfanumerici. */
+	private boolean regionMatchesWord(String upper, int i, String word) {
+	    int n = upper.length();
+	    int w = word.length();
+	    if (i < 0 || i + w > n) return false;
+	    if (!upper.regionMatches(true, i, word, 0, w)) return false;
+	    boolean leftOk  = (i == 0) || !Character.isLetterOrDigit(upper.charAt(i - 1));
+	    boolean rightOk = (i + w >= n) || !Character.isLetterOrDigit(upper.charAt(i + w));
+	    return leftOk && rightOk;
+	}
+
+	/** Trova la parentesi chiusa corrispondente gestendo annidamenti e commenti/stringhe. */
+	private int matchingParen(String s, int openIdx) {
+	    int n = s.length();
+	    int depth = 0;
+	    boolean inSingle = false, inDouble = false, inLineComment = false, inBlockComment = false;
+
+	    for (int i = openIdx; i < n; i++) {
+	        char c = s.charAt(i);
+
+	        // commenti
+	        if (!inSingle && !inDouble) {
+	            if (!inLineComment && !inBlockComment) {
+	                if (c == '-' && i + 1 < n && s.charAt(i + 1) == '-') { inLineComment = true; i++; continue; }
+	                if (c == '/' && i + 1 < n && s.charAt(i + 1) == '*') { inBlockComment = true; i++; continue; }
+	            } else if (inLineComment) {
+	                if (c == '\n') inLineComment = false;
+	                continue;
+	            } else if (inBlockComment) {
+	                if (c == '*' && i + 1 < n && s.charAt(i + 1) == '/') { inBlockComment = false; i++; }
+	                continue;
+	            }
+	        }
+
+	        // stringhe
+	        if (!inLineComment && !inBlockComment) {
+	            if (!inDouble && c == '\'') { inSingle = !inSingle; continue; }
+	            if (!inSingle && c == '"')  { inDouble = !inDouble; continue; }
+	        }
+	        if (inSingle || inDouble || inLineComment || inBlockComment) continue;
+
+	        if (c == '(') depth++;
+	        else if (c == ')') {
+	            depth--;
+	            if (depth == 0) return i;
+	        }
+	    }
+	    return -1;
+	}
+
+	/** Rimuove all’inizio di una select-list: hint Oracle /*+ * /, commenti, e qualificatori DISTINCT/ALL/UNIQUE. */
+	private String stripLeadingHintsAndQualifiers(String s) {
+	    if (s == null) return null;
+	    int i = 0, n = s.length();
+
+	    // Skippa spazi/commenti/hint iniziali
+	    while (i < n) {
+	        char c = s.charAt(i);
+	        if (Character.isWhitespace(c)) { i++; continue; }
+	        if (c == '-' && i + 1 < n && s.charAt(i+1) == '-') {
+	            i += 2;
+	            while (i < n && s.charAt(i) != '\n') i++;
+	            continue;
+	        }
+	        if (c == '/' && i + 1 < n && s.charAt(i+1) == '*') {
+	            // salta /* ... */
+	            i += 2;
+	            while (i + 1 < n && !(s.charAt(i) == '*' && s.charAt(i+1) == '/')) i++;
+	            if (i + 1 < n) i += 2;
+	            continue;
+	        }
+	        break;
+	    }
+
+	    // Skippa DISTINCT/ALL/UNIQUE
+	    String rest = s.substring(i).trim();
+	    String upper = rest.toUpperCase(Locale.ROOT);
+	    if (upper.startsWith("DISTINCT ")) {
+	        rest = rest.substring("DISTINCT".length()).trim();
+	    } else if (upper.startsWith("ALL ")) {
+	        rest = rest.substring("ALL".length()).trim();
+	    } else if (upper.startsWith("UNIQUE ")) {
+	        rest = rest.substring("UNIQUE".length()).trim();
+	    }
+	    return rest.trim();	
+	}
+	
+	private List<String> getJoinKeysBetweenSections(
+	        int prevSection,
+	        int currentSection,
+	        Map<Integer, List<String>> pkBySection) {
+
+	    List<String> prev = pkBySection.getOrDefault(prevSection, Collections.emptyList());
+	    List<String> curr = pkBySection.getOrDefault(currentSection, Collections.emptyList());
+
+	    List<String> common = prev.stream()
+	            .filter(curr::contains)
+	            .collect(Collectors.toList());
+
+	    if (!common.isEmpty()) {
+	        return common;
+	    }
+
+	    return prev;
+	}
+	
+	private String buildNullableJoinCondition(String leftAlias, String rightAlias, String fieldName) {
+	    return "(" + leftAlias + "." + fieldName + " = " + rightAlias + "." + fieldName
+	            + " OR (" + leftAlias + "." + fieldName + " IS NULL AND "
+	            + rightAlias + "." + fieldName + " IS NULL)) AND ";
+	}
+
+	private FormFlowTableFieldDTO findFieldByName(FormFlowDTO formFlowDTO, String fieldName) {
+	    if (formFlowDTO == null || fieldName == null) {
+	        return null;
+	    }
+
+	    for (FormFlowTableDTO table : formFlowDTO.getFlowTableList()) {
+	        for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+	            if (fieldName.equalsIgnoreCase(field.getName())) {
+	                return field;
+	            }
+	        }
+	    }
+
+	    return null;
+	}
+
+	private String buildPkWhereCondition(String alias, FormFlowTableFieldDTO field, String value) {
+	    if (field == null || value == null) {
+	        return "";
+	    }
+
+	    String v = value.trim();
+	    if (v.isEmpty()) {
+	        return "";
+	    }
+
+	    if (!"Date".equalsIgnoreCase(field.getFieldType())) {
+	        return alias + "." + field.getName() + " = '" + v.replace("'", "''") + "' AND ";
+	    }
+
+	    // normalizzo i separatori per gestire sia 10/04/25 sia 10-04-25
+	    String normalized = v.replace('-', '/').replace('.', '/');
+
+	    if (normalized.matches("\\d{2}/\\d{2}/\\d{2}")) {
+	        return alias + "." + field.getName() + " = TO_DATE('" + normalized + "','DD/MM/RR') AND ";
+	    }
+	    if (normalized.matches("\\d{2}/\\d{2}/\\d{4}")) {
+	        return alias + "." + field.getName() + " = TO_DATE('" + normalized + "','DD/MM/YYYY') AND ";
+	    }
+	    if (normalized.matches("\\d{2}/\\d{2}/\\d{2}\\s\\d{2}:\\d{2}")) {
+	        return alias + "." + field.getName() + " = TO_DATE('" + normalized + "','DD/MM/RR HH24:MI') AND ";
+	    }
+	    if (normalized.matches("\\d{2}/\\d{2}/\\d{4}\\s\\d{2}:\\d{2}")) {
+	        return alias + "." + field.getName() + " = TO_DATE('" + normalized + "','DD/MM/YYYY HH24:MI') AND ";
+	    }
+	    if (normalized.matches("\\d{2}/\\d{2}/\\d{2}\\s\\d{2}:\\d{2}:\\d{2}")) {
+	        return alias + "." + field.getName() + " = TO_DATE('" + normalized + "','DD/MM/RR HH24:MI:SS') AND ";
+	    }
+	    if (normalized.matches("\\d{2}/\\d{2}/\\d{4}\\s\\d{2}:\\d{2}:\\d{2}")) {
+	        return alias + "." + field.getName() + " = TO_DATE('" + normalized + "','DD/MM/YYYY HH24:MI:SS') AND ";
+	    }
+
+	    // gestione ISO semplice, se dovesse arrivare
+	    if (normalized.matches("\\d{4}/\\d{2}/\\d{2}")) {
+	        return alias + "." + field.getName() + " = TO_DATE('" + normalized + "','YYYY/MM/DD') AND ";
+	    }
+	    if (normalized.matches("\\d{4}/\\d{2}/\\d{2}\\s\\d{2}:\\d{2}:\\d{2}")) {
+	        return alias + "." + field.getName() + " = TO_DATE('" + normalized + "','YYYY/MM/DD HH24:MI:SS') AND ";
+	    }
+
+	    throw new IllegalArgumentException("Formato data PK non gestito: " + value);
+	}
+
+	private String trimTrailingAnd(String sql) {
+	    if (sql == null) {
+	        return sql;
+	    }
+
+	    if (sql.toUpperCase().endsWith(" AND ")) {
+	        return sql.substring(0, sql.length() - 5)+" ";
+	    }
+
+	    return sql;
+	}
+
+}
+

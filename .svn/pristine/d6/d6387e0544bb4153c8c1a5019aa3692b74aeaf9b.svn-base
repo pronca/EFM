@@ -1,0 +1,167 @@
+package it.eng.care.domain.flow.core.controller.impl;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+import jakarta.annotation.PostConstruct;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import it.eng.care.domain.flow.core.controller.DashboardController;
+import it.eng.care.domain.flow.core.converter.Dashboard.DashboardConfigDOtoDashboardConfigDTO;
+import it.eng.care.domain.flow.core.converter.Dashboard.DashboardDOtoDashboardDTO;
+import it.eng.care.domain.flow.core.converter.Dashboard.DashboardDTOtoDashboardDO;
+import it.eng.care.domain.flow.core.dao.DashboardConfigDAO;
+import it.eng.care.domain.flow.core.dto.DashboardConfigDTO;
+import it.eng.care.domain.flow.core.dto.DashboardDTO;
+import it.eng.care.domain.flow.core.dto.MotherDashboardDTO;
+import it.eng.care.domain.flow.core.entity.DashboardConfigDO;
+import it.eng.care.domain.flow.core.entity.DashboardDO;
+import it.eng.care.domain.flow.core.entity.DashboardErrorsDO;
+import it.eng.care.domain.flow.core.entity.DashboardPraticheDO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.service.DashboardService;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.SearchOperationResult;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+
+@RestController
+@RequestMapping("/fm/DashboardDTO")
+public class DashboardControllerImpl implements DashboardController {
+
+	private static final Logger LOGGER = LoggerFactory.getLogger(DashboardControllerImpl.class);
+
+	@Autowired
+	private DashboardService dashboardService;
+
+	@Autowired
+	private ConversionService conversionService;
+
+	@Autowired
+	private DashboardDOtoDashboardDTO dashboardDOtoDashboardDTO;
+
+	@Autowired
+	private DashboardDTOtoDashboardDO dashboardDTOtoDashboardDO;
+
+	@Autowired
+	private DashboardConfigDAO dashboardConfigDAO;
+
+	@Autowired
+	private DashboardConfigDOtoDashboardConfigDTO dashboardConfigDOtoDashboardConfigDTO;
+	
+	@Autowired
+	private FlowManagerProfileService flowManagerProfileService;
+
+	@PostConstruct
+	public void post() {
+		LOGGER.info("DashboardControllerImpl.post");
+		conversionService.registerConverter(DashboardDO.class, DashboardDTO.class, dashboardDOtoDashboardDTO);
+		conversionService.registerConverter(DashboardDTO.class, DashboardDO.class, dashboardDTOtoDashboardDO);
+		conversionService.registerConverter(DashboardConfigDO.class, DashboardConfigDTO.class,
+				dashboardConfigDOtoDashboardConfigDTO);
+
+	}
+
+	@Override
+	@PostMapping("/_search")
+	@ResponseBody
+	public SearchOperationResult<DashboardDTO> search(@RequestBody BaseSearchInput searchInput) {
+
+		Pair<List<DashboardDO>, SearchInfo> results = dashboardService.retrieveAllFiltered(searchInput);
+		List<DashboardDTO> dtos = conversionService.convertAllTo(results.getFirst(), DashboardDTO.class);
+
+		return SearchOperationResult.success(dtos, results.getSecond());
+	}
+
+	@Override
+	@PostMapping("/_searchMother")
+	@ResponseBody
+	public SearchOperationResult<MotherDashboardDTO> searchMother(@RequestBody BaseSearchInput searchInput) {
+
+		Pair<List<MotherDashboardDTO>, SearchInfo> results = dashboardService.retrieveAllMotherFiltered(searchInput);
+
+		return SearchOperationResult.success(results.getFirst(), results.getSecond());
+	}
+
+	@Override
+	@PostMapping("_searchProcedure")
+	@ResponseBody
+	public SearchOperationResult<DashboardPraticheDO> searchProcedure(@RequestBody BaseSearchInput searchInput) {
+
+		Pair<List<DashboardPraticheDO>, SearchInfo> results = dashboardService
+				.retrieveAllFilteredForPratiche(searchInput);
+
+		return SearchOperationResult.success(results.getFirst(), results.getSecond());
+	}
+
+	@Override
+	@PostMapping("_searchTopErrors")
+	@ResponseBody
+	public SearchOperationResult<DashboardErrorsDO> searchTopErrors(@RequestBody BaseSearchInput searchInput) {
+
+		Pair<List<DashboardErrorsDO>, SearchInfo> results = dashboardService.retrieveAllFilteredForErrors(searchInput);
+
+		return SearchOperationResult.success(results.getFirst(), results.getSecond());
+	}
+
+	@Override
+	@PostMapping("/_searchBadge")
+	@ResponseBody
+	public SearchOperationResult<DashboardConfigDTO> searchBadge(@RequestBody BaseSearchInput searchInput) {
+		List<DashboardConfigDO> resultsAll = new ArrayList<>();
+		String badge = searchInput.getParam("badge");
+		String flow = searchInput.getParam("flowId");
+		String tipo = searchInput.getParam("tipo");
+
+		FlowDO flowDO = new FlowDO();
+		flowDO.setId(flow);
+		
+		//caricamento lista aziende visibili dall'utente
+		List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+		
+		if (!aziende.isEmpty()) {
+			List<DashboardConfigDO> results1 = dashboardConfigDAO.findAllByFlowAndBadgeAndTipoAndCodiceAziendaInOrderByName(flowDO,badge,tipo,aziende);
+			resultsAll.addAll(results1);
+			//carico dashboard senza codice aziende e quindi comune per tutte le aziende
+			List<DashboardConfigDO> results2 = dashboardConfigDAO.findAllByFlowAndBadgeAndTipoAndCodiceAziendaIsNullOrderByName(flowDO,badge,tipo);
+			resultsAll.addAll(results2);
+			//Raggruppamento per "name" tenendo priorità a quelli con codiceAzienda valorizzato
+			Map<String, DashboardConfigDO> groupedMap = new LinkedHashMap<>();
+			for (DashboardConfigDO cfg : resultsAll) {
+			    String key = cfg.getName();
+			    if (!groupedMap.containsKey(key)) {
+			        groupedMap.put(key, cfg);
+			    } else {
+			        DashboardConfigDO existing = groupedMap.get(key);
+			        // Se il nuovo ha codiceAzienda valorizzato e l’esistente no → sovrascrivi
+			        if (existing.getCodiceAzienda() == null && cfg.getCodiceAzienda() != null) {
+			            groupedMap.put(key, cfg);
+			        }
+			    }
+			}
+			//Ricrea la lista finale filtrata
+			resultsAll = new ArrayList<>(groupedMap.values());
+		} else {
+			List<DashboardConfigDO> results1 = dashboardConfigDAO.findAllByFlowAndBadgeAndTipoOrderByName(flowDO,badge,tipo);
+			resultsAll.addAll(results1);
+		}
+		
+		List<DashboardConfigDTO> dtos = conversionService.convertAllTo(resultsAll, DashboardConfigDTO.class);
+
+		return SearchOperationResult.success(dtos, SearchInfos.create());
+	}
+
+}

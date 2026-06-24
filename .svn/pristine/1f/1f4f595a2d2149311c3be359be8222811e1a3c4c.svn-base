@@ -1,0 +1,142 @@
+package it.eng.care.domain.flow.b2b.service.impl;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import jakarta.persistence.EntityManager;
+import jakarta.transaction.Transactional;
+
+import org.hibernate.internal.SessionImpl;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import it.eng.care.domain.flow.b2b.model.FlowParameter;
+import it.eng.care.domain.flow.b2b.model.FlowQueryBuilder;
+import it.eng.care.domain.flow.b2b.model.FlowQueryBuilder.QueryType;
+import it.eng.care.domain.flow.b2b.service.BatchFlowService;
+
+import javax.sql.DataSource;
+
+@Service
+@Transactional
+public class BatchFlowServiceImpl implements BatchFlowService {
+
+    @Value("${flow.b2b.maxBatchSize:100}")
+    private int maxBatchSize;
+
+    @Autowired
+    private DataSource dataSource;
+
+    @Autowired
+    private EntityManager em;
+
+    @Override
+    public void executeBatch(List<FlowQueryBuilder> builders) throws SQLException {
+    int count = 0;
+
+    //SessionImpl session = (SessionImpl) em.getDelegate();
+    Connection conn = dataSource.getConnection();
+    conn.setAutoCommit(false);
+
+    Map<String, PreparedStatement> queryMap = new HashMap<String, PreparedStatement>();
+
+    for (FlowQueryBuilder flowQueryBuilder : builders) {
+	    // in flowQueryBuilder-> sql e parametri
+	    // nella lista ci sono query differenti
+	    // bisogna raggruppare le query in una mappa e per ogni chiave della mappa creare un preparedstatement
+	    String queryString = flowQueryBuilder.getQueryStringNoParams();
+	
+	    PreparedStatement ps = null;
+	
+	    if(!queryMap.containsKey(queryString)) {
+		    ps = conn.prepareStatement(queryString);
+		    ps.setFetchSize(5000);
+		    queryMap.put(queryString, ps);
+	    }
+	
+	    ps = queryMap.get(queryString);
+	
+	    // imposta parametri
+	    	try {
+	    		
+	    		List<FlowParameter> paramList = flowQueryBuilder.getParameters();
+	    		if(!flowQueryBuilder.getType().equals(QueryType.INSERT)) {
+	    			paramList = flowQueryBuilder.getParameters().stream()
+	    	    			.filter(p -> p.isPrimaryKey())//
+	    	    		    .collect(Collectors.toList());
+	    		}
+	    		
+    			for(int i = 1; i <= paramList.size(); i++) {
+    				if(paramList.get(i-1).getValue() instanceof Date) {
+    					Date value = (Date)paramList.get(i-1).getValue();
+    					Timestamp sqlDate = null;
+    					if(value != null) {
+    						sqlDate = new java.sql.Timestamp(value.getTime());	    						
+    					}
+    					ps.setTimestamp(i, sqlDate);
+    				} else if(paramList.get(i-1).getValue() instanceof Instant) {
+    					Instant value = (Instant)paramList.get(i-1).getValue();
+    					Timestamp sqlDate = null;
+    					if(value != null) {
+    						sqlDate = new Timestamp(new Date().from(value).getTime());	    						
+    					}
+    					ps.setTimestamp(i, sqlDate);
+    				} else {
+    					String value = (String) paramList.get(i-1).getValue();
+    					ps.setString(i, value);	
+    				}
+    			}
+
+	    	} catch(Exception e) {
+	    		System.out.println(e.getMessage());
+	    	}
+	
+	    ps.addBatch();
+	    }
+	
+    ArrayList<String> keys = new ArrayList(queryMap.keySet());
+    keys.sort(new Comparator<String>() {
+
+		@Override
+		public int compare(String o1, String o2) {
+			if(o1.toLowerCase().startsWith("delete") && o2.toLowerCase().startsWith("delete")) {
+				if(o1.toLowerCase().contains("_message")) {
+					return 1;
+				}
+				return -1;
+			}
+			
+			if(o2.toLowerCase().startsWith("insert")) {
+				return -1;
+			}
+			return 1;
+		}
+	});
+    
+    //for(PreparedStatement ps : queryMap.values()) {
+    for(String key : keys) {
+    	PreparedStatement ps = queryMap.get(key);
+	    ps.executeBatch();
+	    ps.clearBatch();
+	    ps.clearBatch();
+	    ps.clearParameters();
+    }
+
+    conn.commit();
+
+    }
+
+}

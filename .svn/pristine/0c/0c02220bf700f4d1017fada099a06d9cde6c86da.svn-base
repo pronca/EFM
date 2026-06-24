@@ -1,0 +1,58 @@
+package it.eng.care.domain.flow.core.entity;
+
+import it.eng.care.platform.persistence.api.IBaseEntity;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.Type;
+
+import jakarta.persistence.*;
+import org.hibernate.type.SqlTypes;
+
+@Entity
+@Table(name = "FM_JOB_TALEND_FILE")
+public class JobTalendFileDO implements IBaseEntity {
+
+    @Id
+    @Column(name = "ID")
+    private String id;
+    
+//    @OneToOne()
+//    @JoinColumn(name = "JOB_TALEND_ID")
+//    private JobTalendDO jobTalend;
+    
+    @OneToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "JOB_TALEND_ID", nullable = false)
+    private JobTalendDO jobTalend;
+
+    @Lob()
+    @Column(name = "JOB")
+    @JdbcTypeCode(SqlTypes.BLOB)
+    private byte[] job;
+
+    public JobTalendFileDO() {
+    }
+
+    public String getId() {
+        return id;
+    }
+
+    public void setId(String id) {
+        this.id = id;
+    }
+    
+	public JobTalendDO getJobTalend() {
+        return jobTalend;
+    }
+
+    public void setJobTalend(JobTalendDO jobTalend) {
+        this.jobTalend = jobTalend;
+    }
+
+    public byte[] getJob() {
+        return job;
+    }
+
+    public void setJob(byte[] job) {
+        this.job = job;
+    }
+
+}

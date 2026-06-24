@@ -1,0 +1,31 @@
+package it.eng.care.domain.flow.jobs.jobs;
+
+import org.quartz.DisallowConcurrentExecution;
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.b2b.service.SendDrgService;
+import it.eng.care.domain.flow.jobs.look.LockJob;
+
+@DisallowConcurrentExecution
+public class SendDrg implements Job{
+
+	@Autowired
+	SendDrgService sendDrgService;
+	
+	@Override
+	@LockJob(entity = "sendDrgJob", untilCfg = "SendDrg.locktimeout")
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+		
+		try {
+			sendDrgService.getPendingDrgAndSend();
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		
+	}
+	
+}

@@ -1,0 +1,87 @@
+package it.eng.care.domain.flow.core.controller.impl;
+
+import java.util.List;
+
+import jakarta.annotation.PostConstruct;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import it.eng.care.domain.flow.b2b.model.UserDTO;
+import it.eng.care.domain.flow.core.b2b.converter.UserToUserDTO;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.platform.authentication.api.model.Permission;
+import it.eng.care.platform.authentication.api.model.User;
+import it.eng.care.platform.authentication.api.model.exception.UserNotFoundException;
+import it.eng.care.platform.authentication.api.service.UserService;
+import it.eng.care.platform.authentication.api.service.facade.PermissionServiceFacade;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+import it.eng.care.platform.tool.transport.operations.SearchOperationResult;
+
+ 
+
+@RestController
+@RequestMapping("/fm/Permissions")
+public class PermissionControllerImpl extends ControllerExceptionHandler{
+
+ 
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(PermissionControllerImpl.class);
+    
+    @Autowired
+    private PermissionServiceFacade permissionServiceFacade;
+	@Autowired 
+	private UserService userService;
+    @Autowired
+    private ConversionService conversionService;
+    @Autowired
+    private UserToUserDTO userToUserDTO;
+    
+    public PermissionControllerImpl() {
+        super();
+    }
+
+    @PostConstruct
+    public void post() {
+        conversionService.registerConverter(User.class, UserDTO.class, userToUserDTO);
+    }
+
+    @PostMapping("/_search")
+    @ResponseBody
+    public Object search(@RequestBody BaseSearchInput searchInput) {
+    	String resourceType = searchInput.getParam("resourceType");
+    	List<String> resourceQNames = searchInput.getParam("resourceQNames");
+    	List<Permission> fac =  permissionServiceFacade.getPermissionByResourceQname(resourceType, resourceQNames);
+    	return SearchOperationResult.success(fac);
+    }
+    
+    @PostMapping("/getUser")
+    @ResponseBody
+    public OperationResult<UserDTO> getUser(@RequestBody BaseSearchInput searchInput) {
+    	try {
+    		User user = userService.getUserByUsername(searchInput.getParam("username"),null);
+    		
+    		UserDTO userDTO= conversionService.convertTo(user,UserDTO.class);
+			return OperationResult.success(userDTO);
+		} catch (UserNotFoundException e) {
+			// TODO Auto-generated catch block
+			LogUtil.logException(LOGGER, "", e);
+//			e.printStackTrace();
+		}
+		return null;
+
+    }
+    
+ 
+    
+    
+}
+ 

@@ -1,0 +1,186 @@
+package it.eng.care.domain.flow.core.controller.impl;
+
+import java.util.List;
+
+import jakarta.annotation.PostConstruct;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.bind.annotation.RestController;
+
+import it.eng.care.domain.flow.b2b.utils.JsonSchemaUtils;
+import it.eng.care.domain.flow.core.controller.FormFlowRegionController;
+import it.eng.care.domain.flow.core.converter.Flow.FlowDOtoFlowDTO;
+import it.eng.care.domain.flow.core.converter.Flow.FlowDTOtoFlowDO;
+import it.eng.care.domain.flow.core.converter.FlowTable.FlowTableDOtoFlowTableDTO;
+import it.eng.care.domain.flow.core.converter.FlowTable.FlowTableDTOtoFlowTableDO;
+import it.eng.care.domain.flow.core.converter.FlowTableField.FlowTableFieldDOtoFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.converter.FlowTableField.FlowTableFieldDTOtoFlowTableFieldDO;
+import it.eng.care.domain.flow.core.dao.FlowVersionDAO;
+import it.eng.care.domain.flow.core.dto.FlowDTO;
+import it.eng.care.domain.flow.core.dto.FlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FlowTableFieldDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowTableDO;
+import it.eng.care.domain.flow.core.entity.FlowTableFieldDO;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+import it.eng.care.platform.tool.transport.operations.SaveOperationResult;
+import it.eng.care.platform.tool.transport.operations.SearchOperationResult;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+
+@RestController
+@RequestMapping("/fm/FormFlowRegionDTO")
+public class FormFlowRegionControllerImpl implements FormFlowRegionController {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(FormFlowRegionControllerImpl.class);
+
+    @Autowired
+    FlowVersionDAO flowVersionDAO;
+    @Autowired
+    private FormFlowService formFlowService;
+    @Autowired
+    private ConversionService conversionService;
+    @Autowired
+    private FlowDOtoFlowDTO flowDOtoFlowDTO;
+    @Autowired
+    private FlowTableDOtoFlowTableDTO flowTableDOtoFlowTableDTO;
+    @Autowired
+    private FlowTableFieldDOtoFlowTableFieldDTO flowTableFieldDOtoFlowTableFieldDTO;
+    @Autowired
+    private FlowDTOtoFlowDO flowDTOtoFlowDO;
+    @Autowired
+    private FlowTableDTOtoFlowTableDO flowTableDTOtoFlowTableDO;
+    @Autowired
+    private FlowTableFieldDTOtoFlowTableFieldDO flowTableFieldDTOtoFlowTableFieldDO;
+    @Autowired
+    private JsonSchemaUtils jsonSchemaUtils;
+
+    public FormFlowRegionControllerImpl() {
+
+    }
+
+    @PostConstruct
+    public void post() {
+        conversionService.registerConverter(FlowDO.class, FlowDTO.class, flowDOtoFlowDTO);
+        conversionService.registerConverter(FlowDTO.class, FlowDO.class, flowDTOtoFlowDO);
+        conversionService.registerConverter(FlowTableDO.class, FlowTableDTO.class, flowTableDOtoFlowTableDTO);
+        conversionService.registerConverter(FlowTableDTO.class, FlowTableDO.class, flowTableDTOtoFlowTableDO);
+        conversionService.registerConverter(FlowTableFieldDO.class, FlowTableFieldDTO.class, flowTableFieldDOtoFlowTableFieldDTO);
+        conversionService.registerConverter(FlowTableFieldDTO.class, FlowTableFieldDO.class, flowTableFieldDTOtoFlowTableFieldDO);
+    }
+
+    @Override
+    @PostMapping("/save")
+    public SaveOperationResult<FormFlowDTO> save(@RequestBody FormFlowDTO inputDTO) {
+        String newEntity = "";
+        try {
+	        if (inputDTO.getId() == null || inputDTO.getId().trim().equals("")) {
+	            newEntity = formFlowService.saveEntity(inputDTO,true);
+	        } else {
+	            newEntity = formFlowService.updateEntity(inputDTO);
+	        }
+        } catch (Exception e) {
+        	LOGGER.error("ERRORE SALVATAGGIO FLUSSO", e);
+    		return SaveOperationResult.failure(e.getMessage());
+        }
+
+
+        BaseSearchInput baseSearchInput = new BaseSearchInput();
+        baseSearchInput.setValue("flowNameLike", newEntity);
+        baseSearchInput.setValue("startIndex", "0");
+        baseSearchInput.setValue("limit", "10");
+        baseSearchInput.setValue("sortByBean", " size = 0");
+        Pair<List<FormFlowDTO>, SearchInfo> formFlowPair = formFlowService.retrieveAllFiltered(baseSearchInput);
+
+
+        try {
+            jsonSchemaUtils.generateSchema(formFlowPair.getFirst().get(0));
+
+        } catch (Exception e) {
+            LOGGER.info("ERRORE CREAZIONE JSON SCHEMA", e);
+        }
+
+
+        return SaveOperationResult.success(formFlowPair.getFirst().get(0));
+    }
+
+    @Override
+    public OperationResult<Object> getSectionBy(@RequestBody String flowId, @RequestBody String versionId) {
+
+        return null;
+    }
+
+    @Override
+    @PostMapping("/_search")
+    @ResponseBody
+    public SearchOperationResult<FormFlowDTO> search(@RequestBody BaseSearchInput searchInput) {
+
+        searchInput.setValue("type", "REGIONE");
+        Pair<List<FormFlowDTO>, SearchInfo> searchResults = formFlowService.retrieveAllFiltered(searchInput, true);
+
+        return SearchOperationResult.success(searchResults.getFirst(), searchResults.getSecond());
+
+    }
+
+    @Override
+    @DeleteMapping("/{entityKeyName}/{entityKeyValue}")
+    public void deleteEntityBy(@PathVariable("entityKeyName") String entityKeyName, @PathVariable("entityKeyValue") String entityKeyValue) {
+
+        LOGGER.info("{} , {}", entityKeyName, entityKeyValue);
+
+        formFlowService.deleteEntity(entityKeyValue);
+
+    }
+
+    @Override
+    @PostMapping("/createTable")
+    @ResponseBody
+    public void createTable(@RequestBody FormFlowDTO inputDTO) {
+        //TODO se la tabella esiste gia bisogna lancare un ALTERTABLE
+       // formFlowService.createTable(inputDTO);
+
+    }
+
+    /*@Override
+    @PostMapping("/importFormFlowJson")
+    @ResponseBody
+    public SaveOperationResult<FormFlowDTO> importFormFlowJson(Json formFlowJson) {
+
+        Gson gson = new Gson();
+        FormFlowDTO formFlowDTO = gson.fromJson(String.valueOf(formFlowJson), FormFlowDTO.class);
+
+        if (formFlowDTO.getId() == null || formFlowDTO.getId().trim().equals("")) {
+            formFlowService.createEntity(formFlowDTO);
+        } else {
+            formFlowService.updateEntity(formFlowDTO);
+        }
+
+        return SaveOperationResult.success(formFlowDTO);
+
+    }
+
+    @Override
+    @PostMapping("/exportFormFlow")
+    @ResponseBody
+    public Json exportFormFlowJson(@RequestBody FormFlowDTO inputDTO) {
+        Gson gson = new Gson();
+        String formFlowDTOjson = gson.toJson(inputDTO);
+
+        return null;
+        //formFlowService.createTable(inputDTO);
+
+    }*/
+
+}

@@ -1,0 +1,1551 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import java.io.File;
+import java.io.IOException;
+import java.lang.reflect.Method;
+import java.math.BigDecimal;
+import java.net.URL;
+import java.net.URLClassLoader;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+
+import javax.sql.DataSource;
+
+import org.apache.catalina.loader.WebappClassLoader;
+import org.apache.commons.io.FileUtils;
+import org.hibernate.Session;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.Example;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.util.Pair;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.statemachine.state.State;
+import org.springframework.stereotype.Service;
+
+import com.google.common.io.Files;
+
+import it.eng.care.domain.flow.core.auditLog.ExtractionDownloadLogConverter;
+import it.eng.care.domain.flow.core.auditLog.ExtractionDownloadXmlConverter;
+import it.eng.care.domain.flow.core.config.LogAccessiPMConfig;
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.FlowConfigurationFilterFieldValueDAO;
+import it.eng.care.domain.flow.core.dao.FlowExportReqFileTalendDAO;
+import it.eng.care.domain.flow.core.dao.FlowExportRequestDAO;
+import it.eng.care.domain.flow.core.dao.FlowTableDAO;
+import it.eng.care.domain.flow.core.dao.JobTalendDAO;
+import it.eng.care.domain.flow.core.dao.JobTalendDipendencyDAO;
+import it.eng.care.domain.flow.core.dao.JobTalendFileDAO;
+import it.eng.care.domain.flow.core.dao.TalendDbDAO;
+import it.eng.care.domain.flow.core.dao.querySearch.FlowExportRequestDAOQueryByBaseSearchInput;
+import it.eng.care.domain.flow.core.dto.FlowExportRequestDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.entity.ConfigurationDO;
+import it.eng.care.domain.flow.core.entity.FlowConfigurationFilterFieldValueDO;
+import it.eng.care.domain.flow.core.entity.FlowDrgDO;
+import it.eng.care.domain.flow.core.entity.FlowExportMessageDetailsDO;
+import it.eng.care.domain.flow.core.entity.FlowExportReqFileTalendDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.entity.FlowTableDO;
+import it.eng.care.domain.flow.core.entity.JobTalendDO;
+import it.eng.care.domain.flow.core.entity.JobTalendDipendencyDO;
+import it.eng.care.domain.flow.core.entity.JobTalendFileDO;
+import it.eng.care.domain.flow.core.entity.TalendDbDO;
+import it.eng.care.domain.flow.core.enumeration.MachineEvent;
+import it.eng.care.domain.flow.core.enumeration.StateSendRegionEnum;
+import it.eng.care.domain.flow.core.service.FlowDrgService;
+import it.eng.care.domain.flow.core.service.FlowExportRequestService;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.service.FmSequenceService;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.domain.flow.core.service.QueryGenerator;
+import it.eng.care.domain.flow.core.service.StateService;
+import it.eng.care.domain.flow.core.service.TalendThreadService;
+import it.eng.care.domain.flow.core.spring.statemachine.StateMachineFlow;
+import it.eng.care.domain.flow.core.utility.FileUtility;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.tabgen.dto.TabgenMap;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueMap;
+import it.eng.care.domain.flow.webservice.service.WebService;
+import it.eng.care.domain.flow.webservice.sis.ws.flussi.FlussiFile;
+import it.eng.care.domain.flow.websocket.WebsocketServer;
+import it.eng.care.platform.audit.api.model.privacymanager.annotation.PrivacyManagerLog;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventActionEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.AuditEventCategoryEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityEnum;
+import it.eng.care.platform.audit.api.model.privacymanager.enumeration.EntityTypeEnum;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import jakarta.transaction.Transactional;
+
+@Service
+@Transactional
+public class FlowExportRequestServiceImpl implements FlowExportRequestService {
+
+   private static final Logger LOGGER = LoggerFactory.getLogger(FlowExportRequestServiceImpl.class);
+
+    @Autowired
+    private DataSource dataSource;
+    @Autowired
+    EntityManager entityManager;
+    @Autowired
+    private FlowExportRequestDAO flowExportDAO;
+    @Autowired
+    private FlowTableDAO flowTableDAO;
+    @Autowired
+    private FormFlowService formFlowService;
+    @Autowired
+    private FlowConfigurationFilterFieldValueDAO flowConfigurationFilterFieldValueDAO;
+    @Autowired(required = false)
+    private StateMachineFlow stateMachineFlow;
+    @Autowired
+    private StateService stateService;
+    @Autowired
+    private FlowExportRequestDAOQueryByBaseSearchInput flowExportDAOQuery;
+    private MachineEvent machineEvent;
+    @Autowired
+    private JobTalendFileDAO jobTalendFileDAO;
+    @Autowired
+    private JobTalendDAO jobTalendDAO;
+    @Autowired
+    private TalendDbDAO talendDbDAO;
+    @Autowired
+    private JobTalendDipendencyDAO jobTalendDependenciesDAO;
+    @Autowired
+    private FmSequenceService sequenceService;
+    @Autowired
+    private TalendThreadService talendThreadService;
+    @Autowired
+    private FlowExportReqFileTalendDAO flowExportReqFileTalendDAO;
+    @Autowired
+	private FlowManagerProfileService flowManagerProfileService;
+    @Autowired
+	private ConfigurationDAO configuration;
+	@Autowired
+	WebsocketServer websocketServer;
+	@Autowired
+	private FlowDrgService flowDrgService;
+	@Autowired
+	private WebService webService;
+	@Autowired
+	private LogAccessiPMConfig logAccessiPMConfig;
+	
+    @Value("${datasource.url}")
+	private String URL;
+    @Value("${datasource.username}")
+	private String username;
+    @Value("${datasource.password}")
+	private String password;
+    @Value("${crypto.dev.pass}")
+	private String crypto;
+    
+    private QueryGenerator queryGenerator = new QueryGenerator();
+    
+    
+    private static volatile Map<String, Boolean> threadMap = new HashMap<String, Boolean>();
+
+    @Override
+    public FlowExportRequestDO createEntity(FlowExportRequestDO flowExportDO) {
+    	Integer id = sequenceService.next(FlowExportRequestDO.class);
+
+        Date requestDate = new Date();
+        flowExportDO.setId(id.toString());
+        flowExportDO.setRequestDate(requestDate);
+        flowExportDO.setRandomId(UUID.randomUUID().toString());
+
+        State<String, String> state = stateMachineFlow.createStateMachine(flowExportDO.getRandomId(), "EXPORT");
+
+        if (state == null) {
+            return null;
+        } else {
+            flowExportDO.setStatus(state.getId());
+        }
+
+//        Flag Delete (0 = Inserimento)
+        flowExportDO.setDeleted(0);
+		flowExportDO = flowExportDAO.save(flowExportDO);
+
+        return flowExportDO;
+    }
+
+    @Override
+    public FlowExportRequestDO updateEntityRow(FlowExportRequestDO flowExportDO) {
+        flowExportDO.setDeleted(0);
+        flowExportDO = flowExportDAO.save(flowExportDO);
+
+        return flowExportDO;
+    }
+
+    @Override
+    public FlowExportRequestDO updateEntity(FlowExportRequestDO flowExportDO) {
+    	
+    	/*if(useFlowProfile && !flowManagerProfileService.checkFlowById(flowExportDO.getFlow().getId())) {
+    		return flowExportDO;
+    	}*/
+
+        BaseSearchInput input = new BaseSearchInput();
+        input.setValue("extractionID", flowExportDO.getId());
+//        FlowConfigurationFilterFieldValueDO value = new FlowConfigurationFilterFieldValueDO();
+//
+//        FlowExportRequestDO exp = new FlowExportRequestDO();
+//        exp.setId(flowExportDO.getId());
+//        value.setFlowExportRequest(exp);
+//
+//        flowConfigurationFilterFieldValueDAO.deleteBy(input);
+
+        List<FlowConfigurationFilterFieldValueDO> listValue = flowConfigurationFilterFieldValueDAO.cerca(input);
+
+        for (FlowConfigurationFilterFieldValueDO values : listValue) {
+            flowConfigurationFilterFieldValueDAO.deleteById(values.getId());
+        }
+
+        flowExportDO.setDeleted(0);
+		flowExportDO = flowExportDAO.save(flowExportDO);
+
+        return flowExportDO;
+    }
+
+    @Override
+    public Pair<List<FlowExportRequestDO>, SearchInfo> retrieveAllFiltered(BaseSearchInput searchInput, Boolean useFlowProfile) {
+
+        try {
+        	if (searchInput.getValue("state")!=null) {
+        		String stateId = searchInput.getValue("state").toString();
+                String state = stateService.searchState(stateId);
+                searchInput.setValue("stateName", state);
+        	}
+        } catch (Exception e) {
+        	LogUtil.logException(LOGGER, "", e);
+        }
+
+        int limit = searchInput.getParam("limit");
+        int offset = searchInput.getParam("offset");
+        Pageable page =  PageRequest.of((offset / limit), limit);
+
+        Long totalItems = flowExportDAO.countFlowExportByFilter(searchInput, useFlowProfile);
+
+        List<FlowExportRequestDO> loList = flowExportDAO.cerca(searchInput, page, useFlowProfile);
+        return Pair.of(loList, SearchInfos.create(totalItems));
+
+    }
+    
+    @Override
+    public void invocaJobTalendAnnullaPratica (String flowName, String versionName, Map<String, String> pk) {
+		Thread thread = new Thread() {
+			@Transactional
+			public void run() {
+				LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     JOB ANNULLAMENTO PRATICA: Inizio processo invocazione Talend Jar per annullamento pratica    >>>>>>>>>>>>>>>>>>>>>>>");
+		    	
+				BaseSearchInput poInput = new BaseSearchInput();
+				poInput.setValue("flowNameEqual", flowName);
+				poInput.setValue("versionNameEqual", versionName);
+				List<FlowTableDO> tables = flowTableDAO.cerca(poInput);
+				
+				FlowTableDO table = tables.stream().filter(t -> t.getSection().equals(0)).findAny().get();
+				
+		    	// 1. cerca job talend
+		    	BaseSearchInput filter = new BaseSearchInput();
+		    	String flowDoId = table != null ? table.getFlowDO().getId() : "";
+		    	String versionDoId = table != null ? table.getVersionDO().getId() : "";
+		    	filter.setParam("flowId", flowDoId);
+		    	filter.setParam("version", versionDoId);
+		    	List<JobTalendDO> list = jobTalendDAO.cerca(filter, null);
+		    	if(list != null && !list.isEmpty()) {
+		    		JobTalendDO jobTalend = list.get(0);
+		    		JobTalendFileDO jobFile = (jobTalend.getId() == null || jobTalend.getId().isBlank()) ? null : jobTalendFileDAO.findById(jobTalend.getId()).orElse(null);
+		    		if(jobFile == null) {
+		    			LOGGER.error("<<<<<<<<<<<<<<<<<<<<<<<<<< JOB ANNULLAMENTO PRATICA: JOB TALEND DI ANNULLAMENTO NON TROVATO PER: " + filter.getParam("flowId") + " , " + filter.getParam("version") + " >>>>>>>>>>>>>>>>>>>>>>>>>");
+		    			return;
+		    		}
+		    		
+		    		List<String> parameters = new ArrayList<String>();
+		            
+		            JobTalendDipendencyDO dep = new JobTalendDipendencyDO();
+		            dep.setJobTalendFile(jobFile);
+		            List<JobTalendDipendencyDO> listDep = jobTalendDependenciesDAO.findAll(Example.of(dep));
+		            URL[] urls = new URL[listDep.size()+1];
+		            if(listDep.size() > 0) {
+		            	for(JobTalendDipendencyDO dipendenza: listDep) {
+		                    try {
+		    					File dependenceFile = File.createTempFile(dipendenza.getName(), ".jar");
+		    					FileUtils.writeByteArrayToFile(dependenceFile, dipendenza.getJar());
+		    					urls[listDep.indexOf(dipendenza)] = dependenceFile.toURI().toURL();
+		    				} catch (IOException e) {
+		    					LogUtil.logException(LOGGER, "", e);
+//		    					e.printStackTrace();
+		    				}
+
+		            	}
+		            }
+		            
+		            Method methodset = null;
+		            Object instance = null;
+		            URLClassLoader loader = null;
+		            
+		            try {
+			            LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     JOB ANNULLAMENTO PRATICA: Talend jar trovato, path impostato correttamente -> Creazione Loader    >>>>>>>>>>>>>>>>>>>>>>>");
+			
+			            loader = WebappClassLoader.newInstance(urls, getClass().getClassLoader());
+			            //aggiungo libreria dom4j per la chiamata al jar talend
+			            loader.loadClass("org.dom4j.Branch");
+			            Class<?> clazz = loader.loadClass(jobTalend.getPackageJob() + "." + jobTalend.getClassName());
+			            
+			            LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     JOB ANNULLAMENTO PRATICA: Loader funzionante -> Ricerca metodo RunJob     >>>>>>>>>>>>>>>>>>>>>>>");
+			
+			            instance = clazz.newInstance();
+			            methodset = clazz.getMethod("runJob", String[].class);
+		            } catch (Exception ex) {
+		            	LogUtil.logException(LOGGER, "<<<<<<<<<<<<<<<<<<<<<<<<  JOB ANNULLAMENTO PRATICA: ERRORE(1) >>>>>>>>>>>>>>>>>>>>>>>", ex);
+//		            	ex.printStackTrace();
+		            	return;
+		            }
+
+		            LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     JOB ANNULLAMENTO PRATICA: Metodo riconosciuto -> Impostazione parametri     >>>>>>>>>>>>>>>>>>>>>>>");
+
+		            TalendDbDO talend = talendDbDAO.findById("1").orElse(null);
+
+		            parameters.add("--context= ");
+		            parameters.add("--context_param host=" + talend.getHost());
+		            parameters.add("--context_param port=" + talend.getPort());
+		            parameters.add("--context_param database=" + talend.getDatabase());
+		            parameters.add("--context_param username=" + username);
+		            parameters.add("--context_param password=" + password);
+		            if(table!=null) {
+		            	parameters.add("--context_param flowId=" + table.getFlowDO().getId());
+		            }
+		            parameters.add("--context_param urlJdbc=" + URL);
+		            parameters.add("--context_param crypto=" + crypto);
+		            parameters.add("--context_param pk=" + pk);
+
+
+		            LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     JOB ANNULLAMENTO PRATICA: Parametri impostati -> Invocazione metodo RunJob    >>>>>>>>>>>>>>>>>>>>>>>");
+		            
+		            try {
+		            	String[] args = parameters != null ? parameters.toArray(new String[0]) : new String[0];
+			            
+						Object retObj = methodset.invoke(instance, (Object)args);
+						
+						loader.close();
+		            } catch (Exception ex) {
+		            	LogUtil.logException(LOGGER, "<<<<<<<<<<<<<<<<<<<<<<<<  JOB ANNULLAMENTO PRATICA: ERRORE(2) >>>>>>>>>>>>>>>>>>>>>>>", ex);
+//		            	ex.printStackTrace();
+		            }
+		    		
+		    	}
+		    	
+		    	LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     JOB ANNULLAMENTO PRATICA: FINE    >>>>>>>>>>>>>>>>>>>>>>>");
+			}
+		};
+		
+		thread.start();
+			
+    }
+    
+
+    @Override
+	public Boolean jobTalendJar (String exportId) {
+		Boolean result = true;
+        FlowExportRequestDO flowExportRequestDO = retriveOne(exportId);
+        Set<FlowExportMessageDetailsDO> errorsDO = new HashSet<FlowExportMessageDetailsDO>();
+        LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     Inizio processo invocazione Talend Jar     >>>>>>>>>>>>>>>>>>>>>>>");
+
+//        JobTalendDTO jobTalend = flowExportRequestDO.getJobTalendId();
+        
+        flowExportRequestDO.setStartExtractionDate(new Date());
+        try {
+
+            LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     Ricerca jar nel path indicato     >>>>>>>>>>>>>>>>>>>>>>>");
+
+            JobTalendFileDO jobFile = (flowExportRequestDO.getJobTalendId().getId()== null || flowExportRequestDO.getJobTalendId().getId().isBlank()) ? null : jobTalendFileDAO.findById(flowExportRequestDO.getJobTalendId().getId()).orElse(null);
+            if (jobFile == null) {
+                LOGGER.error("<<<<<<<<<<<<<<<<<<<<<<<<     Talend jar non trovato trovato (id = " + flowExportRequestDO.getJobTalendId().getId() + " >>>>>>>>>>>>>>>>>>>>>>>");
+                result = false;
+                try {
+	                if (!result) {
+	                	org.springframework.statemachine.state.State<String, String> stateExtraction = stateMachineFlow.execute(flowExportRequestDO.getId(), "EXPORT", MachineEvent.EXPORT_FAILED.getEvent());
+						String state = stateExtraction.getId();
+			            if (flowExportRequestDO.getStatus() != state) {
+			            	
+                            Integer records = talendThreadService.countExtractionRecord(flowExportRequestDO);
+                            flowExportRequestDO.setRecord(records.toString());
+			                flowExportRequestDO.setStatus(state);
+			                flowExportRequestDO.setEndExtractionDate(new Date());
+			            }
+					} else {
+                        Integer records = talendThreadService.countExtractionRecord(flowExportRequestDO);
+                        flowExportRequestDO.setRecord(records.toString());
+	                    flowExportRequestDO.setEndExtractionDate(new Date());
+	                }
+//					websocketServer.broadcastFlowExtractRequest("update");
+
+				} catch (Exception e) {
+					LogUtil.logException(LOGGER, "", e);
+//					e.printStackTrace();
+				}
+				return false;
+            }
+
+            List<String> parameters = new ArrayList<String>();
+            
+            JobTalendDipendencyDO dep = new JobTalendDipendencyDO();
+            dep.setJobTalendFile(jobFile);
+            
+            List<JobTalendDipendencyDO> listDep = jobTalendDependenciesDAO.findByJobTalendFileId(jobFile.getId());
+            URL[] urls = new URL[listDep.size() + 1];
+            File[] files = new File[listDep.size()];
+
+            for (int i = 0; i < listDep.size(); i++) {
+                JobTalendDipendencyDO dependence = listDep.get(i);
+                File dependenceFile = File.createTempFile(dependence.getName(), ".jar");
+                FileUtils.writeByteArrayToFile(dependenceFile, dependence.getJar());
+                urls[i] = dependenceFile.toURI().toURL();
+                files[i] = dependenceFile;
+            }
+
+            File file = File.createTempFile(flowExportRequestDO.getJobTalendId().getName(), ".jar");
+            FileUtils.writeByteArrayToFile(file, jobFile.getJob());
+			urls[listDep.size()] = file.toURI().toURL();
+
+            LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     Talend jar trovato, path impostato correttamente -> Creazione Loader    >>>>>>>>>>>>>>>>>>>>>>>");
+
+            URLClassLoader loader = WebappClassLoader.newInstance(urls, getClass().getClassLoader());
+            //aggiungo libreria dom4j per la chiamata al jar talend
+            loader.loadClass("org.dom4j.Branch");
+            Class<?> clazz = loader.loadClass(flowExportRequestDO.getJobTalendId().getPackageJob() + "." + flowExportRequestDO.getJobTalendId().getClassName());
+                        
+            LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     Loader funzionante -> Ricerca metodo RunJob     >>>>>>>>>>>>>>>>>>>>>>>");
+
+            Object instance = clazz.newInstance();
+            Method methodset = clazz.getMethod("runJob", String[].class);
+
+            LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     Metodo riconosciuto -> Impostazione parametri     >>>>>>>>>>>>>>>>>>>>>>>");
+
+            TalendDbDO talend = talendDbDAO.findById("1").orElse(null); //TODO gestione eccezioni se talend nullo
+            
+            //caricamento lista aziende visibili dall'utente
+            List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+            
+            parameters.add("--context= ");
+            parameters.add("--context_param extractionId=" + flowExportRequestDO.getId());
+            parameters.add("--context_param host=" + talend.getHost());
+            parameters.add("--context_param port=" + talend.getPort());
+            parameters.add("--context_param database=" + talend.getDatabase());
+            parameters.add("--context_param username=" + username);
+            parameters.add("--context_param password=" + password);
+            parameters.add("--context_param flowId=" + flowExportRequestDO.getFlow().getId());
+            parameters.add("--context_param urlJdbc=" + URL);
+            parameters.add("--context_param crypto=" + crypto);
+            if (!aziende.isEmpty()) {
+            	parameters.add("--context_param aziendeprofilate=" + "'" + String.join("','",aziende) + "'");
+			}
+            
+            LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     Parametri impostati -> Invocazione metodo RunJob    >>>>>>>>>>>>>>>>>>>>>>>");
+            
+            String[] args = parameters != null ? parameters.toArray(new String[0]) : new String[0];
+            
+            threadMap.put(exportId, true);
+            
+            try {
+    			Thread thread = new Thread() {
+				@Transactional
+				public void run() {
+					
+                    try {
+						Object retObj = methodset.invoke(instance, (Object) args);
+						
+						boolean err = false;
+						
+						if(threadMap.containsKey(exportId)) {
+				    		boolean result = threadMap.get(exportId);
+				    		if(result == false) {
+				    			retObj = null;		
+				    			FlowExportMessageDetailsDO error = new FlowExportMessageDetailsDO();
+								error.setErrorValue("Estrazione terminata dall'utente");
+								error.setFlowExportRequest(flowExportRequestDO);
+								errorsDO.add(error);
+					    		err = true;
+				    		}
+				    		
+				    		threadMap.remove(exportId);
+				    	}
+												
+						if (retObj != null && retObj instanceof String[][]) {
+							for (String[] strings : (String[][]) retObj) {
+								String esito = "0";
+								
+								if(strings.length > 2) {
+									esito = strings[2];
+								} else if(strings.length > 0) {
+									esito = strings[0];
+								}
+								
+								if(Integer.valueOf(esito) < 0) { //CONTROLLARE CHE NELLA POSIZIONE 2 CI SIA SEMPRE IL CODICE DELL'ERRORE E CHE SIA -1 E CHE NELLA POSIZIONE 0 CI SIA LA DESCRIZIONE
+									FlowExportMessageDetailsDO error = new FlowExportMessageDetailsDO();
+									error.setErrorValue(strings[0]);
+									error.setFlowExportRequest(flowExportRequestDO);
+									errorsDO.add(error);
+									err = true;
+								}
+							}
+						}
+						
+						if(!errorsDO.isEmpty()) {
+							flowExportRequestDO.setFlowExportMessageDetails(errorsDO);
+						}
+						
+			            loader.close();
+
+                        LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     Metodo invocato correttamente, loader chiuso -> Invocazione StateMachine    >>>>>>>>>>>>>>>>>>>>>>>");
+
+                        String state = "";
+                        if(err) {
+                        	org.springframework.statemachine.state.State<String, String> stateExtraction = stateMachineFlow.execute(flowExportRequestDO.getId(), "EXPORT", MachineEvent.EXPORT_FAILED.getEvent());
+                        	state = stateExtraction.getId();
+                        }else {
+                        	org.springframework.statemachine.state.State<String, String> stateExtraction = stateMachineFlow.execute(flowExportRequestDO.getId(), "EXPORT", MachineEvent.EXPORT_SUCCESS.getEvent());
+                        	state = stateExtraction.getId();
+                        }
+//        				websocketServer.broadcastFlowExtractRequest("update");
+                        LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     StateMachine eseguita correttamente. FINE.     >>>>>>>>>>>>>>>>>>>>>>>");
+
+
+                        if (!flowExportRequestDO.getStatus().equals(state)) {
+
+                            flowExportRequestDO.setStatus(state);
+			                Date date = new Date();
+			                Integer records = 0;
+			                if(!err) {
+			                	records = talendThreadService.countExtractionRecord(flowExportRequestDO);
+			                	int check = talendThreadService.checkValidation(flowExportRequestDO);
+	                            if(check == 1) {
+	                            	flowExportRequestDO.setValidationStatus("NOT_VALID");
+	                            }else {
+	                            	if(records > 0) {
+	                            		flowExportRequestDO.setValidationStatus("XSD_VALIDATED");
+	                            	}else {
+	                            		flowExportRequestDO.setValidationStatus("NO_ROWS");
+	                            	}
+	                            }
+			                }
+                            flowExportRequestDO.setRecord(records.toString());
+                            flowExportRequestDO.setEndExtractionDate(date);
+                            
+                            talendThreadService.save(flowExportRequestDO);
+			            } else {
+			            	LOGGER.error("PASSAGGIO DI STATO NON PERMESSO");
+			            }
+
+                    } catch (Exception ex) {
+                    	LogUtil.logException(LOGGER, "", ex);
+//						ex.printStackTrace();
+						try {
+							loader.close();
+							LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<<     Loader chiuso     >>>>>>>>>>>>>>>>>>>>>>>");
+                                //FlowExportRequestDO flowExportRequestDO = flowExportDAO.findById(flowExportDTO.getId()).orElse(null);
+		                	org.springframework.statemachine.state.State<String, String> stateExtraction = stateMachineFlow.execute(flowExportRequestDO.getId(), "EXPORT", MachineEvent.EXPORT_FAILED.getEvent());
+							String state = stateExtraction.getId();
+                                if (flowExportRequestDO.getStatus() != state) {
+				                flowExportRequestDO.setStatus(state);
+//                                Integer records = talendThreadService.countExtractionRecord(flowExportDTO);
+                                flowExportRequestDO.setRecord("");
+				                flowExportRequestDO.setEndExtractionDate(new Date());
+				                FlowExportMessageDetailsDO error = new FlowExportMessageDetailsDO();
+								error.setErrorValue("Errore durante l'esecuzione del jar");
+								error.setFlowExportRequest(flowExportRequestDO);
+								errorsDO.add(error);
+								flowExportRequestDO.setFlowExportMessageDetails(errorsDO);
+				                talendThreadService.save(flowExportRequestDO);
+				            }
+						} catch (Exception e) {
+							LogUtil.logException(LOGGER, "", e);
+//							e.printStackTrace();
+						}
+			        } finally {
+			        	threadMap.remove(exportId);
+			        }
+				}
+
+                };
+                
+    			thread.start();
+    			
+				Thread thread2 = new Thread() {
+					public void run() {
+						try {
+							while(threadMap.containsKey(exportId) && threadMap.get(exportId)) {
+								Thread.sleep(10000);
+							}
+							
+							if(thread.isAlive()) {
+								Method destroy = clazz.getMethod("destroy");
+								destroy.invoke(instance);
+								talendThreadService.deleteErrors(exportId);
+							}
+							
+						} catch (Exception e) {
+							LogUtil.logException(LOGGER, "", e);
+//							e.printStackTrace();
+						} 
+//						finally {
+//							threadMap.remove(exportId);
+//						}
+					}
+				};
+				
+				thread2.start();
+				
+    			return true;
+
+    		} catch (Exception e) {
+    			LogUtil.logException(LOGGER, "", e);
+    			try {
+    				loader.close();
+                    //FlowExportRequestDO flowExportRequestDO = flowExportDAO.findById(flowExportDTO.getId()).orElse(null);
+                	org.springframework.statemachine.state.State<String, String> stateExtraction = stateMachineFlow.execute(flowExportRequestDO.getId(), "EXPORT", MachineEvent.EXPORT_FAILED.getEvent());
+					String state = stateExtraction.getId();
+                    if (flowExportRequestDO.getStatus() != state) {
+		                flowExportRequestDO.setStatus(state);
+//                        Integer records = talendThreadService.countExtractionRecord(flowExportDTO);
+                        flowExportRequestDO.setRecord("");
+		                flowExportRequestDO.setEndExtractionDate(new Date());
+		                FlowExportMessageDetailsDO error = new FlowExportMessageDetailsDO();
+						error.setErrorValue("Errore durante l'esecuzione del jar");
+						error.setFlowExportRequest(flowExportRequestDO);
+						errorsDO.add(error);
+						flowExportRequestDO.setFlowExportMessageDetails(errorsDO);
+		                talendThreadService.save(flowExportRequestDO);
+		            }
+				} catch (Exception ex) {
+					LogUtil.logException(LOGGER, "", ex);
+//					ex.printStackTrace();
+				}
+    			return false;
+    		}
+        }catch(Exception e) {
+        	try {
+                //FlowExportRequestDO flowExportRequestDO = flowExportDAO.findById(flowExportDTO.getId()).orElse(null);
+            	org.springframework.statemachine.state.State<String, String> stateExtraction = stateMachineFlow.execute(flowExportRequestDO.getId(), "EXPORT", MachineEvent.EXPORT_FAILED.getEvent());
+				String state = stateExtraction.getId();
+                if (flowExportRequestDO.getStatus() != state) {
+	                flowExportRequestDO.setStatus(state);
+//                    Integer records = talendThreadService.countExtractionRecord(flowExportDTO);
+                    flowExportRequestDO.setRecord("");
+	                flowExportRequestDO.setEndExtractionDate(new Date());
+	                FlowExportMessageDetailsDO error = new FlowExportMessageDetailsDO();
+					error.setErrorValue("Errore durante l'esecuzione del jar");
+					error.setFlowExportRequest(flowExportRequestDO);
+					errorsDO.add(error);
+					flowExportRequestDO.setFlowExportMessageDetails(errorsDO);
+	                talendThreadService.save(flowExportRequestDO);
+	            }
+			} catch (Exception ex) {
+				LogUtil.logException(LOGGER, "", e);
+//				ex.printStackTrace();
+			}
+        	return false;
+        }
+    }
+    
+    @Override
+	public boolean killJob (String exportId) {
+    	
+    	if(threadMap.containsKey(exportId)) {
+    		putInMap(exportId);
+    		return true;
+    	}else {
+    		return false;
+    	}
+    	
+    }
+    
+    public synchronized void putInMap(String exportId) {
+    	threadMap.put(exportId, false);
+    }
+
+    @Override
+    public HashMap<String, Object> getFieldsByFlowAndVersion(String version, String flow) {
+
+        HashMap<String, Object> hashMap = flowExportDAOQuery.searchFields(version, flow);
+
+        return hashMap;
+    }
+
+    @Override
+    public State<String, String> executeStateMachine(String id, String factoryModel, String event) throws Exception {
+    	return stateMachineFlow.execute(id, "EXPORT", machineEvent.ESEGUI_EXPORT.getEvent());
+    }
+
+    @Override
+    public List<Object[]> checkExtractObsoleta(FlowExportRequestDTO  flowExportDTO) throws SQLException {
+        String version = flowExportDTO.getVersion().getId();
+        String flow = flowExportDTO.getFlow().getId();
+        //Recupero UNIONE FLUSSI
+        FormFlowDTO formFlowDTOazi = formFlowService.retrieveOne(flow, version);
+        //Recuper FLUSSO_AZIENDALE NON FUNZIONA
+        //FormFlowDTO formFlowDTOreg = formFlowService.retrieveOne(flowRegioUnioDO.getFlowRegion().getId(), version);
+
+        //Recupero chiavi Sezione 0
+        List<String> pkList = new ArrayList<>();
+        for (FormFlowTableFieldDTO formFlowTableFieldDTO : formFlowDTOazi.getFlowTableList().get(0).getFlowTableFieldList()) {
+            if (formFlowTableFieldDTO.isPk()) {
+                pkList.add(formFlowTableFieldDTO.getName());
+            }
+        }
+        //Creao la SELECT DATE_PROCESSING + pkList
+        String campiSelect = "EXTRACTION_ID, DATE_PROCESSING, ";
+        for (String pKey : pkList) {
+            campiSelect += pKey + ", ";
+        }
+        if (campiSelect.endsWith(", ")) {
+            campiSelect = campiSelect.substring(0, campiSelect.length() - 2);
+        }
+        //Creao la WHERE DATE_PROCESSING + pkList
+        String campiWhere = "FREG.DATE_PROCESSING < F.DATE_PROCESSING AND ";
+        for (String pKey : pkList) {
+            campiWhere += " FREG." + pKey + " = F." + pKey + " AND ";
+        }
+        if (campiWhere.endsWith("AND ")) {
+            campiWhere = campiWhere.substring(0, campiWhere.length() - 4);
+        }
+        String selectSQL = "SELECT " + campiSelect +
+                " FROM FM_FLOW_" + formFlowDTOazi.getName() + "_REG_" + formFlowDTOazi.getFlowTableList().get(0).getSection() + " FREG " +
+                " WHERE EXTRACTION_ID=? AND EXISTS (" +
+                " SELECT 1 FROM FM_FLOW_" + formFlowDTOazi.getName() + "_" + formFlowDTOazi.getFlowTableList().get(0).getSection() + " F WHERE " +
+                campiWhere + ")";
+
+        LOGGER.debug("SELECT SQL QUERY:" + selectSQL);
+        //Lista Object Pratiche errate
+        List<Object[]> checkList = new ArrayList<>();
+
+        Session session = entityManager.unwrap(Session.class);
+        session.doWork(conn -> {
+            // niente getConnection() -> usi quella già associata alla transazione
+            try (PreparedStatement ps = conn.prepareStatement(
+                    selectSQL,
+                    ResultSet.TYPE_FORWARD_ONLY,
+                    ResultSet.CONCUR_READ_ONLY)) {
+
+                ps.setFetchSize(5000);
+
+                // IMPORTANTISSIMO: usa il tipo giusto (se EXTRACTION_ID è NUMBER)
+                ps.setLong(1, Long.parseLong(flowExportDTO.getId()));
+
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        Object[] row = new Object[pkList.size()];
+                        for (int i = 0; i < pkList.size(); i++) {
+                            row[i] = rs.getString(pkList.get(i).toUpperCase());
+                        }
+                        checkList.add(row);
+                    }
+                }
+            }
+        });
+        
+        return checkList;
+    }
+    
+    public Integer consolidaPratiche(FlowExportRequestDTO flowExportDTO, String status) {
+    	
+        String version = flowExportDTO.getVersion().getId();
+        String flow = flowExportDTO.getFlow().getId();
+        
+        // Recupero configurazione flusso
+        FormFlowDTO formFlowDTOazi = formFlowService.retrieveOne(flow, version);
+        
+        // Recupero chiavi PK sezione 0
+        List<String> pkList = new ArrayList<>();
+        for (FormFlowTableFieldDTO f : formFlowDTOazi.getFlowTableList().get(0).getFlowTableFieldList()) {
+            if (f.isPk()) {
+                pkList.add(f.getName());
+            }
+        }
+        
+        // Flag join con scarti regionali
+        final boolean joinScartoRegionale = status.equals(StateSendRegionEnum.INVIATA.name());
+        
+        // SQL SELECT regionale
+        final String sqlSelectR = generateQuerySelect(
+                pkList,
+                formFlowDTOazi.getName(),
+                formFlowDTOazi.getFlowTableList().get(0).getSection(),
+                joinScartoRegionale
+        );
+
+        // SQL UPDATE REGIONALE (final)
+        String baseUpdateR = "UPDATE FM_FLOW_" + formFlowDTOazi.getName()
+                + "_REG_" + formFlowDTOazi.getFlowTableList().get(0).getSection()
+                + " SET STATE_SEND_REGION = '" + status + "' "
+                + (joinScartoRegionale ? " , STATUS_REGION = ?" : "");
+
+        String whereR = " WHERE EXTRACTION_ID = ? AND ";
+        for (String pKey : pkList) {
+            whereR += pKey + "=? AND ";
+        }
+        if (whereR.endsWith("AND ")) {
+            whereR = whereR.substring(0, whereR.length() - 4);
+        }
+        final String sqlUpdateR = baseUpdateR + whereR;
+
+        // SQL UPDATE AZIENDALE (final)
+        String baseUpdateA = "UPDATE FM_FLOW_" + formFlowDTOazi.getName()
+                + "_" + formFlowDTOazi.getFlowTableList().get(0).getSection()
+                + " SET STATE_SEND_REGION = '" + status + "'"
+                + (joinScartoRegionale ? " , STATUS_REGION = ?" : "");
+
+        String whereA = " WHERE ";
+        for (String pKey : pkList) {
+            whereA += pKey + "=? AND ";
+        }
+        if (whereA.endsWith("AND ")) {
+            whereA = whereA.substring(0, whereA.length() - 4);
+        }
+        final String sqlUpdateA = baseUpdateA + whereA;
+
+        // Final catturabili dalla lambda
+        final List<String> pk = pkList;
+        final String extractionId = flowExportDTO.getId();
+
+        LOGGER.info("SQL_SELECT_R : {}", sqlSelectR);
+        LOGGER.info("SQL_UPDATE_R : {}", sqlUpdateR);
+        LOGGER.info("SQL_UPDATE_A : {}", sqlUpdateA);
+
+        final AtomicInteger count = new AtomicInteger(0);
+
+        Session session = entityManager.unwrap(Session.class);
+        session.doWork(conn -> {
+            try (
+                    PreparedStatement psSel = conn.prepareStatement(sqlSelectR);
+                    PreparedStatement psUpdR = conn.prepareStatement(sqlUpdateR);
+                    PreparedStatement psUpdA = conn.prepareStatement(sqlUpdateA)
+            ) {
+                psSel.setFetchSize(5000);
+
+                // EXTRACTION_ID è VARCHAR2
+                psSel.setString(1, extractionId);
+
+                int batch = 0;
+
+                try (ResultSet rs = psSel.executeQuery()) {
+                    while (rs.next()) {
+
+                        int offset = 0;
+                        if (joinScartoRegionale) {
+                            offset = 1;
+                            String severity = rs.getString("SEVERITY_SCARTO_REG");
+                            if (severity == null || severity.isBlank()) {
+                                severity = "VALIDO";
+                            }
+                            psUpdR.setString(1, severity);
+                            psUpdA.setString(1, severity);
+                        }
+
+                        // Update regionale: EXTRACTION_ID nel where
+                        psUpdR.setString(1 + offset, rs.getString("EXTRACTION_ID"));
+
+                        // PK params
+                        int idxR = 2 + offset; // dopo EXTRACTION_ID (e dopo STATUS_REGION se presente)
+                        int idxA = 1 + offset; // aziendale non ha EXTRACTION_ID
+
+                        for (String pKey : pk) {
+                            String val = rs.getString(pKey.toUpperCase());
+                            psUpdR.setString(idxR++, val);
+                            psUpdA.setString(idxA++, val);
+                        }
+
+                        psUpdR.addBatch();
+                        psUpdA.addBatch();
+
+                        batch++;
+                        count.incrementAndGet();
+
+                        if (batch % 1000 == 0) {
+                            psUpdA.executeBatch();
+                            psUpdR.executeBatch();
+                            psUpdA.clearBatch();
+                            psUpdR.clearBatch();
+                        }
+                    }
+                }
+
+                // Flush finale
+                if (batch % 1000 != 0) {
+                    psUpdA.executeBatch();
+                    psUpdR.executeBatch();
+                }
+
+            } catch (SQLException e) {
+                // Propaga: con @Transactional Spring farà rollback
+            	LogUtil.logException(LOGGER, "", e);
+            	
+                throw new RuntimeException("Errore in consolidaPratiche JDBC", e);
+            }
+        });
+
+        return count.get();
+    }
+
+    private static void bindExtractionId(PreparedStatement ps, int index, Object value) throws SQLException {
+        if (value == null) {
+            ps.setNull(index, Types.NUMERIC);
+            return;
+        }
+        if (value instanceof Number n) {
+            ps.setLong(index, n.longValue());
+            return;
+        }
+        String s = String.valueOf(value).trim();
+        try {
+            ps.setLong(index, Long.parseLong(s));
+        } catch (NumberFormatException ex) {
+            ps.setString(index, s);
+        }
+    }
+
+    @Override
+    public Integer consolidaRitorni(FormFlowDTO configurationRegion,
+                                   FlowExportRequestDTO flowExportDTO,
+                                   String status,
+                                   Boolean joinScartoRegionale,
+                                   TabgenMap tracciatoSegnalazioniRegionali) {
+
+        // Coerente col tuo codice: se non è consolidata non facciamo batch update
+        if (flowExportDTO.getConsolidata() == null || !flowExportDTO.getConsolidata()) {
+            return 0;
+        }
+
+        // --- Config esterna (checkExt) ---
+        boolean checkExt = false;
+        String sqlUpdateExt = "";
+        String tableExt = "";
+
+        ConfigurationDO cfgObj = configuration.findByKeyId("flowWithExternalUpdate");
+        if (cfgObj != null && cfgObj.getValue() != null) {
+            String[] cfgSplitted = cfgObj.getValue().split("/");
+            for (String value : cfgSplitted) {
+                int iend = value.indexOf("(");
+                if (iend > 0) {
+                    String flusso = value.substring(0, iend);
+                    String flussoCopia = value.substring(iend + 1, value.length() - 1);
+                    if (flusso != null && flusso.equals(flowExportDTO.getFlow().getName())) {
+                        checkExt = true;
+                        tableExt = "FM_FLOW_" + flussoCopia + "_0";
+                        break;
+                    }
+                }
+            }
+        }
+
+        final String version = flowExportDTO.getVersion().getId();
+        final String flow = flowExportDTO.getFlow().getId();
+        final FormFlowDTO formFlowDTOaziendale = formFlowService.retrieveOne(flow, version);
+
+        // PK aziendali sezione 0
+        final List<String> azPkList = new ArrayList<>();
+        for (FormFlowTableFieldDTO f : formFlowDTOaziendale.getFlowTableList().get(0).getFlowTableFieldList()) {
+            if (f.isPk()) azPkList.add(f.getName());
+        }
+
+        // PK regionali sezione 0 (della config regionale)
+        final List<String> regPkList = new ArrayList<>();
+        for (FormFlowTableFieldDTO f : configurationRegion.getFlowTableList().get(0).getFlowTableFieldList()) {
+            if (f.isPk()) regPkList.add(f.getName());
+        }
+
+        // Campi join con ritorni regionali (solo se joinScartoRegionale=true)
+        final boolean joinFinal = Boolean.TRUE.equals(joinScartoRegionale);
+        final List<String> joinFieldsWithRegionReturns = new ArrayList<>();
+        if (joinFinal && tracciatoSegnalazioniRegionali != null) {
+            for (TabgenValueMap j : tracciatoSegnalazioniRegionali.getTabgenValueList()) {
+                if (Boolean.TRUE.equals(j.getIsPk())) {
+                    joinFieldsWithRegionReturns.add(j.getFieldName());
+                }
+            }
+        }
+
+        // SELECT: unione PK az + PK reg
+        Set<String> selectRegSet = new HashSet<>(azPkList);
+        selectRegSet.addAll(regPkList);
+
+        String sqlSelectRtmp = generateQuerySelectRitorni(
+                new ArrayList<>(selectRegSet),
+                joinFieldsWithRegionReturns,
+                formFlowDTOaziendale.getName(),
+                formFlowDTOaziendale.getFlowTableList().get(0).getSection(),
+                joinFinal
+        );
+
+        // Se checkExt: aggiungo FLAG_ESTERNO davanti
+        if (checkExt) {
+            String prefix = "SELECT t1.FLAG_ESTERNO FLAG_ESTERNO, ";
+            if (sqlSelectRtmp != null && sqlSelectRtmp.toUpperCase().startsWith("SELECT ")) {
+                sqlSelectRtmp = prefix + sqlSelectRtmp.substring("SELECT ".length());
+            } else {
+                sqlSelectRtmp = prefix + sqlSelectRtmp;
+            }
+
+            // preparo UPDATE EXT
+            sqlUpdateExt = "UPDATE " + tableExt
+                    + " SET STATE_SEND_REGION = '" + status + "'"
+                    + (joinFinal ? " , STATUS_REGION = ?" : "");
+
+            String whereExt = " WHERE ";
+            for (String pKey : azPkList) whereExt += pKey + "=? AND ";
+            if (whereExt.endsWith("AND ")) whereExt = whereExt.substring(0, whereExt.length() - 4);
+            sqlUpdateExt += whereExt;
+
+            LOGGER.info("SQL_UPDATE_EXT : {}", sqlUpdateExt);
+        }
+
+        // Template UPDATE regionale multi-sezione
+        String sqlUpdateRtmpl = "UPDATE FM_FLOW_" + configurationRegion.getName() + "_{SECTION}"
+                + " SET STATE_SEND_REGION = '" + status + "'"
+                + (joinFinal ? " , STATUS_REGION = ?" : "");
+
+        String whereR = " WHERE EXTRACTION_ID = ? AND ";
+        for (String pKey : regPkList) whereR += pKey + "=? AND ";
+        if (whereR.endsWith("AND ")) whereR = whereR.substring(0, whereR.length() - 4);
+        sqlUpdateRtmpl += whereR;
+
+        // Template UPDATE aziendale multi-sezione
+        String sqlUpdateAtmpl = "UPDATE FM_FLOW_" + formFlowDTOaziendale.getName() + "_{SECTION}"
+                + " SET STATE_SEND_REGION = '" + status + "'"
+                + (joinFinal ? " , STATUS_REGION = ?" : "");
+
+        String whereA = " WHERE ";
+        for (String pKey : azPkList) whereA += pKey + "=? AND ";
+        if (whereA.endsWith("AND ")) whereA = whereA.substring(0, whereA.length() - 4);
+        sqlUpdateAtmpl += whereA;
+
+        // final per lambda
+        final String sqlSelectR = sqlSelectRtmp;
+        final String sqlUpdateRTemplate = sqlUpdateRtmpl;
+        final String sqlUpdateATemplate = sqlUpdateAtmpl;
+        final String sqlUpdateExtFinal = sqlUpdateExt;
+        final boolean checkExtFinal = checkExt;
+        final String extractionId = flowExportDTO.getId();
+
+        LOGGER.info("SQL_SELECT_R : {}", sqlSelectR);
+        LOGGER.info("SQL_UPDATE_R_TEMPLATE : {}", sqlUpdateRTemplate);
+        LOGGER.info("SQL_UPDATE_A_TEMPLATE : {}", sqlUpdateATemplate);
+
+        final AtomicInteger count = new AtomicInteger(0);
+        final AtomicReference<String> regionValidationStatusRef = new AtomicReference<>("VALIDO");
+
+        Session session = entityManager.unwrap(Session.class);
+        session.doWork(conn -> {
+
+            PreparedStatement psSelect = null;
+            PreparedStatement psUpdateAziendaleExt = null;
+            List<PreparedStatement> psUpdateRegList = new ArrayList<>();
+            List<PreparedStatement> psUpdateAzList = new ArrayList<>();
+
+            try {
+                psSelect = conn.prepareStatement(sqlSelectR);
+                psSelect.setFetchSize(5000);
+                psSelect.setString(1, extractionId);
+
+                try (ResultSet rs = psSelect.executeQuery()) {
+
+                    // preparo PS per tutte le sezioni (una sola volta)
+                    for (FormFlowTableDTO table : formFlowDTOaziendale.getFlowTableList()) {
+                        String sql = sqlUpdateATemplate.replace("{SECTION}", String.valueOf(table.getSection()));
+                        PreparedStatement ps = conn.prepareStatement(sql);
+                        ps.setFetchSize(5000);
+                        psUpdateAzList.add(ps);
+                        LOGGER.info("SQL_UPDATE_A_SEC : {}", sql);
+                    }
+
+                    for (FormFlowTableDTO table : configurationRegion.getFlowTableList()) {
+                        String sql = sqlUpdateRTemplate.replace("{SECTION}", String.valueOf(table.getSection()));
+                        PreparedStatement ps = conn.prepareStatement(sql);
+                        ps.setFetchSize(5000);
+                        psUpdateRegList.add(ps);
+                        LOGGER.info("SQL_UPDATE_R_SEC : {}", sql);
+                    }
+
+                    if (checkExtFinal && sqlUpdateExtFinal != null && !sqlUpdateExtFinal.isBlank()) {
+                        psUpdateAziendaleExt = conn.prepareStatement(sqlUpdateExtFinal);
+                        psUpdateAziendaleExt.setFetchSize(5000);
+                    }
+
+                    int batch = 0;
+
+                    while (rs.next()) {
+                        // severity
+                        String severity = "VALIDO";
+                        if (joinFinal) {
+                            String s = rs.getString("SEVERITY_SCARTO_REG");
+                            if (s != null && !s.isBlank()) severity = s;
+                        }
+
+                        // aggiorna regionValidationStatus (prendo la “massima” severità)
+                        String current = regionValidationStatusRef.get();
+                        if (severityRankRitorni(severity) >= severityRankRitorni(current)) {
+                            regionValidationStatusRef.set(severity);
+                        }
+
+                        // --- UPDATE REGIONALE (tutte le sezioni regionali) ---
+                        for (PreparedStatement psR : psUpdateRegList) {
+                            int idx = 1;
+                            if (joinFinal) {
+                                psR.setString(idx++, severity);                   // STATUS_REGION
+                            }
+                            psR.setString(idx++, rs.getString("EXTRACTION_ID")); // EXTRACTION_ID (VARCHAR2)
+                            for (String pKey : regPkList) {
+                                psR.setString(idx++, rs.getString(pKey.toUpperCase()));
+                            }
+                            psR.addBatch();
+                        }
+
+                        // --- UPDATE AZIENDALE (interno o esterno) ---
+                        boolean goExternal = false;
+                        if (checkExtFinal) {
+                            String flagEsterno = rs.getString("FLAG_ESTERNO");
+                            goExternal = (flagEsterno != null && !flagEsterno.isBlank());
+                        }
+
+                        if (checkExtFinal && goExternal) {
+                            if (psUpdateAziendaleExt != null) {
+                                int idx = 1;
+                                if (joinFinal) {
+                                    psUpdateAziendaleExt.setString(idx++, severity);
+                                }
+                                for (String pKey : azPkList) {
+                                    psUpdateAziendaleExt.setString(idx++, rs.getString(pKey.toUpperCase()));
+                                }
+                                psUpdateAziendaleExt.addBatch();
+                            }
+                        } else {
+                            for (PreparedStatement psA : psUpdateAzList) {
+                                int idx = 1;
+                                if (joinFinal) {
+                                    psA.setString(idx++, severity);
+                                }
+                                for (String pKey : azPkList) {
+                                    psA.setString(idx++, rs.getString(pKey.toUpperCase()));
+                                }
+                                psA.addBatch();
+                            }
+                        }
+
+                        batch++;
+                        count.incrementAndGet();
+
+                        if (batch % 1000 == 0) {
+                            executeAndClearBatches(psUpdateRegList);
+                            executeAndClearBatches(psUpdateAzList);
+                            if (psUpdateAziendaleExt != null) {
+                                psUpdateAziendaleExt.executeBatch();
+                                psUpdateAziendaleExt.clearBatch();
+                            }
+                        }
+                    }
+
+                    // flush finale
+                    if (batch % 1000 != 0) {
+                        executeAndClearBatches(psUpdateRegList);
+                        executeAndClearBatches(psUpdateAzList);
+                        if (psUpdateAziendaleExt != null) {
+                            psUpdateAziendaleExt.executeBatch();
+                            psUpdateAziendaleExt.clearBatch();
+                        }
+                    }
+                }
+
+            } catch (SQLException e) {
+            	LogUtil.logException(LOGGER, "", e);
+            	
+                throw new RuntimeException("Errore in consolidaRitorni JDBC", e);
+            } finally {
+                // usa il closeQuietly già presente nella tua classe
+                closeQuietly(psSelect);
+                closeQuietly(psUpdateAziendaleExt);
+                for (PreparedStatement ps : psUpdateRegList) closeQuietly(ps);
+                for (PreparedStatement ps : psUpdateAzList) closeQuietly(ps);
+            }
+        });
+
+        // aggiorna stato validazione regionale (con @Transactional verrà flushato a commit)
+        FlowExportRequestDO request = entityManager.getReference(FlowExportRequestDO.class, flowExportDTO.getId());
+        request.setRegionValidationStatus(regionValidationStatusRef.get());
+
+        return count.get();
+    }
+
+    private static void executeAndClearBatches(List<PreparedStatement> list) throws SQLException {
+        for (PreparedStatement ps : list) {
+            ps.executeBatch();
+            ps.clearBatch();
+        }
+    }
+
+    private static int severityRankRitorni(String s) {
+        if (s == null) return 0;
+        return switch (s) {
+            case "VALIDO" -> 0;
+            case "SEGNALAZIONE" -> 1;
+            default -> 2; // ERRORE o altro più grave
+        };
+    }
+
+
+    private static int severityRank(String s) {
+        if (s == null) return 0;
+        return switch (s) {
+            case "VALIDO" -> 0;
+            case "SEGNALAZIONE" -> 1;
+            default -> 2; // ERRORE o altro più “grave”
+        };
+    }
+
+    private static void closeQuietly(AutoCloseable c) {
+        if (c != null) try { c.close(); } catch (Exception ignore) {}
+    }
+
+    @Override
+    public FlowExportRequestDO retriveOne(String id) {
+        return (id == null || id.isBlank())
+                ? null
+                : flowExportDAO.findById(id).orElse(null);
+    }
+
+    @Override
+    public Boolean logicDelete(List<FlowExportRequestDO> flowExportRequestDOS) {
+        try {
+            for (FlowExportRequestDO flowExportRequestDO : flowExportRequestDOS) {
+                flowExportRequestDO.setDeleted(1);
+                flowExportDAO.save(flowExportRequestDO);
+            }
+            return true;
+        } catch (Exception e) {
+        	LogUtil.logException(LOGGER, "ERROR (logical) DELETE FLOW EXPORT ROW", e);
+            return false;
+        }
+    }
+
+    @Override
+    public Boolean delete() {
+        try {
+        	//caricamento lista aziende visibili dall'utente
+    		List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+    		
+            BaseSearchInput baseSearchInput = new BaseSearchInput();
+            baseSearchInput.setValue("deleted", 1);
+            baseSearchInput.setParam("aziende", aziende);
+            Pair<List<FlowExportRequestDO>, SearchInfo> list = retrieveAllFiltered(baseSearchInput, false);
+            for (FlowExportRequestDO flowExportRequestDO : list.getFirst()) {
+                //DELETE REGION TABLE
+                formFlowService.deletebyExtractionId(flowExportRequestDO.getId(),
+                        flowExportRequestDO.getFlow(),
+                        flowExportRequestDO.getVersion());
+                flowExportDAO.deleteById(flowExportRequestDO.getId());
+            }
+            return true;
+        } catch (Exception e) {
+        	LogUtil.logException(LOGGER, "ERROR (physical) DELETE FLOW EXPORT ROW", e);
+            return false;
+        }
+    }
+
+        @Override
+        public Boolean deletedByExtractionIds(String extractionId) {
+            //try {
+                //BaseSearchInput baseSearchInput = new BaseSearchInput();
+                //baseSearchInput.setValue("deleted",1);
+                //baseSearchInput.setValue("id",extractionId);
+                FlowExportRequestDO flowExportRequestDO = (extractionId== null || extractionId.isBlank()) ? null : flowExportDAO.findById(extractionId).orElse(null);
+                //Pair<List<FlowExportRequestDO>, SearchInfo> list = retrieveAllFiltered(baseSearchInput,false);
+                //for (FlowExportRequestDO flowExportRequestDO:list.getFirst()){
+                    //DELETE REGION TABLE
+                    formFlowService.deletebyExtractionId(flowExportRequestDO.getId(),
+                            flowExportRequestDO.getFlow(),
+                            flowExportRequestDO.getVersion());
+                    flowExportDAO.deleteById(flowExportRequestDO.getId());
+                //}
+                return true;
+//            } catch (Exception e)
+//            {
+//                LOGGER.error("ERROR (physical) DELETE FLOW EXPORT ROW: " + e.getMessage());
+//                return false;
+//            }
+
+    }
+
+        private String generateQuerySelect(List<String> pkList, String flowName, int flowSection, Boolean joinWithRegionReturns) {
+        	String select = "t1.EXTRACTION_ID EXTRACTION_ID, ";
+        	
+        	String joinScarto = "";
+        	
+            for (String pKey : pkList) {
+                select += "t1." + pKey + " " + pKey + ", ";
+                joinScarto += "t1." + pKey + " = " + " t2." + pKey + " and ";
+            }
+            if (select.endsWith(", ")) {
+                select = select.substring(0, select.length() - 2);
+            }
+        	
+            select = "SELECT " + select;
+            
+            String from = " FROM FM_FLOW_" + flowName + "_REG_" + flowSection + " t1 ";
+            String where = " WHERE t1.EXTRACTION_ID=?";
+            
+            if(joinWithRegionReturns) {
+            	String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+            	String scarto = flowName + "_REG_" + cfgSuffixRegError + " t2 ";
+            	
+            	joinScarto += " t1.EXTRACTION_ID = t2.EXTRACTION_ID ";
+            	
+            	String inner = " (select min(t2.severity) from " + scarto + " where " + joinScarto + " ) SEVERITY_SCARTO_REG ";
+            	select += ", " + inner;
+            }
+            
+        	String SQL_SELECT_R = select + from + where;
+        	
+        	return SQL_SELECT_R;
+        }
+        
+        private String generateQuerySelectRitorni(List<String> selectRegList, List<String> pkRegList, String flowName, int flowSection, Boolean joinWithRegionReturns) {
+        	String select = "SELECT  t1.EXTRACTION_ID EXTRACTION_ID, ";
+        	String joinScarto = " AND ";
+        	String selectGroupBy = " GROUP BY t1.EXTRACTION_ID, ";
+        	
+        	for (String sel : selectRegList) {
+                select += "t1." + sel + " " + sel + ", "; 
+                selectGroupBy += "t1." + sel + ", ";
+            }
+            if (select.endsWith(", ")) {
+                select = select.substring(0, select.length() - 2);
+                selectGroupBy = selectGroupBy.substring(0, selectGroupBy.length() - 2);
+            }
+            
+            String from = " FROM FM_FLOW_" + flowName + "_REG_" + flowSection + " t1 ";
+            String where = " WHERE 1=1 ";
+            
+            if(joinWithRegionReturns) {
+            	select += ", MIN(NVL(t2.severity,t1.STATUS_REGION)) SEVERITY_SCARTO_REG ";
+            	
+            	String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+            	from += "," + flowName + "_REG_" + cfgSuffixRegError + " t2 ";
+            	
+            	for (String pKey : pkRegList) {
+                    joinScarto += "t1." + pKey + " = " + " t2." + pKey + "(+) AND ";
+                }
+            	joinScarto += " t1.EXTRACTION_ID = t2.EXTRACTION_ID(+) ";
+            } else {
+            	select += ", MIN(t1.STATUS_REGION) SEVERITY_SCARTO_REG ";
+            }
+            
+            if (joinScarto.endsWith(" AND ")) {
+            	joinScarto = joinScarto.substring(0, joinScarto.length() - 4);
+    		}
+            
+            where += joinScarto;
+            where += " AND t1.EXTRACTION_ID=?";
+            
+        	String SQL_SELECT_R = select + from + where + selectGroupBy;
+        	
+        	return SQL_SELECT_R;
+        }
+        
+//        private String generateQuerySelectRitorni(List<String> selectRegList, List<String> pkRegList, String flowName, int flowSection, Boolean joinWithRegionReturns) {
+//        	String select = "t1.EXTRACTION_ID EXTRACTION_ID, ";
+//        	
+//        	for (String sel : selectRegList) {
+//                select += "t1." + sel + " " + sel + ", "; 
+//            }
+//            if (select.endsWith(", ")) {
+//                select = select.substring(0, select.length() - 2);
+//            }
+//        	
+//            select = "SELECT " + select;
+//            
+//            String from = " FROM FM_FLOW_" + flowName + "_REG_" + flowSection + " t1 ";
+//            String where = " WHERE t1.EXTRACTION_ID=?";
+//            
+//            if(joinWithRegionReturns) {
+//            	String joinScarto = "";
+//            	
+//            	for (String pKey : pkRegList) {
+//                    joinScarto += "t1." + pKey + " = " + " t2." + pKey + " and ";
+//                }
+//            	
+//            	String cfgSuffixRegError = configuration.findByKeyId("suffix_reg_error").getValue();
+//            	String scarto = flowName + "_REG_" + cfgSuffixRegError + " t2 ";
+//            	
+//            	joinScarto += " t1.EXTRACTION_ID = t2.EXTRACTION_ID ";
+//            	
+//            	String inner = " (select min(t2.severity) from " + scarto + " where " + joinScarto + " ) SEVERITY_SCARTO_REG ";
+//            	select += ", " + inner;
+//            }
+//            
+//        	String SQL_SELECT_R = select + from + where;
+//        	
+//        	return SQL_SELECT_R;
+//        }
+        
+		@Override
+		public HttpEntity<byte[]> downloadXML(String exportId) {
+			
+			HttpHeaders header = new HttpHeaders();
+			header.set("Content-Disposition", "attachment;");
+
+			FlowExportRequestDO example = new FlowExportRequestDO();
+			example.setId(exportId);
+
+			List<FlowExportReqFileTalendDO> exports = flowExportReqFileTalendDAO.findAllByflowExportRequest(example);
+			List<File> files = new ArrayList<>();
+			exports.forEach((FlowExportReqFileTalendDO export) -> {
+				try {
+					String fileName = export.getFlowExportRequest().getFlow().getName() + "_" + exports.indexOf(export);;
+					if(flowManagerProfileService.checkFlowById(export.getFlowExportRequest().getFlow().getId())) {
+						if(export.getXml()!=null) {
+							byte[] byt = export.getXml();
+							File file = File.createTempFile(fileName, export.getFileExt());
+							Files.write(byt, file);
+							files.add(file);
+						}
+					}
+				} catch (IOException e) {
+					LogUtil.logException(LOGGER, "", e);
+//					e.printStackTrace();
+				}
+			});
+
+			if (files != null && files.size() > 0) {
+				String[] fileNames = new String[files.size()];
+				int i = 0;
+				for (File file : files) {
+					fileNames[i] = file.getName();
+					i++;
+				}
+
+				byte[] byt = FileUtility.compressingFiles(files.get(0).getParent(),
+						files.get(0).getParent() + "/extraction.zip", fileNames);
+				
+				if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogDownXMLEstrazFlusso())) {
+		    		byte[] resultsLogAccessi = sendAuditDownXMLEstrFlussiToPM(exportId, byt);
+		        }
+		    	
+				return new HttpEntity<byte[]>(byt, header);
+			}
+			return null;
+		}
+
+		@Override
+		public HttpEntity<byte[]> downloadLog(String exportId) {
+			
+			HttpHeaders header = new HttpHeaders();
+			header.set("Content-Disposition", "attachment;");
+
+			FlowExportRequestDO example = new FlowExportRequestDO();
+			example.setId(exportId);
+
+			List<FlowExportReqFileTalendDO> exports = flowExportReqFileTalendDAO.findAllByflowExportRequest(example);
+			List<File> files = new ArrayList<>();
+			exports.forEach((FlowExportReqFileTalendDO export) -> {
+				try {
+					String fileName = export.getFlowExportRequest().getFlow().getName() + "_" + exports.indexOf(export);;
+					if(flowManagerProfileService.checkFlowById(export.getFlowExportRequest().getFlow().getId())) {
+						if(export.getLog()!=null) {
+							byte[] byt = export.getLog();
+							File file = File.createTempFile(fileName, ".txt");
+							Files.write(byt, file);
+							files.add(file);
+						}
+					}
+				} catch (IOException e) {
+					LogUtil.logException(LOGGER, "", e);
+//					e.printStackTrace();
+				}
+			});
+
+			if (files != null && files.size() > 0) {
+				String[] fileNames = new String[files.size()];
+				int i = 0;
+				for (File file : files) {
+					fileNames[i] = file.getName();
+					i++;
+				}
+
+				byte[] byt = FileUtility.compressingFiles(files.get(0).getParent(),
+						files.get(0).getParent() + "/extraction.zip", fileNames);
+				
+				if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogDownLOGEstrazFlusso())) {
+		    		byte[] resultsLogAccessi = sendAuditDownLOGEstrFlussiToPM(exportId, byt);
+		        }
+		    	
+				return new HttpEntity<byte[]>(byt, header);
+			}
+			return null;
+		}
+		
+		@Override
+		public Boolean calculateDrg(FlowDrgDO resDrg) {
+			String requestId = resDrg.getExtraction().getId();
+			FlowExportRequestDO request = flowExportDAO.getOne(requestId);
+			Object[] respResult = webService.loadAndSimulateFlowOnRegion(requestId, request.getFlow().getName(), true);
+			FlussiFile[] result = (FlussiFile[])respResult[0];
+			
+			if(result != null) {
+				resDrg.setReturnDate(new Date());
+				org.springframework.statemachine.state.State<String, String> stateDrg;
+				try {
+					stateDrg = stateMachineFlow.execute(requestId + "_DRG", "DRG", MachineEvent.DRG_TERMINATO_OK.getEvent());
+					resDrg.setState(stateDrg.getId());
+					flowDrgService.saveDrgResult(resDrg);
+				} catch (Exception e) {
+					LogUtil.logException(LOGGER, "", e);
+//					e.printStackTrace();
+				}
+				return true;
+			}
+			
+			return false;
+		}
+		
+		@Override
+		public void calculateDrgStatistics(FlowDrgDO resDrg) {
+			String requestId = resDrg.getExtraction().getId();
+			FlowExportRequestDO request = flowExportDAO.getOne(requestId);
+			String queryString = queryGenerator.generateCountRecordsWithDrgQuery(request.getFlow().getName(), "1");
+			Query query = entityManager.createNativeQuery(queryString);
+			query.setParameter(1, requestId);
+			BigDecimal recordsWithDrg = (BigDecimal)query.getSingleResult();
+			resDrg.setNumPratiche(recordsWithDrg.intValue() + "");
+			flowDrgService.saveDrgResult(resDrg);
+		}
+		
+		@Override
+		@PrivacyManagerLog(action = AuditEventActionEnum.READ, category = AuditEventCategoryEnum.ACCESS_LOG, description="Download xml Estrazione", converter= ExtractionDownloadXmlConverter.class, entity= EntityEnum.FLUSSI, entityType= EntityTypeEnum.SCHEDA_MEDICA)
+		public byte[] sendAuditDownXMLEstrFlussiToPM(String exportId, byte[] byt) {
+			return byt;
+		}
+		
+		@Override
+		@PrivacyManagerLog(action = AuditEventActionEnum.READ, category = AuditEventCategoryEnum.ACCESS_LOG, description="Download log Estrazione", converter= ExtractionDownloadLogConverter.class, entity= EntityEnum.FLUSSI, entityType= EntityTypeEnum.SCHEDA_MEDICA)
+		public byte[] sendAuditDownLOGEstrFlussiToPM(String exportId, byte[] byt) {
+			return byt;
+		}
+}

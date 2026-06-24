@@ -1,0 +1,108 @@
+package org.it.eng.care.domain.flow.core.config;
+
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.data.web.SpringDataWebAutoConfiguration;
+import org.springframework.boot.autoconfigure.liquibase.LiquibaseAutoConfiguration;
+import org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.PropertySource;
+import org.springframework.orm.jpa.JpaTransactionManager;
+import org.springframework.orm.jpa.JpaVendorAdapter;
+import org.springframework.orm.jpa.vendor.HibernateJpaVendorAdapter;
+import org.springframework.transaction.PlatformTransactionManager;
+
+import it.eng.care.domain.flow.core.config.FlowCoreConfig;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.platform.audit.api.service.CurrentRequestService;
+import it.eng.care.platform.audit.api.service.model.RequestObject;
+import it.eng.care.platform.authentication.api.jwt.JWTAuthenticationConfiguration;
+import it.eng.care.platform.authentication.api.model.Application;
+import it.eng.care.platform.authentication.api.model.enums.AuthenticationParameterEnum;
+import it.eng.care.platform.authentication.api.service.LoggedUserService;
+import it.eng.care.platform.authentication.impl.config.AuthenticationConfig;
+import it.eng.care.platform.authentication.impl.persist.util.DummyUserService;
+import it.eng.care.platform.common.dozer.config.DozerCommonConfig;
+import it.eng.care.platform.parameter.api.ParameterIds;
+import it.eng.care.platform.parameter.api.ParametersService;
+import it.eng.care.platform.persistence.impl.config.PersistenceConfig;
+import it.eng.care.platform.tool.transport.conversion.ConversionConfig;
+import it.eng.health.core.base.administration.config.AdministrationServiceConfig;
+import it.eng.health.core.base.config.HealthBaseServiceConfig;
+import jakarta.persistence.EntityManagerFactory;
+
+@Configuration
+@Import({ FlowCoreConfig.class, ConversionConfig.class, PersistenceConfig.class, DozerCommonConfig.class,
+		AuthenticationConfig.class, AdministrationServiceConfig.class, HealthBaseServiceConfig.class
+		 })
+@EnableAutoConfiguration(exclude = { SpringDataWebAutoConfiguration.class, SecurityAutoConfiguration.class,
+		LiquibaseAutoConfiguration.class })
+@PropertySource({ "classpath:datasourceH2.properties", "application.properties" })
+public class TestConfigH2 {
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(TestConfigH2.class);
+	
+	@Bean
+	public JpaVendorAdapter jpaVendorAdapter() {
+		return new HibernateJpaVendorAdapter();
+	}
+
+	@Bean
+	public PlatformTransactionManager transactionManager(EntityManagerFactory factory) {
+		return new JpaTransactionManager(factory);
+	}
+
+	@Bean
+	public JWTAuthenticationConfiguration jwtAuthenticationConfiguration() {
+		try {
+			Application app = new Application();
+			app.setSecretKey("test");
+			return new JWTAuthenticationConfiguration(app);
+		} catch (Exception e) {
+			LogUtil.logException(LOGGER, "", e);
+		}
+		return null;
+	}
+
+	@Bean
+	public CurrentRequestService currentRequestService() {
+		return new CurrentRequestService() {
+
+			private ThreadLocal<RequestObject> requestObject = new ThreadLocal<>();
+
+			@Override
+			public void setCurrentRequest(RequestObject requestObject) {
+				this.requestObject.set(requestObject);
+			}
+
+			@Override
+			public void newSession() {
+			}
+
+			@Override
+			public RequestObject getCurrentRequest() {
+				return requestObject.get();
+			}
+		};
+	}
+
+	@Bean
+	public ParametersService parameterService() {
+		ParametersService svc = mock(ParametersService.class);
+		when(svc.<Integer, Void>getParameterValue(
+				ParameterIds.byName(AuthenticationParameterEnum.PWD_DURATION_LIFE_IN_MONTHS.name()))).thenReturn(3);
+		return svc;
+	}
+
+	@Bean
+	public LoggedUserService loggedUserService() {
+		return new DummyUserService();
+	}
+
+}

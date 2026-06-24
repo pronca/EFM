@@ -1,0 +1,264 @@
+package it.eng.care.domain.flow.jobs.config;
+
+import javax.annotation.PostConstruct;
+import jakarta.persistence.EntityManager;
+
+import org.quartz.SimpleTrigger;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.EnableCaching;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.orm.jpa.EntityManagerFactoryInfo;
+import org.springframework.scheduling.quartz.CronTriggerFactoryBean;
+import org.springframework.scheduling.quartz.JobDetailFactoryBean;
+import org.springframework.scheduling.quartz.SimpleTriggerFactoryBean;
+
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.jobs.dao.DashboardJobDAO;
+import it.eng.care.domain.flow.jobs.dao.DashboardJobDAOImpl;
+import it.eng.care.domain.flow.jobs.job.DashboardJob;
+import it.eng.care.domain.flow.jobs.job.DashboardJobYear;
+import it.eng.care.domain.flow.jobs.jobs.SendDrg;
+import it.eng.care.domain.flow.jobs.jobs.SendEmailsForErrors;
+import it.eng.care.domain.flow.jobs.jobs.SendRestErrors;
+import it.eng.care.domain.flow.jobs.jobs.fistLevelValidation.ValidateFlowImportRequestJob;
+import it.eng.care.domain.flow.jobs.jobs.fistLevelValidation.ValidateUploadedWithFileFlowJob;
+import it.eng.care.domain.flow.jobs.look.DatabaseLockService;
+import it.eng.care.domain.flow.jobs.look.LockJobAspect;
+import it.eng.care.domain.flow.jobs.service.JobSendErrorService;
+import it.eng.care.domain.flow.jobs.service.JobService;
+import it.eng.care.domain.flow.jobs.service.api.DashboardJobService;
+import it.eng.care.domain.flow.jobs.service.impl.DashboardJobServiceImpl;
+import it.eng.care.domain.flow.jobs.service.impl.JobSendErrorServiceImpl;
+import it.eng.care.domain.flow.jobs.service.impl.JobServiceImpl;
+
+@Configuration
+@EnableCaching
+@Import(value = { FirstLevelJobsConfig.class, SecondLevelJobsConfig.class })
+public class JobsConfig {
+	
+	@Autowired
+	protected ConfigurationDAO configuration;
+
+	@Autowired
+	protected EntityManager entityManager;
+
+	protected String exportTime;
+	protected String regionValidationTime;
+	protected String jobDashboardTime;
+	protected String jobYearDashboardTime;
+	protected String emailErrorJobTime;
+	protected String flowExportDelete;
+	protected String jobSendingErrorsTime;
+	protected String sendDrgTime;
+	protected String tableValidationTime;
+
+	@PostConstruct
+	private void loadConfig() {
+		jobDashboardTime = configuration.findByKeyId("job_dashboard_time").getValue();
+		jobYearDashboardTime = configuration.findByKeyId("job_year_dashboard_time").getValue();
+		
+		emailErrorJobTime = configuration.findByKeyId("emailErrorJobTime").getValue();
+
+		exportTime = configuration.findByKeyId("exporting_request_time").getValue();
+		regionValidationTime = configuration.findByKeyId("region_validation_time").getValue();
+
+		flowExportDelete = configuration.findByKeyId("flow_export_delete").getValue();
+		jobSendingErrorsTime= configuration.findByKeyId("jobSendingErrorsTime").getValue();
+		
+		sendDrgTime= configuration.findByKeyId("sendDrgTime").getValue();
+		
+		tableValidationTime = configuration.findByKeyId("table_validation_time").getValue();
+	}
+	
+	@Bean
+	public JobService jobService() {
+		return new JobServiceImpl();
+	}
+
+	@Bean
+    public DashboardJobService dashboardJobService() {
+    	return new DashboardJobServiceImpl();
+    }
+
+	@Bean
+	public LockJobAspect lockJobAspect(){
+		return new LockJobAspect();
+	}
+
+	@Bean
+	public DatabaseLockService databaseLockService (){
+		EntityManagerFactoryInfo info = (EntityManagerFactoryInfo) entityManager.getEntityManagerFactory();
+		return new DatabaseLockService(info.getDataSource(),"FM_LOCK_JOB");
+	}
+
+	@Bean
+    public DashboardJobDAO dashboardJobDAO() {
+    	return new DashboardJobDAOImpl();
+    }
+    
+    @Bean
+    public DashboardJob DashboardJob() {
+    	return new DashboardJob();
+    }
+    
+    @Bean
+    public DashboardJobYear DashboardJobYear() {
+    	return new DashboardJobYear();
+    }
+    
+    @Bean
+    public JobSendErrorService jobSendErrorService() {
+    	return new JobSendErrorServiceImpl();
+    }
+    
+    @Bean
+	public ValidateUploadedWithFileFlowJob validateUploadedWithFileFlowJob() {
+		return new ValidateUploadedWithFileFlowJob();
+	}
+    
+    @Bean
+	public ValidateFlowImportRequestJob validateImportedFlowsJob() {
+		return new ValidateFlowImportRequestJob();
+	}
+    
+    @Bean(name = "DashboardJobYearDetail")
+	public JobDetailFactoryBean executeDashboardJobYearDetail() {
+		JobDetailFactoryBean jobDetailFactory = new JobDetailFactoryBean();
+		jobDetailFactory.setJobClass(DashboardJobYear.class);
+		jobDetailFactory.setDescription("DashboardJobYearDetailDetail");
+		jobDetailFactory.setDurability(true);
+		return jobDetailFactory;
+	}
+
+	@Bean(name = "DashboardJobDetail")
+	public JobDetailFactoryBean executeDashboardJobDetail() {
+		JobDetailFactoryBean jobDetailFactory = new JobDetailFactoryBean();
+		jobDetailFactory.setJobClass(DashboardJob.class);
+		jobDetailFactory.setDescription("DashboardJobDetailDetail");
+		jobDetailFactory.setDurability(true);
+		return jobDetailFactory;
+	}
+
+	@Bean(name = "flowEmailErrorJob")
+	public JobDetailFactoryBean flowEmailErrorJob() {
+		JobDetailFactoryBean jobDetailFactory = new JobDetailFactoryBean();
+		jobDetailFactory.setJobClass(SendEmailsForErrors.class);
+		jobDetailFactory.setDescription("flowEmailErrorJob");
+		jobDetailFactory.setDurability(true);
+		return jobDetailFactory;
+	}
+	
+	@Bean(name = "sendErrorJob")
+	public JobDetailFactoryBean sendErrorJob() {
+		JobDetailFactoryBean jobDetailFactory = new JobDetailFactoryBean();
+		jobDetailFactory.setJobClass(SendRestErrors.class);
+		jobDetailFactory.setDescription("sendErrorJob");
+		jobDetailFactory.setDurability(true);
+		return jobDetailFactory;
+	}
+	
+	@Bean(name = "sendDrgJob")
+	public JobDetailFactoryBean sendDrgJob() {
+		JobDetailFactoryBean jobDetailFactory = new JobDetailFactoryBean();
+		jobDetailFactory.setJobClass(SendDrg.class);
+		jobDetailFactory.setDescription("sendDrgJob");
+		jobDetailFactory.setDurability(true);
+		return jobDetailFactory;
+	}
+	
+	@Bean(name = "tableValidationTimeUploadJob")
+	public JobDetailFactoryBean tableValidationTimeUploadJob() {
+		JobDetailFactoryBean jobDetailFactory = new JobDetailFactoryBean();
+		jobDetailFactory.setJobClass(ValidateUploadedWithFileFlowJob.class);
+		jobDetailFactory.setDescription("tableValidationTimeUploadJob");
+		jobDetailFactory.setDurability(true);
+		return jobDetailFactory;
+	}
+	
+	@Bean(name = "tableValidationTimeImportJob")
+	public JobDetailFactoryBean tableValidationTimeImportJob() {
+		JobDetailFactoryBean jobDetailFactory = new JobDetailFactoryBean();
+		jobDetailFactory.setJobClass(ValidateFlowImportRequestJob.class);
+		jobDetailFactory.setDescription("tableValidationTimeImportJob");
+		jobDetailFactory.setDurability(true);
+		return jobDetailFactory;
+	}
+
+	@Bean
+	public  CronTriggerFactoryBean createCronTrigger() {
+			CronTriggerFactoryBean factoryBean = new CronTriggerFactoryBean();
+			factoryBean.setJobDetail(flowEmailErrorJob().getObject());
+			factoryBean.setCronExpression(emailErrorJobTime);
+		//	factoryBean.setMisfireInstruction(SimpleTrigger.MISFIRE_INSTRUCTION_FIRE_NOW);
+			return factoryBean;
+		}
+	
+	@Bean
+	public  CronTriggerFactoryBean createCronTriggerErrors() {
+			CronTriggerFactoryBean factoryBean = new CronTriggerFactoryBean();
+			factoryBean.setJobDetail(sendErrorJob().getObject());
+			factoryBean.setCronExpression(jobSendingErrorsTime);
+		//	factoryBean.setMisfireInstruction(SimpleTrigger.MISFIRE_INSTRUCTION_FIRE_NOW);
+			return factoryBean;
+		}
+	
+	@Bean
+	public  CronTriggerFactoryBean createCronTriggerDrg() {
+			CronTriggerFactoryBean factoryBean = new CronTriggerFactoryBean();
+			factoryBean.setJobDetail(sendDrgJob().getObject());
+			factoryBean.setCronExpression(sendDrgTime);
+		//	factoryBean.setMisfireInstruction(SimpleTrigger.MISFIRE_INSTRUCTION_FIRE_NOW);
+			return factoryBean;
+		}
+	
+	@Bean
+	public  CronTriggerFactoryBean createCronTriggerDashboard() {
+			CronTriggerFactoryBean factoryBean = new CronTriggerFactoryBean();
+			factoryBean.setJobDetail(executeDashboardJobDetail().getObject());
+			factoryBean.setCronExpression(jobDashboardTime);
+		//	factoryBean.setMisfireInstruction(SimpleTrigger.MISFIRE_INSTRUCTION_FIRE_NOW);
+			return factoryBean;
+		}
+	
+	@Bean
+	public  CronTriggerFactoryBean createCronTriggerDashboardYear() {
+			CronTriggerFactoryBean factoryBean = new CronTriggerFactoryBean();
+			factoryBean.setJobDetail(executeDashboardJobYearDetail().getObject());
+			factoryBean.setCronExpression(jobYearDashboardTime);
+		//	factoryBean.setMisfireInstruction(SimpleTrigger.MISFIRE_INSTRUCTION_FIRE_NOW);
+			return factoryBean;
+		}
+	
+	@Bean
+	public SimpleTriggerFactoryBean createCronTriggerTableValidationUploadTime() {
+		SimpleTriggerFactoryBean trigger = new SimpleTriggerFactoryBean();
+		trigger.setJobDetail(tableValidationTimeUploadJob().getObject());
+		trigger.setRepeatInterval( Integer.valueOf(tableValidationTime));
+		trigger.setRepeatCount(SimpleTrigger.REPEAT_INDEFINITELY);
+		return trigger;
+
+	}
+	
+	@Bean
+	public SimpleTriggerFactoryBean createCronTriggerTableValidationImportTime() {
+		SimpleTriggerFactoryBean trigger = new SimpleTriggerFactoryBean();
+		trigger.setJobDetail(tableValidationTimeImportJob().getObject());
+		trigger.setRepeatInterval( Integer.valueOf(tableValidationTime));
+		trigger.setRepeatCount(SimpleTrigger.REPEAT_INDEFINITELY);
+		return trigger;
+
+	}
+	
+//	@Bean
+//	public SimpleTriggerFactoryBean executeDashboardJobTrigger() {
+//		SimpleTriggerFactoryBean trigger = new SimpleTriggerFactoryBean();
+//		trigger.setJobDetail(executeDashboardJobDetail().getObject());
+//		trigger.setRepeatInterval(new Integer(jobDashboardTime));
+//		trigger.setRepeatCount(SimpleTrigger.REPEAT_INDEFINITELY);
+//		return trigger;
+//
+//	}
+    
+}

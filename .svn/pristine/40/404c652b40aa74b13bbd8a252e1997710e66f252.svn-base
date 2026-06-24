@@ -1,0 +1,38 @@
+package it.eng.care.domain.flow.core.converter.Version;
+
+import it.eng.care.domain.flow.core.dto.FlowDTO;
+import it.eng.care.domain.flow.core.dto.VersionDTO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowVersionDO;
+import it.eng.care.domain.flow.core.entity.VersionDO;
+import it.eng.care.platform.tool.transport.conversion.ConversionContext;
+import it.eng.care.platform.tool.transport.conversion.Converter;
+
+import java.util.HashSet;
+import java.util.Set;
+
+public class VersionDTOtoVersionDO implements Converter<VersionDTO, VersionDO> {
+
+    @Override
+    public void convert(VersionDTO fromObject, VersionDO intoObject, ConversionContext ctx) {
+
+        intoObject.setId(fromObject.getId());
+        intoObject.setVersion(fromObject.getVersion());
+        intoObject.setDescription(fromObject.getDescription());
+        intoObject.setStartDate(fromObject.getStartDate());
+        intoObject.setEndDate(fromObject.getEndDate());
+        intoObject.setCreationDate(fromObject.getCreationDate());
+        if (!fromObject.getFlows().isEmpty()) {
+            Set<FlowVersionDO> flows = new HashSet<>();
+            FlowDO flowDO;
+
+            for (FlowDTO objectDTO : fromObject.getFlows()) {
+                flowDO = ctx.convertTo(objectDTO, FlowDO.class);
+                flows.add(new FlowVersionDO(flowDO, intoObject));
+            }
+            intoObject.setFlows(flows);
+        }
+
+    }
+
+}

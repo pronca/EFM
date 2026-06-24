@@ -1,0 +1,58 @@
+package it.eng.care.domain.flow.jobs.look;
+
+import it.eng.care.platform.common.lang.StringUtils;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.reflect.MethodSignature;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+
+@Aspect
+public class LockJobAspect {
+
+	static Logger logger = LoggerFactory.getLogger(LockJobAspect.class);
+
+	@Autowired
+	private LockService lock;
+
+	@Around(value = "@annotation(l)")
+	public void executeAround(ProceedingJoinPoint pjp, LockJob l) throws Throwable {
+		if (lock(pjp, l)) {
+			try {
+				pjp.proceed(); // this line will invoke your advised method
+			} finally {
+				unlock(pjp, l);
+			}
+		} else {
+			logger.debug("Resource " + l.entity() + " already locked");
+		}
+	}
+
+	public boolean lock(ProceedingJoinPoint jp, LockJob l) {
+		String entity = l.entity();
+		if (StringUtils.isEmpty(entity)) {
+			MethodSignature signature = (MethodSignature) jp.getSignature();
+			logger.info("cannot lock entity cause id is null: " + signature.toLongString());
+			return false;
+		}
+
+		return lock.tryLock(entity, l.until(), l.untilCfg());
+
+	}
+
+	public void unlock(ProceedingJoinPoint jp, LockJob l) {
+		try {
+			String entity = l.entity();
+			if (StringUtils.isEmpty(entity)) {
+				return;
+			}
+			lock.unlock(entity);
+		} catch (Exception e) {
+			logger.error("error while unlocking entity", e);
+		}
+	}
+
+}

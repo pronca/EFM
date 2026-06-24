@@ -1,0 +1,263 @@
+package it.eng.care.domain.flow.b2b.service.impl;
+
+import java.io.InputStream;
+import java.io.StringReader;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Calendar;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
+
+import jakarta.annotation.PostConstruct;
+
+
+import jakarta.json.JsonArray;
+import jakarta.json.JsonObject;
+import jakarta.json.JsonReader;
+import jakarta.json.JsonValue;
+import jakarta.json.stream.JsonParser;
+import jakarta.transaction.Transactional;
+
+import org.json.JSONObject;
+import org.leadpony.justify.api.JsonSchema;
+import org.leadpony.justify.api.JsonValidationService;
+import org.leadpony.justify.api.ProblemHandler;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+
+import it.eng.care.domain.flow.b2b.exception.ValidationFlowException;
+import it.eng.care.domain.flow.b2b.service.ValidationFlowService;
+import it.eng.care.domain.flow.core.dao.FlowVersionDAO;
+import it.eng.care.domain.flow.core.dao.PraticaViewDAO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.entity.FlowVersionDO;
+import it.eng.care.domain.flow.core.service.FlowCacheService;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+
+@Service
+@Transactional
+public class ValidationFlowServiceImpl implements ValidationFlowService {
+
+	private static final String CACHE_ID_SEPARATOR = "£";
+
+	@Value("${flow.b2b.schemaCacheSize:10}")
+	private int cacheSize;
+
+	@Value("${flow.b2b.schemaCacheExpireMin:10}")
+	private int cacheExpireMin;
+
+	private LoadingCache<String, String> schemaCache;
+	
+	@Autowired
+	PraticaViewDAO praticaViewDAO;
+	
+	@Autowired
+	FormFlowService formFlowService;
+
+	@Autowired
+	FlowCacheService flowCacheService;
+
+
+	@PostConstruct
+	protected void init() {
+		schemaCache = CacheBuilder.newBuilder().recordStats().maximumSize(cacheSize)
+				.expireAfterWrite(cacheExpireMin, TimeUnit.MINUTES).build(new CacheLoader<String, String>() {
+					@Override
+					public String load(String flownameVersion) throws Exception {
+						String[] nameVersion = flownameVersion.split(CACHE_ID_SEPARATOR);
+						return loadSchema(nameVersion[0], nameVersion[1]);
+					}
+				});
+	}
+	
+	@Autowired
+	FlowVersionDAO flowVersionDAO;
+
+	// validation Service usato per leggere lo schema ed effettuar eil parsing del
+	// JSON
+	JsonValidationService jsonValidationService = JsonValidationService.newInstance();
+
+	@Override
+	public String loadSchema(String flowId, String version) {
+		FlowVersionDO flowV = flowVersionDAO.findByFlowNameAndVersionVersion(flowId, version);
+		return flowV.getJsonSchema();
+	}
+
+	@Override
+	public String loadCachedSchema(String flowId, String version) throws ExecutionException {
+		return schemaCache.get(flowId + CACHE_ID_SEPARATOR + version);
+	}
+
+	public JsonReader getReader(String flow, String flowId, String version, List<String> errors)
+			throws ExecutionException {
+		// carico lo schema dal DB
+		String schema = loadCachedSchema(flowId, version);
+
+		// Leggo lo schema
+		JsonSchema jsschema = jsonValidationService.readSchema(new StringReader(schema));
+
+		// Creo l'handler per gli errori
+		ProblemHandler handler = jsonValidationService.createProblemPrinter(s -> {
+			// mi salvo ogni errore trovato durante il parsig dell'oggetto
+			errors.add(s);
+		}, Locale.ITALIAN);
+		// restituisco il reader
+		return (JsonReader) jsonValidationService.createReader(new StringReader(flow), jsschema, handler);
+	}
+
+	public JsonParser getParser(InputStream flow, String flowId, String version, Consumer<String> errorhandler)
+			throws ExecutionException {
+		// carico lo schema dal DB
+		String schema = loadCachedSchema(flowId, version);
+
+		// Leggo lo schema
+		JsonSchema jsschema = jsonValidationService.readSchema(new StringReader(schema));
+
+		// Creo l'handler per gli errori
+		ProblemHandler handler = jsonValidationService.createProblemPrinter(errorhandler, Locale.ITALIAN);
+		// restituisco il reader
+		return (JsonParser) jsonValidationService.createParser(flow, jsschema, handler);
+	}
+
+	@Override
+	public JsonObject validateSingleFlow(String flow, String flowId, String version)
+			throws ValidationFlowException, ExecutionException {
+		List<String> errors = new ArrayList<>();
+		JsonObject toRet = null;
+		// Parses the JSON
+		try (JsonReader reader = getReader(flow, flowId, version, errors)) {
+			toRet = reader.readObject();
+		}
+
+		if (errors.size() > 0) {
+			throw new ValidationFlowException(errors);
+		}
+
+		return toRet;
+	}
+
+	@Override
+	public JsonArray validateMultipleFlow(String flow, String flowId, String version)
+			throws ValidationFlowException, ExecutionException {
+		List<String> errors = new ArrayList<>();
+		JsonArray toRet = null;
+		// Parses the JSON
+		try (JsonReader reader = getReader(flow, flowId, version, errors)) {
+			toRet = reader.readArray();
+		}
+
+		if (errors.size() > 0) {
+			throw new ValidationFlowException(errors);
+		}
+
+		return toRet;
+	}
+
+	@Override
+	public Stream<JsonValue> validateHugeFlow(InputStream flow, String flowId, String version,
+			Consumer<String> errorhandler) throws ExecutionException {
+		JsonParser parser = getParser(flow, flowId, version, errorhandler);
+		return parser.getArrayStream();
+	}
+	
+	@Override
+	public HashMap<String, Object> checkRecordState(JSONObject object, String flow, String version) {
+
+	    FormFlowDTO dto = flowCacheService.getCachedFormFlow(flow, version);
+
+	    List<String> keys = new ArrayList<>();
+	    Map<String, Object> values = new HashMap<>();
+
+	    dto.getFlowTableList().sort(Comparator.comparing(FormFlowTableDTO::getSection));
+	    FormFlowTableDTO table = dto.getFlowTableList().get(0);
+
+	    JSONObject table0 = object.getJSONObject(table.getName());
+
+	    table.getFlowTableFieldList().forEach((FormFlowTableFieldDTO field) -> {
+	        if (field.isPk()) {
+	            keys.add(field.getName());
+
+	            Object rawValue = table0.has(field.getName()) ? table0.get(field.getName()) : null;
+	            values.put(field.getName(), normalizePkValue(field, rawValue));
+	        }
+	    });
+
+	    String section0 = "FM_FLOW_" + flow + "_0";
+
+	    HashMap<String, Object> result = praticaViewDAO.checkState(keys, section0, values);
+
+	    return result;
+	}
+		
+	private Object normalizePkValue(FormFlowTableFieldDTO field, Object rawValue) {
+	    if (rawValue == null || JSONObject.NULL.equals(rawValue)) {
+	        return null;
+	    }
+
+	    if (!"Date".equalsIgnoreCase(field.getFieldType())) {
+	        return String.valueOf(rawValue);
+	    }
+
+	    return truncateMillis(parseDateValue(String.valueOf(rawValue)));
+	}
+
+	private Date truncateMillis(Date date) {
+	    if (date == null) {
+	        return null;
+	    }
+
+	    Calendar cal = Calendar.getInstance();
+	    cal.setTime(date);
+	    cal.set(Calendar.MILLISECOND, 0);
+	    return cal.getTime();
+	}
+
+	private Date parseDateValue(String value) {
+	    if (value == null || value.trim().isEmpty()) {
+	        return null;
+	    }
+
+	    String v = value.trim();
+
+	    List<String> patterns = Arrays.asList(
+	            "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+	            "yyyy-MM-dd'T'HH:mm:ss'Z'",
+	            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+	            "yyyy-MM-dd'T'HH:mm:ss",
+	            "yyyy-MM-dd HH:mm:ss",
+	            "yyyy-MM-dd",
+	            "dd/MM/yyyy HH:mm:ss",
+	            "dd/MM/yyyy"
+	    );
+
+	    for (String pattern : patterns) {
+	        try {
+	            SimpleDateFormat sdf = new SimpleDateFormat(pattern);
+	            sdf.setLenient(false);
+	            return sdf.parse(v);
+	        } catch (ParseException e) {
+	            // provo il formato successivo
+	        }
+	    }
+
+	    throw new IllegalArgumentException("Formato data non gestito: " + value);
+	}
+
+}

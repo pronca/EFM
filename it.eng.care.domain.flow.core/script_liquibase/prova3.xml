@@ -1,0 +1,29 @@
+<databaseChangeLog
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+        xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+    	http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.1.xsd"
+        logicalFilePath="db/changelogs/003"
+>
+	
+
+	<changeSet id="003" author="gennaro.damelio" failOnError="true" context="fm_flow" >
+	 		<comment>Aggiunta tabella FM_FLOW</comment>
+		
+					
+		<createTable tableName="FM_FLOW" remarks="FM_FLOW">
+			<column name="FM_ID" type="VARCHAR(24)" remarks="Codice"/>
+			<column name="FM_DESC" type="VARCHAR(24)" remarks="Descrizione"/>
+			<column name="FM_STATO" type="BOOLEAN" remarks="Stato"/>
+			<column name="FM_INVIO" type="BOOLEAN" remarks="Invio"/>
+			<column name="FM_UNIV" type="BOOLEAN" remarks="Univocita "/>
+			<column name="FM_SCHED" type="BOOLEAN" remarks="Schedulazione"/>
+			<column name="FM_TIPO" type="VARCHAR(24)" remarks="Schedulazione"/>
+
+		</createTable>
+		<addPrimaryKey tableName="FM_FLOW" columnNames="FM_ID"/>
+		
+	</changeSet>
+	
+	
+</databaseChangeLog>

@@ -1,0 +1,1 @@
+alter table FM_FLOW_EXPORTING_REQUEST add VALIDATION_STATUS_DRL varchar(64);

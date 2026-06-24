@@ -1,0 +1,85 @@
+package it.eng.care.domain.flow.jobs.look;
+
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.reflect.MethodSignature;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.BeanWrapperImpl;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.platform.common.lang.StringUtils;
+
+@Aspect
+public class LockEntityAspect {
+
+	static Logger logger = LoggerFactory.getLogger(LockEntityAspect.class);
+
+	@Autowired
+	private LockService lock;
+
+	@Around(value = "@annotation(l)")
+	public void executeAround(ProceedingJoinPoint pjp, LockEntity l) throws Throwable {
+		String key = getkey(pjp, l);
+		if (lock(pjp, key, l.until())) {
+			try {
+				pjp.proceed(); // this line will invoke your advised method
+			} finally {
+				unlock(pjp, key);
+			}
+		} else {
+			logger.info("Resource " + key + " already locked");
+		}
+	}
+
+	public boolean lock(ProceedingJoinPoint jp, String key, int until) {
+
+		if (StringUtils.isEmpty(key)) {
+			MethodSignature signature = (MethodSignature) jp.getSignature();
+			logger.info("cannot lock entity cause id is null: " + signature.toLongString());
+			return false;
+		}
+		logger.debug("try to lock entity: " + key);
+
+		return lock.tryLock(key, until, null);
+	}
+
+	public void unlock(ProceedingJoinPoint jp, String key) {
+		try {
+			if (StringUtils.isEmpty(key)) {
+				return;
+			}
+			lock.unlock(key);
+		} catch (Exception e) {
+			LogUtil.logException(logger, "Error while unlocking entity", e);
+		}
+	}
+
+	public String getkey(ProceedingJoinPoint pjp, LockEntity l) {
+
+		Object arg = pjp.getArgs()[l.arg()];
+		if(arg == null) {
+			arg = pjp.getArgs()[l.alternativeArg()];
+		}
+		
+		BeanWrapperImpl wrapper = new BeanWrapperImpl(arg);
+
+		String value = "";
+		if (arg instanceof String) {
+			value = (String) arg;
+		} else {
+			Object tmp = wrapper.getPropertyValue(l.property());
+			if (tmp == null) {
+				logger.error("Property " + l.property() + " is null ");
+				value = "";
+			} else {
+				value = tmp.toString();
+			}
+		}
+
+		return l.operation() + "_" + value;
+	}
+
+}

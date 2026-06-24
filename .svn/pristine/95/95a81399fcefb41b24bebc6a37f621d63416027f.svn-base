@@ -1,0 +1,581 @@
+package it.eng.care.domain.flow.b2b.controller.impl;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.stream.Collectors;
+
+import org.apache.commons.fileupload2.core.FileItemInput;
+import org.apache.commons.fileupload2.core.FileItemInputIterator;
+import org.apache.commons.fileupload2.core.FileUploadException;
+import org.apache.commons.fileupload2.jakarta.servlet6.JakartaServletFileUpload;
+import org.apache.commons.lang3.StringUtils;
+import org.json.JSONObject;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import it.eng.care.domain.flow.b2b.controller.FlowReceiverController;
+import it.eng.care.domain.flow.b2b.exception.ValidationFlowException;
+import it.eng.care.domain.flow.b2b.model.ErrorWellFormedDTO;
+import it.eng.care.domain.flow.b2b.model.FlowQueryBuilder;
+import it.eng.care.domain.flow.b2b.model.FlowResult;
+import it.eng.care.domain.flow.b2b.service.BatchFlowService;
+import it.eng.care.domain.flow.b2b.service.JsonFlowService;
+import it.eng.care.domain.flow.b2b.service.ValidationFlowService;
+import it.eng.care.domain.flow.b2b.service.ZipService;
+import it.eng.care.domain.flow.b2b.utils.FlowOperationResult;
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.entity.ConfigurationDO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowVersionDO;
+import it.eng.care.domain.flow.core.enumeration.StateReceviedAppEnum;
+import it.eng.care.domain.flow.core.enumeration.StateSendRegionEnum;
+import it.eng.care.domain.flow.core.service.FlowCacheService;
+import it.eng.care.domain.flow.core.service.FlowExportRequestService;
+import it.eng.care.domain.flow.core.service.FlowService;
+import it.eng.care.domain.flow.core.service.VersionService;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.entity.TabgenValueDO;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+import it.eng.care.domain.flow.tabgen.service.TabgenService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.operations.OperationResult;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import jakarta.annotation.PostConstruct;
+import jakarta.json.JsonArray;
+import jakarta.json.JsonObject;
+import jakarta.servlet.http.HttpServletRequest;
+
+@RestController
+@RequestMapping("/fm/FlowReceiver")
+public class FlowReceiverControllerImpl implements FlowReceiverController {
+
+	private static Logger logger = LoggerFactory.getLogger(FlowReceiverControllerImpl.class);
+
+	@Autowired
+	protected ValidationFlowService validationFlowService;
+
+	@Autowired
+	protected JsonFlowService jsonFlowService;
+
+	@Autowired
+	protected BatchFlowService batchFlowService;
+
+	@Autowired
+	protected ZipService zipService;
+
+	@Autowired
+	protected FlowOperationResult flowOperationResult;
+	
+	@Autowired
+    private ConfigurationDAO configuration;
+	
+	@Autowired
+	private VersionService versionService;
+	
+	@Autowired
+	private FlowService flowService;
+	
+	@Autowired
+	FlowCacheService flowCacheService;
+	
+	@Autowired
+	private TabgenService tabgenService;
+	
+	@Autowired
+	private FlowExportRequestService flowExportRequestService;
+	
+	@Autowired
+	private TabgenDelegate tabgenDelegate;
+	
+	@PostConstruct
+	public void init() {
+		logger.info("FlowReceiverControllerImpl init");
+	}
+
+	@Override
+	@GetMapping(path = "/getSchema/{flowName}/{version:.+}", //
+			produces = { "application/json" })
+	public OperationResult<String> getSchema(@PathVariable("flowName") String flowName,
+			@PathVariable("version") String version) {
+		try {
+			return OperationResult.success(validationFlowService.loadSchema(flowName, version));
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			return OperationResult.failure();
+		}
+	}
+
+	@Override
+	@PostMapping(path = "/testValidateSingleFlow/{flowName}/{version:.+}")
+	public OperationResult<FlowResult> testValidateSingleFlow(@RequestBody String flow,
+			@PathVariable("flowName") String flowName, @PathVariable("version") String version) {
+		try {
+
+			String extractionId = UUID.randomUUID().toString();
+			FlowResult result = new FlowResult(extractionId);
+			// effettuo la validazione
+			validationFlowService.validateSingleFlow(flow, flowName, version);
+			// se tutto è andato bene restituisco l'id
+			return OperationResult.success(result);
+		} catch (ValidationFlowException ex) {
+			LogUtil.logException(logger, "", ex);
+			return OperationResult.failure(ex.getErrors());
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			return OperationResult.failure();
+		}
+	}
+
+	/**
+	 * Accetta in input uno o più flussi
+	 * 
+	 * Prima di acquisire il flussi, verifica il flag tipo trasmissione:
+	 * 1. in caso di cancellazione (tipotrasmissione='A'), lo stato della pratica già presente su fm viene aggiornato a CANCELLATA
+	 * 2. in caso di inserimento (tioptrasmissione=''I'), bisogna verificare la presenza eventuale della pratica su fm;
+	 *    la ricerca viene fatta per chiave della sezione 0.
+	 * 2.1 Se la pratica non esiste allora viene inserita con gli stati NUOVA/DA_INVIARE
+	 * 2.2 Se la pratica esiste e risulta INVIATA alla regione, allora l'invio viene rifiutato
+	 * 2.3 Se la pratica è stata inviata e la regione l'ha ACCETTATA oppure se è ancora DA_INVIARE allora
+	 * 2.3.1 Acquisisci la pratica solo se ci sono variazioni tra i dati inviati e quelli già acquisiti.
+	 * 2.3.2 Lo stato di trasmissione alla regione diventa DA_INVIARE
+	 * 2.3.3 Lo stato di ricezione è NUOVO se la pratica non è mai stata inviata oppure risulta CANCELLATA, 
+	 *                               VARIAZIONE se la pratica già esiste su fm
+	 *     .
+	 */
+	@Override
+	@PostMapping(path = "/sendSingleFlow/{flowName}/{version:.+}", produces = MediaType.APPLICATION_JSON_UTF8_VALUE)
+	public ErrorWellFormedDTO sendSingleFlow(@RequestBody String flow,
+	                                        @PathVariable String flowName,
+	                                        @PathVariable String version,
+	                                        HttpServletRequest request) {
+	
+		if (request!=null) {
+			String uri = request.getRequestURI();                 
+		    String qs  = request.getQueryString();                
+		    String url = (qs == null) ? uri : (uri + "?" + qs);
+		
+		    logger.info("CALL {} method={} remote={} flowName={} version={} flow={}",
+		            url,
+		            request.getMethod(),
+		            request.getRemoteAddr(),
+		            flowName, 
+		            version,
+		            flow);
+		}
+	
+	    return sendSingleFlow(flow, flowName, version, (String)null);
+	}
+	
+	private ErrorWellFormedDTO sendSingleFlow(String flow, String flowName, String version, String extractionId) {
+		try {
+			
+			// flowName inviato da verticale -> recupero config per associazione con flusso configurato su flow manager
+			TabgenValueDO tabgenvalue = tabgenService.searchByFlussoVerticale(flowName, version);
+			if(tabgenvalue != null) {
+				flowName = tabgenvalue.getField3(); // flusso da salvare
+				version = tabgenvalue.getField4(); // versione da salvare
+			} else {
+				// vecchia gestione
+				if("SDOIOR".equalsIgnoreCase(flowName)) {
+					flowName = "SDO";
+					if("20.11.00".equalsIgnoreCase(version)) {
+						version = "1.10";
+					}
+				}
+				if("PS_ER".equalsIgnoreCase(flowName)) {
+					flowName = "EMUR_PS";
+					if("20.11.00".equalsIgnoreCase(version)) {
+						version = "1.7";
+					}
+				}
+			}
+			
+			JSONObject jsonObject = new JSONObject(flow);
+			HashMap<String,Object> map = validationFlowService.checkRecordState(jsonObject, flowName, version);
+			
+			//check delete state
+			
+			if(map != null) {
+				if (map.get("region").equals(StateSendRegionEnum.INVIATA.toString())) {
+					List<String> failures = new ArrayList<>();
+					failures.add("L'invio di questa pratica al Flow Manager è bloccato");
+					return flowOperationResult.failure(failures, "FM_ERR_99");
+				}
+			}
+			
+			if(extractionId == null) {
+				extractionId = UUID.randomUUID().toString();
+			}
+			
+			FlowResult result = new FlowResult(extractionId);
+			
+			
+			/*gestione stati :
+			 * aggiornamento 27.03.2020
+			 * 
+			 * ANNULLAMENTO -> NUOVA DA INVIARE
+			 * NON CANCELLATA ACCETTATA -> VARIAZIONE DA INVIARE 
+			 * VARIAZIONE DA INVIARE -> VARIAZIONE DA INVIARE
+			 * CANCELLATA -> NUOVA DA INVIARE
+			 * NUOVA -> NUOVA DA INVIARE
+			 * NON ESISTE -> NUOVA DA INVIARE
+			 * 
+			 * */
+			
+			Integer compareRes = -1;
+			
+			JsonObject jsonObj = validationFlowService.validateSingleFlow(flow, flowName, version);
+			
+			// se configurato per il flusso, verifica il flag tipotrasmissione (I=Inserimento, A=Annullamento/Cancellazione
+			Boolean annullamento = false;
+			// path json associato al campo tipo trasmissione. es = anagrafica.ricovero.tipotrasmissione
+			ConfigurationDO tipoTrasmissionePath = configuration.findByKeyId("CHECK_TIPO_TRASMISSIONE_PATH_" + flowName);
+			ConfigurationDO tipoTrasmissioneAnnullamento = configuration.findByKeyId("CHECK_TIPO_TRASMISSIONE_ANNULLAMENTO_" + flowName);
+			if(tipoTrasmissionePath != null && !StringUtils.isEmpty(tipoTrasmissionePath.getValue())) {
+				String tipoTrasmissione = extractPathValue(tipoTrasmissionePath.getValue(), jsonObject) + "";
+				annullamento = (tipoTrasmissione.equals(tipoTrasmissioneAnnullamento.getValue()));
+			}
+			
+			StateReceviedAppEnum stateReceviedAppEnum = null;
+			StateSendRegionEnum stateSendRegionEnum = null;
+			
+			if(annullamento) {
+				
+				if(map != null) {
+					
+					Map<String, String> mapPk = (Map<String, String>) map.get("pk");
+					String pkString = mapPk.keySet().stream().map(key -> key + "=" + mapPk.get(key)).collect(Collectors.joining(", ", "", ""));
+					flowService.logFlowSending(flowName, version, "A", pkString);
+					
+					List<FlowQueryBuilder> queryList = jsonFlowService.generateQueryFromJson(jsonObj, flowName, version,
+							extractionId, StateReceviedAppEnum.CANCELLAZIONE.toString(), StateSendRegionEnum.ACCETTATA.toString());
+					batchFlowService.executeBatch(queryList);
+					flowExportRequestService.invocaJobTalendAnnullaPratica(flowName, version, (Map<String, String>) map.get("pk"));
+					return flowOperationResult.success(result);
+				} else {
+					List<String> failures = new ArrayList<>();
+					failures.add("Pratica non trovata");
+					return flowOperationResult.failure(failures);
+				}
+				
+			}
+			
+			if(map != null) {
+				
+				if (
+						!map.get("app").equals(StateReceviedAppEnum.CANCELLAZIONE.toString()) && map.get("region").equals(StateSendRegionEnum.ACCETTATA.toString()) 
+						||
+						map.get("app").equals(StateReceviedAppEnum.VARIAZIONE.toString()) && map.get("region").equals(StateSendRegionEnum.DA_INVIARE.toString())) {
+					ConfigurationDO cfgObj = configuration.findByKeyId("ENABLE_CHECK_VARIATION");					
+					if(cfgObj != null && (cfgObj.getValue()+"").toUpperCase().equals("TRUE")) {
+						compareRes = jsonFlowService.compareSecFlowData(jsonObj, flowName, version);
+					}
+					if(compareRes == -1) {
+						/***INIZIO RECUPERO CONFIGUARAZIONI FLUSSO PER FLOW_MANAGE_SCARTO_REGIONE***/
+						TabgenValue tabGenValueFlowManageScartoRegione = new TabgenValue();
+						BasePagingLoadResult<Tabgen> list = new BasePagingLoadResult<Tabgen>(null);
+						TabgenValueFilter filterFlowManageScartoRegione = new TabgenValueFilter();
+						filterFlowManageScartoRegione.setTabgenId("FLOW_MANAGE_SCARTO_REGIONE");
+						list = tabgenDelegate.searchValue(filterFlowManageScartoRegione);
+						if (list != null && list.getTotalLength() > 0 && list.getList() != null
+								&& !list.getList().isEmpty()) {
+							Tabgen flowUploadConf = list.getList().get(0);
+							if (flowUploadConf != null && "FLOW_MANAGE_SCARTO_REGIONE".equals(flowUploadConf.getId())) {
+								List<TabgenValue> tabgenValues = flowUploadConf.getTabgenValues();
+								if (tabgenValues != null && !tabgenValues.isEmpty()) {
+									for (TabgenValue tabgenValue : tabgenValues) {
+										String flowNameManageScartoRegione = tabgenValue.getField1();
+										if (flowName.equalsIgnoreCase(flowNameManageScartoRegione)) {
+											tabGenValueFlowManageScartoRegione=tabgenValue;
+										}
+									}
+								}
+							}
+						}
+						//VECCHIA GESTIONE - SE LA CONFIGURAZIONE FLOW_MANAGE_SCARTO_REGIONE NON ESISTE OPPURE è IMPOSTATA 1 (TRUE) SIGNIFICA CHE LA REGIONE RICEVE E ACQUISISCE ANCHE GLI SCARTI E QUINDI LE MODIFICHE DELLE PRATICHE SU SCARTI DEVONO ANDARE IN STATE_RECEVEID_APP=VARIAZIONE 
+						//PERSONALIZZAZIONE AOSP BOLOGNA - SE INVECE LA CONFIGURAZIONE FLOW_MANAGE_SCARTO_REGIONE ESISTE ED è IMPOSTATA 0 (FALSE) SIGNIFICA CHE LA REGIONE NON ACQUISISCE GLI SCARTI E QUINDI LE MODIFICHE DELLE PRATICHE SU SCARTI DEVONO ANDARE IN STATE_RECEVEID_APP=NUOVA IN QUANTO MAI RICEVUTE IN REGIONE
+						if (tabGenValueFlowManageScartoRegione==null || (tabGenValueFlowManageScartoRegione!=null && tabGenValueFlowManageScartoRegione.getField2() != null && Integer.parseInt(tabGenValueFlowManageScartoRegione.getField2())==1) ) {
+							stateReceviedAppEnum = StateReceviedAppEnum.VARIAZIONE;
+							stateSendRegionEnum = StateSendRegionEnum.DA_INVIARE;
+						} else {
+							
+							Map<String, String> mapPk = (Map<String, String>) map.get("pk");
+
+					        boolean isScarto = jsonFlowService.isStatusRegionScarto(flowName, mapPk);
+
+					        if (!isScarto) {
+					            stateReceviedAppEnum = StateReceviedAppEnum.VARIAZIONE;
+					        } else {
+					            stateReceviedAppEnum = jsonFlowService.getStateReceviedAppFromSectionZero(flowName, mapPk);
+					        }
+
+					        stateSendRegionEnum = StateSendRegionEnum.DA_INVIARE;
+						}
+						
+					}
+					
+				} else {
+					// salvo il flusso sulla tabella
+					stateReceviedAppEnum = StateReceviedAppEnum.NUOVA;
+					stateSendRegionEnum = StateSendRegionEnum.DA_INVIARE;
+				}
+			} else {
+				stateReceviedAppEnum = StateReceviedAppEnum.NUOVA;
+				stateSendRegionEnum = StateSendRegionEnum.DA_INVIARE;
+			}
+			
+			if(stateReceviedAppEnum != null && stateSendRegionEnum != null) {
+				List<FlowQueryBuilder> queryList = jsonFlowService.generateQueryFromJson(jsonObj, flowName, version,
+						extractionId, stateReceviedAppEnum.toString(), stateSendRegionEnum.toString());
+				batchFlowService.executeBatch(queryList);
+			}
+			
+			if(compareRes == -1) {
+				ConfigurationDO cfgObj = configuration.findByKeyId("flowToCopy");
+				if(cfgObj!=null) {
+					String cfg = cfgObj.getValue();
+					String[] cfgSplitted = cfg.split("/");
+					for (int i = 0; i < cfgSplitted.length; i++) {
+						String value = cfgSplitted[i];
+						int iend = value.indexOf("(");
+						String flusso = value.substring(0,iend);
+						String flussoCopia = value.substring(iend+1,value.length()-1);
+						if(flusso!=null && !"".equals(flusso) && flusso.equals(flowName)){
+							BaseSearchInput searchInput = new BaseSearchInput();
+							searchInput.setValue("nameNoLike", flussoCopia);
+							Pair<List<FlowDO>, SearchInfo> flowDO = flowService.retrieveAllFiltered(searchInput, true);
+							FlowVersionDO flowVersion = versionService.findByFlow(flowDO.getFirst().get(0));
+							String versionNameCopia = flowVersion.getVersion().getDescription();
+							return sendSingleFlow(flow,flussoCopia, versionNameCopia, extractionId);
+						}
+					}
+				}
+			}
+			
+			
+			return flowOperationResult.success(result);
+			
+		} catch (ValidationFlowException ex) {
+			LogUtil.logException(logger, "", ex);
+			return flowOperationResult.failure(ex.getErrors(), "FM_ERR_01");
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			return flowOperationResult.failure(e.getMessage());
+		}
+	}
+
+	@Override
+	@PostMapping(path = "/sendMultipleFlow/{flowName}/{version:.+}", produces = MediaType.APPLICATION_JSON_UTF8_VALUE)
+	public OperationResult<FlowResult> sendMultipleFlow(@RequestBody String flow,
+			@PathVariable("flowName") String flowName, @PathVariable("version") String version) {
+		try {
+
+			String extractionId = UUID.randomUUID().toString();
+			FlowResult result = new FlowResult(extractionId);
+
+			JsonArray array = validationFlowService.validateMultipleFlow(flow, flowName, version);
+			// salvataggio su tabella
+			List<FlowQueryBuilder> queryList = array.stream().map(v -> {
+				try {
+
+					return jsonFlowService.generateQueryFromJson(v.asJsonObject(), flowName, version, extractionId,
+							StateReceviedAppEnum.NUOVA.toString(), StateSendRegionEnum.DA_INVIARE.toString());
+				} catch (Exception e) {
+					LogUtil.logException(logger, "", e);
+					return new ArrayList<FlowQueryBuilder>(0);
+				}
+			}).flatMap(l -> l.stream()).collect(Collectors.toList());
+
+			batchFlowService.executeBatch(queryList);
+			// TODO gestire ritorno
+			return OperationResult.success(result);
+
+		} catch (ValidationFlowException ex) {
+			LogUtil.logException(logger, "", ex);
+			return OperationResult.failure(ex.getErrors());
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			return OperationResult.failure();
+		}
+	}
+
+	@Override
+	@PostMapping(path = "/sendCompressedFlow/{flowName}/{version:.+}", //
+			consumes = { "application/x-www-form-urlencoded", "multipart/form-data" }, //
+			produces = { "application/json" })
+	public OperationResult<FlowResult> sendCompressedFlow(@PathVariable("flowName") String flowName,
+			@PathVariable("version") String version, final HttpServletRequest request) {
+		// salvo il file compresso, lo decomprimo e apro il file decompresso
+		try {
+
+			String exstractionId = UUID.randomUUID().toString();
+			FlowResult result = new FlowResult(exstractionId);
+//asincrono
+			File tmpFile = getExtractedFile(request);
+			if (tmpFile != null) {
+				try (final InputStream is = new FileInputStream(tmpFile)) {
+					parseJsonAndSave(is, flowName, version, exstractionId);
+//
+					return OperationResult.success(result);
+				} finally {
+					// cancello il file temporaneo
+					tmpFile.delete();
+				}
+			} else {
+				return OperationResult.failure();
+			}
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			return OperationResult.failure();
+		}
+	}
+
+	/**
+	 * Salva il file sul disco e lo decomprime, restituendo lo stream al file
+	 * decompresso
+	 * 
+	 * @param request
+	 * @return
+	 * @throws IOException
+	 * @throws FileUploadException
+	 */
+	private File getExtractedFile(final HttpServletRequest request)
+	        throws IOException, FileUploadException {
+
+	    final JakartaServletFileUpload upload = new JakartaServletFileUpload();
+	    final FileItemInputIterator iterator = upload.getItemIterator(request);
+
+	    while (iterator.hasNext()) {
+	        final FileItemInput item = iterator.next();
+	        if (!item.isFormField()) {
+	            try (InputStream in = item.getInputStream()) {
+	                return zipService.readFirstFile(in);
+	            }
+	        }
+	    }
+	    return null;
+	}
+
+	
+	private void parseJsonAndSave(InputStream is, String flowName, String version, String exstractionId)
+			throws ExecutionException {
+
+		int pageSize = 3;
+
+		List<JsonObject> accumulator = new ArrayList<>();
+		List<String> regionStates = new ArrayList<>();
+		List<String> appStates = new ArrayList<>();
+
+		// leggo l'array di elementi
+		validationFlowService.validateHugeFlow(is, flowName, version, //
+				err -> {
+					logger.info("Errore nel parsing [" + err + "]");
+				})//
+				.forEach(j -> {
+					try {
+						accumulator.add(j.asJsonObject());
+						regionStates.add(StateSendRegionEnum.DA_INVIARE.toString());
+						appStates.add(StateReceviedAppEnum.NUOVA.toString());
+						// accumulo un po di elementi prima di eseguire le query
+						if (accumulator.size() % pageSize == 0) {
+							List<FlowQueryBuilder> queryList = jsonFlowService.generateQueryFromJsonList(accumulator,
+									flowName, version, exstractionId, appStates, regionStates);
+
+							// mando tutto al servizio di salvataggio
+							batchFlowService.executeBatch(queryList);
+
+							accumulator.clear();
+						}
+
+					} catch (Exception e) {
+						// TODO: handle exception
+						LogUtil.logException(logger, "", e);
+					}
+				});
+	}
+
+	@Override
+	@PostMapping(path = "/cancelProcedure/{flowName}/{version:.+}", produces = MediaType.APPLICATION_JSON_UTF8_VALUE)
+	public OperationResult<String> cancelProcedure(@RequestBody String procedure,
+			@PathVariable("flowName") String flowName, @PathVariable("version") String version) {
+		try {
+
+			jsonFlowService.deleteProcedure(procedure, flowName, version);
+
+			return OperationResult.success("Pratica cancellata con successo");
+		} catch (ValidationFlowException ex) {
+			LogUtil.logException(logger, "", ex);
+			return OperationResult.failure(ex.getErrors());
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			return OperationResult.failure();
+		}
+	}
+
+	@Override
+	@PostMapping(path = "/getErrors/{flowName}/{version:.+}")
+	public OperationResult<String> getErrors(@RequestBody String request, @PathVariable("flowName") String flowName,
+			@PathVariable("version") String version) {
+		try {
+			Thread thread = new Thread() {
+				public void run() {
+
+					// invocazione restituzione servizio
+				}
+			};
+			thread.start();
+
+			return OperationResult.success("Richiesta presa in carico");
+
+		} catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			return OperationResult.failure();
+		}
+	}
+	
+	@GetMapping(path = "/clearB2bCache", produces = { "application/json" })
+	public Object clearB2bCache() {
+		try {
+		flowCacheService.evictCaches();
+		}catch (Exception e) {
+			LogUtil.logException(logger, "", e);
+			return OperationResult.failure();
+		}
+		return OperationResult.success("Cache cancellata");
+	}
+	
+	private String extractPathValue(String pathString, JSONObject jsonObj) {
+		return extractPathValue(pathString.split("\\."), jsonObj, 0);
+	}
+	
+	private String extractPathValue(String[] path, JSONObject jsonObj, Integer index) {
+		Object currentProp = jsonObj.get(path[index]);
+		if(path.length > index + 1) {
+			return extractPathValue(path, (JSONObject) currentProp, ++index);
+		} else {
+			return currentProp.toString();
+		}
+	}
+	
+}

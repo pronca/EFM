@@ -1,0 +1,41 @@
+sonar.projectKey=it.eng.care.domain.flow
+sonar.projectName=it.eng.care.domain.flow
+sonar.sourceEncoding=UTF-8
+
+# Esclusioni globali
+sonar.exclusions=**/.svn/**,**/target/**,**/script_liquibase/**
+
+# Moduli
+sonar.modules=it.eng.care.domain.flow.api,it.eng.care.domain.flow.core
+
+# =========================
+# API
+# =========================
+it.eng.care.domain.flow.api.sonar.projectBaseDir=it.eng.care.domain.flow.api
+it.eng.care.domain.flow.api.sonar.sources=src/main/java
+it.eng.care.domain.flow.api.sonar.tests=src/test/java
+it.eng.care.domain.flow.api.sonar.java.binaries=target/classes
+
+# =========================
+# CORE
+# =========================
+it.eng.care.domain.flow.core.sonar.projectBaseDir=it.eng.care.domain.flow.core
+it.eng.care.domain.flow.core.sonar.sources=src/main/java
+it.eng.care.domain.flow.core.sonar.tests=src/test/java
+it.eng.care.domain.flow.core.sonar.java.binaries=target/classes
+
+# =========================
+# DROOLS
+# =========================
+#it.eng.care.domain.flow.drools.sonar.projectBaseDir=it.eng.care.domain.flow.drools
+#it.eng.care.domain.flow.drools.sonar.sources=src/main/java
+#it.eng.care.domain.flow.drools.sonar.tests=src/test/java
+#it.eng.care.domain.flow.drools.sonar.java.binaries=target/classes
+
+# =========================
+# JOBS
+# =========================
+#it.eng.care.domain.flow.jobs.sonar.projectBaseDir=it.eng.care.domain.flow.jobs
+#it.eng.care.domain.flow.jobs.sonar.sources=src/main/java
+#it.eng.care.domain.flow.jobs.sonar.tests=src/test/java
+#it.eng.care.domain.flow.jobs.sonar.java.binaries=target/classes

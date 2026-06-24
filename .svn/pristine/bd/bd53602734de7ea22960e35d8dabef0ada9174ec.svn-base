@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Configuration monitorInterval="60"	packages="it.eng.care.platform.microservice.privacy">
+	<Properties>
+		<!-- <Property name="path">logs/privacymanager_demo</Property> -->
+		<Property name="path">/logs/ellipse</Property>
+		<Property name="app-log">it.eng.care.platform.microservice.ellipse</Property>
+		<Property name="spring-log">org.springframework</Property>	
+	</Properties>
+	<Appenders>
+
+		<!-- Console-Appender -->	
+		<Console name="App-Appender" target="SYSTEM_OUT">
+			<PatternLayout>
+				<pattern>
+					%d{dd/MM/yyyy HH:mm:ss} [%t] %-5p - %C.%M: %m%n
+				</pattern>
+			</PatternLayout>
+		</Console>
+
+		
+	</Appenders>
+	<Loggers>
+		
+		<Logger name="org.springframework" level="error" additivity="false">
+			<AppenderRef ref="App-Appender" />
+		</Logger>
+
+		<Logger name="it.eng.care" level="error"	additivity="false">
+			<AppenderRef ref="App-Appender" />
+		</Logger>
+		
+		<Logger name="it.eng.care.domain.flow" level="debug"	additivity="false">
+			<AppenderRef ref="App-Appender" />
+		</Logger>
+		
+		<Logger name="it.eng.care.microservice.ellipse.flow" level="debug" additivity="false">
+			<AppenderRef ref="App-Appender" />
+		</Logger>
+		
+		<Logger name="it.eng.care.platform.authentication" level="error" additivity="false">
+			<AppenderRef ref="App-Appender" />
+		</Logger>
+		
+		<Logger name="it.eng.care.platform.security" level="error" additivity="false">
+			<AppenderRef ref="App-Appender" />
+		</Logger>
+		
+		<Logger name="it.eng.care.platform.microservice.security" level="info"
+			additivity="false">
+			<AppenderRef ref="App-Appender" />
+		</Logger>
+
+		<!--<Logger name="org.dozer" level="error"
+			additivity="false">
+			<AppenderRef ref="App-Appender" />
+			<AppenderRef ref="Console-Appender" />
+		</Logger> 
+		<Logger name="org.hibernate.type.descriptor.sql" level="trace" additivity="false">
+			<AppenderRef ref="Console-Appender" />
+		</Logger>-->
+
+
+        <Logger name="org.hibernate.SQL" level="debug" additivity="true">
+			<AppenderRef ref="App-Appender" />
+		</Logger>
+		
+		<Root level="info">
+			<AppenderRef ref="App-Appender" />
+		</Root>
+	</Loggers>
+</Configuration>

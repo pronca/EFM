@@ -1,0 +1,1564 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileReader;
+import java.io.StringWriter;
+import java.sql.PreparedStatement;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+import javax.sql.DataSource;
+
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.hibernate.Session;
+import org.hibernate.jdbc.ReturningWork;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import it.eng.care.domain.flow.b2b.model.DrgDTO;
+import it.eng.care.domain.flow.b2b.model.KeysDTO;
+import it.eng.care.domain.flow.b2b.model.SendDrgDTO;
+import it.eng.care.domain.flow.b2b.service.SendDrgService;
+import it.eng.care.domain.flow.core.dao.FlowDAO;
+import it.eng.care.domain.flow.core.dao.FlowRegionUnionDAO;
+import it.eng.care.domain.flow.core.dao.SendDrgDAO;
+import it.eng.care.domain.flow.core.dao.UploadReturnsRequestDAO;
+import it.eng.care.domain.flow.core.dto.DownloadFileDTO;
+import it.eng.care.domain.flow.core.dto.FlowExportRequestDTO;
+import it.eng.care.domain.flow.core.dto.FlowOperationResult;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.entity.SendDrgDO;
+import it.eng.care.domain.flow.core.entity.UploadReturnsRequestDO;
+import it.eng.care.domain.flow.core.enumeration.ErrorServiceStatusEnum;
+import it.eng.care.domain.flow.core.enumeration.StateSendRegionEnum;
+import it.eng.care.domain.flow.core.service.FlowExportRequestService;
+import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
+import it.eng.care.domain.flow.core.service.FormFlowService;
+import it.eng.care.domain.flow.core.service.QueryGenerator;
+import it.eng.care.domain.flow.core.service.TransactionalTwoLevelResultsService;
+import it.eng.care.domain.flow.core.utility.FileUtility;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.crypt.CryptoManager;
+import it.eng.care.domain.flow.tabgen.dto.RegErrorFieldMap;
+import it.eng.care.domain.flow.tabgen.dto.TabgenMap;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueMap;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import jxl.Sheet;
+import jxl.Workbook;
+
+@Transactional(propagation = Propagation.REQUIRED)
+public class TransactionalTwoLevelResultsServiceImpl implements TransactionalTwoLevelResultsService {
+
+    @Autowired
+    private DataSource dataSource;
+
+	@Autowired
+	private EntityManager entityManager;
+	
+	@Autowired
+	private FlowExportRequestService flowExportService;
+	
+	@Autowired
+	private ConversionService conversionService;
+	
+	@Autowired
+	private CryptoManager cryptoManager;
+	
+	@Autowired
+	private UploadReturnsRequestDAO uploadReturnsRequestDAO;
+	
+	@Autowired
+	private SendDrgDAO sendDrgDao;
+	
+	@Autowired
+	private FlowDAO flowDAO;
+	
+	@Autowired
+	private SendDrgService sendDrgService;
+	
+	@Autowired
+	private FormFlowService formFlowService;
+	
+	@Autowired
+	private FlowRegionUnionDAO flowRegionUnionDAO;
+	
+	@Autowired
+	private FlowManagerProfileService flowManagerProfileService;
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(TransactionalTwoLevelResultsServiceImpl.class);
+	
+	/**
+	 * Aggiornamento dei campi regione nelle sezioni dei flussi.
+	 * 
+	 * 1. recupera i campi del tracciato da aggiornare cercando per nome campo tabgen
+	 * 2. recupera i valori dei campi chiave del tracciato da aggiornare dai record del file e aggiorna il tracciato
+	 *   
+	 * @param flowId
+	 * @param versionId
+	 * @param file
+	 * @param tabgenMap
+	 * @return
+	 * @throws SQLException 
+	 */
+	
+	@Override
+	public FlowOperationResult<Boolean> updateRecordsFromFile(
+	        FormFlowDTO configurationRegion,
+	        String extractionId,
+	        String flowId,
+	        String versionId,
+	        File file,
+	        TabgenMap tabgenUpdateMap,
+	        boolean produzioneTot,
+	        TabgenValue tabGenValueFlowUploadConf
+	) throws SQLException {
+
+	    /******************** 1) CAMPI DA AGGIORNARE + PK REGIONALI **************************/
+	    Map<Integer, RegErrorFieldMap> fieldToUpdateMap = new HashMap<>();
+	    List<FormFlowTableFieldDTO> listPkRegion0 = new ArrayList<>();
+	    boolean keysLoaded = false;
+	    List<String> msgErrors = new ArrayList<>();
+
+	    // aziende visibili dall’utente
+	    final List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+
+	    for (TabgenValueMap tabgenValueMap : tabgenUpdateMap.getTabgenValueList()) {
+
+	        if (Boolean.TRUE.equals(tabgenValueMap.getControlField())) {
+	            continue;
+	        }
+
+	        boolean founded = false;
+
+	        for (FormFlowTableDTO sectionRegion : configurationRegion.getFlowTableList()) {
+	            for (FormFlowTableFieldDTO fieldRegion : sectionRegion.getFlowTableFieldList()) {
+
+	                if (fieldRegion.getName().equalsIgnoreCase(tabgenValueMap.getFieldName())) {
+	                    founded = true;
+
+	                    RegErrorFieldMap map = fieldToUpdateMap.get(sectionRegion.getSection());
+	                    if (map == null) {
+	                        map = new RegErrorFieldMap();
+	                        map.setFlowName(configurationRegion.getName());
+	                        map.setSectionDef(sectionRegion);
+	                    }
+	                    map.getFieldList().add(tabgenValueMap);
+	                    fieldToUpdateMap.put(sectionRegion.getSection(), map);
+	                }
+
+	                // PK solo sezione 0 regionale (una volta)
+	                if (sectionRegion.getSection() == 0 && !keysLoaded) {
+	                    if (fieldRegion.isPk()) {
+	                        listPkRegion0.add(fieldRegion);
+	                    }
+	                }
+	            }
+	            keysLoaded = true;
+	        }
+
+	        if (!founded) {
+	            return FlowOperationResult.failure(
+	                    "Il campo " + tabgenValueMap.getFieldName()
+	                            + " dichiarato nel tracciato di configurazione " + tabgenUpdateMap.getId()
+	                            + " non è presente nella configurazione del flusso");
+	        }
+	    }
+
+	    /******************** 2) CONFIG VERTICALE + PK AZIENDALI **************************/
+	    List<String> azPkList = new ArrayList<>();
+	    FormFlowDTO configurationVert;
+
+	    BaseSearchInput searchInput = new BaseSearchInput();
+	    searchInput.setValue("flowRegion", flowId);
+	    String flowAzId = flowRegionUnionDAO.cerca(searchInput).get(0).getFlowLocal().getId();
+
+	    BaseSearchInput searchInput2 = new BaseSearchInput();
+	    searchInput2.setValue("flowId", flowAzId);
+	    searchInput2.setValue("versionId", versionId);
+	    Pair<List<FormFlowDTO>, SearchInfo> searchResults = formFlowService.retrieveAllFiltered(searchInput2);
+	    configurationVert = searchResults.getFirst().get(0);
+
+	    // PK aziendali Sezione 0
+	    for (FormFlowTableFieldDTO f : configurationVert.getFlowTableList().get(0).getFlowTableFieldList()) {
+	        if (f.isPk()) {
+	            azPkList.add(f.getName());
+	        }
+	    }
+
+	    /******************** 3) JDBC TRANSAZIONALE: NIENTE dataSource.getConnection() **************************/
+	    try {
+	        Session session = entityManager.unwrap(org.hibernate.Session.class);
+
+	        // Eseguo tutto su connection della transazione Spring/Hibernate
+	        Pair<FlowOperationResult<Boolean>, List<SendDrgDTO>> out =
+	                session.doReturningWork((org.hibernate.jdbc.ReturningWork<Pair<FlowOperationResult<Boolean>, List<SendDrgDTO>>>) conn -> {
+
+	                    Map<Integer, PreparedStatement> statList = new HashMap<>();
+	                    Map<Integer, PreparedStatement> statListAz = new HashMap<>();
+	                    List<SendDrgDTO> listSendDrg = new ArrayList<>();
+
+	                    try {
+	                        // preparo statement UPDATE per tutte le sezioni coinvolte
+	                        for (RegErrorFieldMap regErrorField : fieldToUpdateMap.values()) {
+	                            String qReg = QueryGenerator.generateUpdateQueryForUploadingReturns(regErrorField, produzioneTot, azPkList);
+	                            if (qReg != null && !qReg.isEmpty()) {
+	                            	LOGGER.info("UPDATE REG section {} -> {}", regErrorField.getSectionDef().getSection(), qReg);
+	                                statList.put(regErrorField.getSectionDef().getSection(), conn.prepareStatement(qReg));
+
+	                                String qAz = QueryGenerator.generateUpdateQueryForUploadingReturnsAziendale(
+	                                        regErrorField, configurationVert, azPkList, produzioneTot);
+	                                LOGGER.info("UPDATE AZ  section {} -> {}", regErrorField.getSectionDef().getSection(), qAz);
+	                                statListAz.put(regErrorField.getSectionDef().getSection(), conn.prepareStatement(qAz));
+	                            }
+	                        }
+
+	                        // parametri file
+	                        String fileName = file.toString();
+	                        int idxDot = fileName.lastIndexOf('.');
+	                        if (idxDot <= 0) {
+	                            return Pair.of(FlowOperationResult.failure("Errore in fase di scrittura dei file"), listSendDrg);
+	                        }
+
+	                        String extension = fileName.substring(idxDot + 1);
+	                        String skipHeader = (tabGenValueFlowUploadConf.getField2() == null || tabGenValueFlowUploadConf.getField2().isEmpty())
+	                                ? "N" : tabGenValueFlowUploadConf.getField2();
+	                        String separator = (tabGenValueFlowUploadConf.getField4() == null || tabGenValueFlowUploadConf.getField4().isEmpty())
+	                                ? FileUtility.SEPARATOR_CSV : tabGenValueFlowUploadConf.getField4();
+
+	                        int countRow = 0;
+
+	                        // =============== TEXT (posizionale) ===============
+	                        if (extension != null && extension.equalsIgnoreCase(FileUtility.TEXT)) {
+
+	                            try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+	                                String line;
+	                                while ((line = br.readLine()) != null) {
+	                                    countRow++;
+
+	                                    SendDrgDTO sendDrg = new SendDrgDTO();
+	                                    DrgDTO drg = new DrgDTO();
+	                                    List<KeysDTO> listKeys = new ArrayList<>();
+	                                    List<KeysDTO> listNewKeys = new ArrayList<>();
+
+	                                    // skip header: se non è "N" salto la prima riga, poi imposto "N"
+	                                    if (!"N".equals(skipHeader)) {
+	                                        skipHeader = "N";
+	                                        continue;
+	                                    }
+
+	                                    boolean aziendaPermission = true;
+
+	                                    for (RegErrorFieldMap regErrorField : fieldToUpdateMap.values()) {
+	                                        int fieldIndex = 0;
+	                                        PreparedStatement stat = statList.get(regErrorField.getSectionDef().getSection());
+	                                        PreparedStatement statAz = statListAz.get(regErrorField.getSectionDef().getSection());
+	                                        if (stat == null || statAz == null) continue;
+
+	                                        // 1) SET (campi NON PK)
+	                                        for (TabgenValueMap tv : regErrorField.getFieldList()) {
+	                                            if (Boolean.TRUE.equals(tv.getIsPk()) || Boolean.TRUE.equals(tv.getControlField())) {
+	                                                continue;
+	                                            }
+	                                            fieldIndex++;
+
+	                                            int pos = tv.getPosition() - 1;
+	                                            int len = tv.getLength();
+	                                            String rawValue = safeSubstring(line, pos, pos + len);
+	                                            String fieldValue = (rawValue != null) ? rawValue.trim() : null;
+
+	                                            // DRG
+	                                            if ("IMPORTO_REGIONALE".equals(tv.getFieldName())) {
+	                                                drg.setImportoRegionale((fieldValue != null && !fieldValue.isEmpty()) ? Double.parseDouble(fieldValue) : 0d);
+	                                            } else if ("DRG_REGIONALE".equals(tv.getFieldName())) {
+	                                                drg.setDrgRegionale(fieldValue);
+	                                            } else if ("ONEREDEGENZA_REGIONALE".equals(tv.getFieldName())) {
+	                                                drg.setOnereDegenza(fieldValue);
+	                                            }
+
+	                                            // crypto
+	                                            if (isCrypto(tv.getFieldName(), configurationRegion)) {
+	                                                fieldValue = cryptoManager.encryptString(fieldValue);
+	                                            }
+
+	                                            stat.setObject(fieldIndex, fieldValue);
+	                                            statAz.setObject(fieldIndex, fieldValue);
+	                                        }
+
+	                                        // 2) WHERE (campi PK)
+	                                        for (TabgenValueMap tv : regErrorField.getFieldList()) {
+	                                            if (!Boolean.TRUE.equals(tv.getIsPk())) continue;
+
+	                                            fieldIndex++;
+
+	                                            int pos = tv.getPosition() - 1;
+	                                            int len = tv.getLength();
+	                                            String rawValue = safeSubstring(line, pos, pos + len);
+	                                            String fieldValueRaw = (rawValue != null) ? rawValue.trim() : null;
+
+	                                            KeysDTO key = new KeysDTO();
+	                                            key.setKey(tv.getFieldName());
+	                                            key.setValue(fieldValueRaw);
+	                                            listKeys.add(key);
+
+	                                            // permission check su valore RAW (non cifrato)
+	                                            if ("CODICEAZIENDA".equalsIgnoreCase(tv.getFieldName())
+	                                                    && !aziende.isEmpty()
+	                                                    && fieldValueRaw != null
+	                                                    && !aziende.contains(fieldValueRaw)) {
+	                                                aziendaPermission = false;
+	                                            }
+
+	                                            String fieldValueDb = fieldValueRaw;
+	                                            if (isCrypto(tv.getFieldName(), configurationRegion)) {
+	                                                fieldValueDb = cryptoManager.encryptString(fieldValueDb);
+	                                            }
+
+	                                            stat.setObject(fieldIndex, fieldValueDb);
+	                                            statAz.setObject(fieldIndex, fieldValueDb);
+	                                        }
+
+	                                        // EXTRACTION_ID (solo per update regionale, come tuo)
+	                                        fieldIndex++;
+	                                        stat.setObject(fieldIndex, extractionId);
+
+	                                        if (aziendaPermission) {
+	                                            statAz.addBatch();
+	                                            stat.addBatch();
+	                                        }
+	                                    }
+
+	                                    // flush batch ogni 1000 (NO commit manuale)
+	                                    if (countRow % 1000 == 0) {
+	                                        flushBatches(statList);
+	                                        flushBatches(statListAz);
+	                                    }
+
+	                                    // costruisco SendDrg (come tuo: lookup verticale)
+	                                    FlowOperationResult<Boolean> res = buildSendDrgForRow(
+	                                            configurationRegion, listPkRegion0,
+	                                            listKeys, listNewKeys,
+	                                            sendDrg, drg,
+	                                            produzioneTot, aziendaPermission,
+	                                            listSendDrg);
+	                                    if (!res.getSuccess()) {
+//	                                        return Pair.of(res, listSendDrg);
+	                                    	msgErrors.addAll(res.getMessages());
+	                                    }
+	                                }
+	                            } catch (Exception ex) {
+	                            	LogUtil.logException(LOGGER, "", ex);
+//	                                ex.printStackTrace();
+	                                return Pair.of(FlowOperationResult.failure("Errore in fase di scrittura dei file"), listSendDrg);
+	                            }
+
+	                            // flush finale
+	                            flushBatches(statList);
+	                            flushBatches(statListAz);
+
+	                        }
+	                        // =============== XLS (jxl) ===============
+	                        else if (extension != null && extension.equalsIgnoreCase(FileUtility.XLS)) {
+
+	                            try {
+	                                Workbook workbook = Workbook.getWorkbook(file);
+	                                Sheet sheet = workbook.getSheet(0);
+
+	                                int rowsNum = sheet.getRows();
+	                                for (int row = 0; row < rowsNum; row++) {
+	                                    countRow++;
+
+	                                    SendDrgDTO sendDrg = new SendDrgDTO();
+	                                    DrgDTO drg = new DrgDTO();
+	                                    List<KeysDTO> listKeys = new ArrayList<>();
+	                                    List<KeysDTO> listNewKeys = new ArrayList<>();
+
+	                                    if (!"N".equals(skipHeader)) {
+	                                        skipHeader = "N";
+	                                        continue;
+	                                    }
+
+	                                    boolean aziendaPermission = true;
+
+	                                    for (RegErrorFieldMap regErrorField : fieldToUpdateMap.values()) {
+	                                        int fieldIndex = 0;
+	                                        PreparedStatement stat = statList.get(regErrorField.getSectionDef().getSection());
+	                                        PreparedStatement statAz = statListAz.get(regErrorField.getSectionDef().getSection());
+	                                        if (stat == null || statAz == null) continue;
+
+	                                        int col = 0;
+
+	                                        // 1) SET (non PK)
+	                                        for (TabgenValueMap tv : regErrorField.getFieldList()) {
+	                                            if (Boolean.TRUE.equals(tv.getIsPk()) || Boolean.TRUE.equals(tv.getControlField())) {
+	                                                col++;
+	                                                continue;
+	                                            }
+	                                            fieldIndex++;
+
+	                                            String fieldValue = safeCell(sheet, col, row);
+
+	                                            if ("IMPORTO_REGIONALE".equals(tv.getFieldName())) {
+	                                                drg.setImportoRegionale((fieldValue != null && !fieldValue.isEmpty()) ? Double.parseDouble(fieldValue) : 0d);
+	                                            } else if ("DRG_REGIONALE".equals(tv.getFieldName())) {
+	                                                drg.setDrgRegionale(fieldValue);
+	                                            } else if ("ONEREDEGENZA_REGIONALE".equals(tv.getFieldName())) {
+	                                                drg.setOnereDegenza(fieldValue);
+	                                            }
+
+	                                            if (isCrypto(tv.getFieldName(), configurationRegion)) {
+	                                                fieldValue = cryptoManager.encryptString(fieldValue);
+	                                            }
+
+	                                            stat.setObject(fieldIndex, fieldValue);
+	                                            statAz.setObject(fieldIndex, fieldValue);
+	                                            col++;
+	                                        }
+
+	                                        // 2) WHERE (PK)
+	                                        col = 0;
+	                                        for (TabgenValueMap tv : regErrorField.getFieldList()) {
+	                                            if (!Boolean.TRUE.equals(tv.getIsPk())) {
+	                                                col++;
+	                                                continue;
+	                                            }
+	                                            fieldIndex++;
+
+	                                            String fieldValueRaw = safeCell(sheet, col, row);
+
+	                                            listKeys.add(new KeysDTO(tv.getFieldName(), fieldValueRaw));
+
+	                                            if ("CODICEAZIENDA".equalsIgnoreCase(tv.getFieldName())
+	                                                    && !aziende.isEmpty()
+	                                                    && fieldValueRaw != null
+	                                                    && !aziende.contains(fieldValueRaw)) {
+	                                                aziendaPermission = false;
+	                                            }
+
+	                                            String fieldValueDb = fieldValueRaw;
+	                                            if (isCrypto(tv.getFieldName(), configurationRegion)) {
+	                                                fieldValueDb = cryptoManager.encryptString(fieldValueDb);
+	                                            }
+
+	                                            stat.setObject(fieldIndex, fieldValueDb);
+	                                            statAz.setObject(fieldIndex, fieldValueDb);
+	                                            col++;
+	                                        }
+
+	                                        fieldIndex++;
+	                                        stat.setObject(fieldIndex, extractionId);
+
+	                                        if (aziendaPermission) {
+	                                            statAz.addBatch();
+	                                            stat.addBatch();
+	                                        }
+	                                    }
+
+	                                    if (countRow % 1000 == 0 || rowsNum - 1 == row) {
+	                                        flushBatches(statList);
+	                                        flushBatches(statListAz);
+	                                    }
+
+	                                    FlowOperationResult<Boolean> res = buildSendDrgForRow(
+	                                            configurationRegion, listPkRegion0,
+	                                            listKeys, listNewKeys,
+	                                            sendDrg, drg,
+	                                            produzioneTot, aziendaPermission,
+	                                            listSendDrg);
+	                                    if (!res.getSuccess()) {
+//	                                        return Pair.of(res, listSendDrg);
+	                                    	msgErrors.addAll(res.getMessages());
+	                                    }
+	                                }
+	                            } catch (Exception ex) {
+	                            	LogUtil.logException(LOGGER, "", ex);
+//	                                ex.printStackTrace();
+	                                return Pair.of(FlowOperationResult.failure("Errore in fase di scrittura dei file"), listSendDrg);
+	                            }
+
+	                            flushBatches(statList);
+	                            flushBatches(statListAz);
+	                        }
+	                        // =============== XLSX (poi) ===============
+	                        else if (extension != null && extension.equalsIgnoreCase(FileUtility.XLSX)) {
+
+	                            try (FileInputStream filei = new FileInputStream(file);
+	                                 XSSFWorkbook workbook = new XSSFWorkbook(filei)) {
+
+	                                XSSFSheet sheet = workbook.getSheetAt(0);
+	                                Iterator<Row> rowIterator = sheet.iterator();
+	                                int rowsNum = sheet.getPhysicalNumberOfRows();
+
+	                                DataFormatter formatter = new DataFormatter();
+
+	                                while (rowIterator.hasNext()) {
+	                                    Row row = rowIterator.next();
+	                                    if (row == null) continue;
+
+	                                    countRow++;
+
+	                                    SendDrgDTO sendDrg = new SendDrgDTO();
+	                                    DrgDTO drg = new DrgDTO();
+	                                    List<KeysDTO> listKeys = new ArrayList<>();
+	                                    List<KeysDTO> listNewKeys = new ArrayList<>();
+
+	                                    if (!"N".equals(skipHeader)) {
+	                                        skipHeader = "N";
+	                                        continue;
+	                                    }
+
+	                                    boolean aziendaPermission = true;
+
+	                                    for (RegErrorFieldMap regErrorField : fieldToUpdateMap.values()) {
+	                                        int fieldIndex = 0;
+	                                        PreparedStatement stat = statList.get(regErrorField.getSectionDef().getSection());
+	                                        PreparedStatement statAz = statListAz.get(regErrorField.getSectionDef().getSection());
+	                                        if (stat == null || statAz == null) continue;
+
+	                                        // 1) SET (non PK)
+	                                        int col = 0;
+	                                        for (TabgenValueMap tv : regErrorField.getFieldList()) {
+	                                            Cell cell = row.getCell(col, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+	                                            String raw = (cell != null) ? formatter.formatCellValue(cell) : null;
+	                                            String fieldValue = (raw != null) ? raw.trim() : null;
+
+	                                            if (!Boolean.TRUE.equals(tv.getIsPk()) && !Boolean.TRUE.equals(tv.getControlField())) {
+	                                                fieldIndex++;
+
+	                                                if ("IMPORTO_REGIONALE".equals(tv.getFieldName())) {
+	                                                    drg.setImportoRegionale((fieldValue != null && !fieldValue.isEmpty()) ? Double.parseDouble(fieldValue) : 0d);
+	                                                } else if ("DRG_REGIONALE".equals(tv.getFieldName())) {
+	                                                    drg.setDrgRegionale(fieldValue);
+	                                                } else if ("ONEREDEGENZA_REGIONALE".equals(tv.getFieldName())) {
+	                                                    drg.setOnereDegenza(fieldValue);
+	                                                }
+
+	                                                if (isCrypto(tv.getFieldName(), configurationRegion)) {
+	                                                    fieldValue = cryptoManager.encryptString(fieldValue);
+	                                                }
+
+	                                                stat.setObject(fieldIndex, fieldValue);
+	                                                statAz.setObject(fieldIndex, fieldValue);
+	                                            }
+	                                            col++;
+	                                        }
+
+	                                        // 2) WHERE (PK)
+	                                        col = 0;
+	                                        for (TabgenValueMap tv : regErrorField.getFieldList()) {
+	                                            Cell cell = row.getCell(col, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+	                                            String raw = (cell != null) ? formatter.formatCellValue(cell) : null;
+	                                            String fieldValueRaw = (raw != null) ? raw.trim() : null;
+
+	                                            if (Boolean.TRUE.equals(tv.getIsPk())) {
+	                                                fieldIndex++;
+
+	                                                listKeys.add(new KeysDTO(tv.getFieldName(), fieldValueRaw));
+
+	                                                if ("CODICEAZIENDA".equalsIgnoreCase(tv.getFieldName())
+	                                                        && !aziende.isEmpty()
+	                                                        && fieldValueRaw != null
+	                                                        && !aziende.contains(fieldValueRaw)) {
+	                                                    aziendaPermission = false;
+	                                                }
+
+	                                                String fieldValueDb = fieldValueRaw;
+	                                                if (isCrypto(tv.getFieldName(), configurationRegion)) {
+	                                                    fieldValueDb = cryptoManager.encryptString(fieldValueDb);
+	                                                }
+
+	                                                stat.setObject(fieldIndex, fieldValueDb);
+	                                                statAz.setObject(fieldIndex, fieldValueDb);
+	                                            }
+	                                            col++;
+	                                        }
+
+	                                        fieldIndex++;
+	                                        stat.setObject(fieldIndex, extractionId);
+
+	                                        if (aziendaPermission) {
+	                                            statAz.addBatch();
+	                                            stat.addBatch();
+	                                        }
+	                                    }
+
+	                                    if (countRow % 1000 == 0 || rowsNum - 1 == (countRow - 1)) {
+	                                        flushBatches(statList);
+	                                        flushBatches(statListAz);
+	                                    }
+
+	                                    FlowOperationResult<Boolean> res = buildSendDrgForRow(
+	                                            configurationRegion, listPkRegion0,
+	                                            listKeys, listNewKeys,
+	                                            sendDrg, drg,
+	                                            produzioneTot, aziendaPermission,
+	                                            listSendDrg);
+	                                    if (!res.getSuccess()) {
+//	                                        return Pair.of(res, listSendDrg);
+	                                    	msgErrors.addAll(res.getMessages());
+	                                    }
+	                                }
+	                            } catch (Exception ex) {
+	                            	LogUtil.logException(LOGGER, "", ex);
+//	                                ex.printStackTrace();
+	                                return Pair.of(FlowOperationResult.failure("Errore in fase di scrittura dei file"), listSendDrg);
+	                            }
+
+	                            flushBatches(statList);
+	                            flushBatches(statListAz);
+	                        }
+	                        // =============== CSV ===============
+	                        else if (extension != null && extension.equalsIgnoreCase(FileUtility.CSV)) {
+
+	                            try (BufferedReader br = new BufferedReader(new FileReader(file))) {
+	                                String line;
+	                                while ((line = br.readLine()) != null) {
+	                                    countRow++;
+
+	                                    if (!"N".equals(skipHeader)) {
+	                                        skipHeader = "N";
+	                                        continue;
+	                                    }
+
+	                                    List<String> values = Arrays.asList(line.split(separator, -1));
+
+	                                    SendDrgDTO sendDrg = new SendDrgDTO();
+	                                    DrgDTO drg = new DrgDTO();
+	                                    List<KeysDTO> listKeys = new ArrayList<>();
+	                                    List<KeysDTO> listNewKeys = new ArrayList<>();
+
+	                                    boolean aziendaPermission = true;
+
+	                                    for (RegErrorFieldMap regErrorField : fieldToUpdateMap.values()) {
+	                                        int fieldIndex = 0;
+	                                        PreparedStatement stat = statList.get(regErrorField.getSectionDef().getSection());
+	                                        PreparedStatement statAz = statListAz.get(regErrorField.getSectionDef().getSection());
+	                                        if (stat == null || statAz == null) continue;
+
+	                                        // 1) SET (non PK)
+	                                        int col = 0;
+	                                        for (TabgenValueMap tv : regErrorField.getFieldList()) {
+	                                            String fieldValue = (col < values.size()) ? values.get(col) : null;
+	                                            fieldValue = (fieldValue != null) ? fieldValue.trim() : null;
+
+	                                            if (!Boolean.TRUE.equals(tv.getIsPk()) && !Boolean.TRUE.equals(tv.getControlField())) {
+	                                                fieldIndex++;
+
+	                                                if ("IMPORTO_REGIONALE".equals(tv.getFieldName())) {
+	                                                    drg.setImportoRegionale((fieldValue != null && !fieldValue.isEmpty()) ? Double.parseDouble(fieldValue) : 0d);
+	                                                } else if ("DRG_REGIONALE".equals(tv.getFieldName())) {
+	                                                    drg.setDrgRegionale(fieldValue);
+	                                                } else if ("ONEREDEGENZA_REGIONALE".equals(tv.getFieldName())) {
+	                                                    drg.setOnereDegenza(fieldValue);
+	                                                }
+
+	                                                if (isCrypto(tv.getFieldName(), configurationRegion)) {
+	                                                    fieldValue = cryptoManager.encryptString(fieldValue);
+	                                                }
+
+	                                                stat.setObject(fieldIndex, fieldValue);
+	                                                statAz.setObject(fieldIndex, fieldValue);
+	                                            }
+	                                            col++;
+	                                        }
+
+	                                        // 2) WHERE (PK)
+	                                        col = 0;
+	                                        for (TabgenValueMap tv : regErrorField.getFieldList()) {
+	                                            String fieldValueRaw = (col < values.size()) ? values.get(col) : null;
+	                                            fieldValueRaw = (fieldValueRaw != null) ? fieldValueRaw.trim() : null;
+
+	                                            if (Boolean.TRUE.equals(tv.getIsPk())) {
+	                                                fieldIndex++;
+
+	                                                listKeys.add(new KeysDTO(tv.getFieldName(), fieldValueRaw));
+
+	                                                if ("CODICEAZIENDA".equalsIgnoreCase(tv.getFieldName())
+	                                                        && !aziende.isEmpty()
+	                                                        && fieldValueRaw != null
+	                                                        && !aziende.contains(fieldValueRaw)) {
+	                                                    aziendaPermission = false;
+	                                                }
+
+	                                                String fieldValueDb = fieldValueRaw;
+	                                                if (isCrypto(tv.getFieldName(), configurationRegion)) {
+	                                                    fieldValueDb = cryptoManager.encryptString(fieldValueDb);
+	                                                }
+
+	                                                stat.setObject(fieldIndex, fieldValueDb);
+	                                                statAz.setObject(fieldIndex, fieldValueDb);
+	                                            }
+	                                            col++;
+	                                        }
+
+	                                        fieldIndex++;
+	                                        stat.setObject(fieldIndex, extractionId);
+
+	                                        if (aziendaPermission) {
+	                                            statAz.addBatch();
+	                                            stat.addBatch();
+	                                        }
+	                                    }
+
+	                                    if (countRow % 1000 == 0) {
+	                                        flushBatches(statList);
+	                                        flushBatches(statListAz);
+	                                    }
+
+	                                    FlowOperationResult<Boolean> res = buildSendDrgForRow(
+	                                            configurationRegion, listPkRegion0,
+	                                            listKeys, listNewKeys,
+	                                            sendDrg, drg,
+	                                            produzioneTot, aziendaPermission,
+	                                            listSendDrg);
+	                                    if (!res.getSuccess()) {
+//	                                        return Pair.of(res, listSendDrg);
+	                                    	msgErrors.addAll(res.getMessages());
+	                                    }
+	                                }
+	                            } catch (Exception ex) {
+	                            	LogUtil.logException(LOGGER, "", ex);
+//	                                ex.printStackTrace();
+	                                return Pair.of(FlowOperationResult.failure("Errore in fase di scrittura dei file"), listSendDrg);
+	                            }
+
+	                            flushBatches(statList);
+	                            flushBatches(statListAz);
+	                        }
+	                        else {
+	                            return Pair.of(FlowOperationResult.failure("Formato file non supportato: " + extension), listSendDrg);
+	                        }
+
+	                        return Pair.of(FlowOperationResult.success(true), listSendDrg);
+
+	                    } catch (Exception e) {
+	                    	LogUtil.logException(LOGGER, "", e);
+	                    	
+	                        return Pair.of(FlowOperationResult.failure("Errore in fase di scrittura dei file"), listSendDrg);
+	                    } finally {
+	                        for (PreparedStatement ps : statList.values()) closeQuietly(ps);
+	                        for (PreparedStatement ps : statListAz.values()) closeQuietly(ps);
+	                    }
+	                });
+
+	        // se fallisce, ritorna subito
+	        if (out == null || out.getFirst() == null || !out.getFirst().getSuccess()) {
+	            return (out != null && out.getFirst() != null)
+	                    ? out.getFirst()
+	                    : FlowOperationResult.failure("Errore in fase di scrittura dei file");
+	        }
+	        
+	        if (msgErrors.isEmpty()) {
+		        // richiamo generateJsonDrg come prima (fuori dal doWork)
+		        List<SendDrgDTO> listSendDrg = out.getSecond();
+		        if (listSendDrg != null && !listSendDrg.isEmpty()) {
+		            if (produzioneTot) {
+		                generateJsonDrg(listSendDrg, "TOT", configurationRegion.getName());
+		            } else {
+		                generateJsonDrg(listSendDrg, extractionId, configurationRegion.getName());
+		            }
+		        }
+	        } else {
+	        	//DOWNLOAD DEL FILE CON ERRORI RISCONTRATI NEL FILE
+	    		try {
+					//Creo un file log in memoria con gli errori
+	    			byte[] bytes = FileUtility.generateFileLog(msgErrors, "upload_ritorno_error_log");
+	    	        byte[] zipbytes = FileUtility.zipBytes("Errori_Upload_Ritorno_" + file.getName() + ".log", bytes);
+
+	    	        DownloadFileDTO downloadFile = new DownloadFileDTO();
+	    	        downloadFile.setFileName("Errori_Upload_Ritorno_" + file.getName() + ".zip");
+	    	        downloadFile.setContentType("application/zip");
+	    	        downloadFile.setBase64Content(Base64.getEncoder().encodeToString(zipbytes));
+
+	    	        return FlowOperationResult.failure(
+	    	                "Sono presenti errori nel file dei ritorni regionali. Consultare il file di log scaricabile nel Download della pagina web.",
+	    	                "Errori_Upload_Ritorno_" + file.getName() + ".zip",
+	    	                "application/zip",
+	    	                Base64.getEncoder().encodeToString(zipbytes)
+	    	        );
+				} catch (Exception e) {
+					LogUtil.logException(LOGGER, "", e);
+					return FlowOperationResult.failure("Errore in fase di scrittura del file di log per errori sul file dei ritorni regionali");
+				}
+	        }
+	        
+	        return FlowOperationResult.success(true);
+
+	    } catch (RuntimeException re) {
+	        // fa rollback la @Transactional
+	    	LogUtil.logException(LOGGER, "Errore in fase di scrittura dei file", re);
+//	        re.printStackTrace();
+	        return FlowOperationResult.failure("Errore in fase di scrittura dei file");
+	    }
+	}
+
+	/* ===================== helper locali al metodo (NO DUPLICATI in classe) ===================== */
+
+	private static String safeSubstring(String s, int from, int to) {
+	    try {
+	        if (s == null) return null;
+	        if (from < 0) from = 0;
+	        if (to > s.length()) to = s.length();
+	        if (from >= to) return null;
+	        return s.substring(from, to);
+	    } catch (Exception e) {
+	    	LogUtil.logException(LOGGER, "", e);
+	        return null;
+	    }
+	}
+
+	private static String safeCell(Sheet sheet, int col, int row) {
+	    try {
+	        String v = sheet.getCell(col, row).getContents();
+	        return v != null ? v.trim() : null;
+	    } catch (Exception e) {
+	    	LogUtil.logException(LOGGER, "", e);
+	        return null;
+	    }
+	}
+
+	private static void flushBatches(Map<Integer, PreparedStatement> map) throws SQLException {
+	    for (PreparedStatement ps : map.values()) {
+	        if (ps == null) continue;
+	        ps.executeBatch();
+	        ps.clearBatch();
+	        ps.clearParameters();
+	    }
+	}
+
+	/**
+	 * Ricostruisce esattamente la parte di "lookup" verticale e popolamento SendDrgDTO.
+	 * Ritorna failure se non trova corrispondenza (come il tuo codice).
+	 */
+	private FlowOperationResult<Boolean> buildSendDrgForRow(
+	        FormFlowDTO configurationRegion,
+	        List<FormFlowTableFieldDTO> listPkRegion0,
+	        List<KeysDTO> listKeys,
+	        List<KeysDTO> listNewKeys,
+	        SendDrgDTO sendDrg,
+	        DrgDTO drg,
+	        boolean produzioneTot,
+	        boolean aziendaPermission,
+	        List<SendDrgDTO> listSendDrg) {
+
+	    // normalizzo chiavi
+	    listKeys = listKeys.stream().distinct().collect(Collectors.toList());
+	    List<String> msgErrors = new ArrayList<>();
+
+	    String selectRegion = "SELECT ";
+	    String onRegion = "ON ";
+	    for (FormFlowTableFieldDTO field : listPkRegion0) {
+	        selectRegion += "a." + field.getName() + " , ";
+	        onRegion += "a." + field.getName() + " = b." + field.getName() + " and ";
+	    }
+	    onRegion = onRegion.substring(0, onRegion.length() - 4);
+
+	    String whereRegion = "WHERE ";
+	    for (KeysDTO regionKey : listKeys) {
+	        whereRegion += "b." + regionKey.getKey() + " = '" + regionKey.getValue() + "' and ";
+	    }
+	    whereRegion = whereRegion.substring(0, whereRegion.length() - 4);
+
+	    String queryString =
+	            selectRegion + "a.EXTRACTION_ID FROM FM_FLOW_" + configurationRegion.getCode().replace("_REG", "") + "_0 a join "
+	                    + "FM_FLOW_" + configurationRegion.getCode() + "_0 b " + onRegion + " " + whereRegion + " and ROWNUM = 1";
+
+	    Query queryVer = entityManager.createNativeQuery(queryString);
+	    List<Object[]> resultVert = queryVer.getResultList();
+
+	    if (resultVert == null || resultVert.isEmpty()) {
+	        String msgError = "Corrispondenza non trovata per la chiave indicata nel file : ";
+	        for (KeysDTO regionKey : listKeys) {
+	            msgError += regionKey.getKey() + "=" + regionKey.getValue() + " ";
+	        }
+	        LOGGER.error(msgError);
+	        msgErrors.add(msgError);
+//	        return FlowOperationResult.failure(msgError);
+	    }
+
+	    // estrazioneId verticale è l'ultima colonna dopo le pk
+	    int extrIdx = listPkRegion0.size();
+	    Object[] row0 = resultVert.get(0);
+
+	    sendDrg.setDrg(drg);
+	    sendDrg.setIdRequest((String) row0[extrIdx]);
+
+	    for (int i = 0; i < listPkRegion0.size(); i++) {
+	        KeysDTO newKeys = new KeysDTO();
+	        newKeys.setKey(listPkRegion0.get(i).getName());
+	        newKeys.setValue((String) row0[i]);
+	        listNewKeys.add(newKeys);
+	    }
+	    listNewKeys = listNewKeys.stream().distinct().collect(Collectors.toList());
+	    sendDrg.setKeys(listNewKeys);
+	    sendDrg.setType(produzioneTot ? "R" : "S");
+
+	    if (aziendaPermission) {
+	        listSendDrg.add(sendDrg);
+	    }
+	    
+	    if (msgErrors.isEmpty()) {
+	    	return FlowOperationResult.success(true);
+	    } else {
+	    	return FlowOperationResult.failure(msgErrors);
+	    }
+	    
+	}
+
+	
+	private static void closeQuietly(AutoCloseable c) {
+	    if (c != null) try { c.close(); } catch (Exception ignore) {}
+	}
+	
+	private Boolean isCrypto(String name, FormFlowDTO configuration) {
+		for(FormFlowTableDTO table : configuration.getFlowTableList()) {
+			for(FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+				if(field.isCrypto() && field.getName().equalsIgnoreCase(name)) {
+					return field.isCrypto();
+				}
+			}
+		}
+		return false;
+	}
+	
+	@Override
+	public void deleteReturnsFromExtraction(String tableName, String extractionId) throws SQLException {
+	    final String queryString = QueryGenerator.generateDeleteQueryFromTabgen(tableName);
+	    final String extId = extractionId;
+
+	    try {
+	        Session session = entityManager.unwrap(Session.class);
+	        session.doWork(conn -> {
+	            try (PreparedStatement stat = conn.prepareStatement(queryString)) {
+	                stat.setString(1, extId);
+	                stat.executeUpdate();
+	            } catch (SQLException e) {
+	            	LogUtil.logException(LOGGER, "", e);
+	            	
+	                throw new RuntimeException("Errore deleteReturnsFromExtraction", e);
+	            }
+	        });
+	    } catch (RuntimeException re) {
+	    	LogUtil.logException(LOGGER, "", re);
+	    	
+	        Throwable cause = re.getCause();
+	        if (cause instanceof SQLException se) throw se;
+	        throw new SQLException("Errore deleteReturnsFromExtraction", re);
+	    }
+	}
+	
+	@Override
+	public FlowOperationResult<Boolean> insertRecordsFromFile(
+	        FormFlowDTO regConfiguration,
+	        File errorFile,
+	        TabgenMap tabgenErrorsMap,
+	        String extractionId,
+	        String errorType,
+	        TabgenValue tabGenValueFlowUploadConf,
+	        List<TabgenValue> tabGenValueFlowTipologiaRitorni) throws SQLException {
+
+	    final String queryString = QueryGenerator.generateInsertQueryFromTabgen(tabgenErrorsMap);
+
+	    final List<String> aziende = flowManagerProfileService.getAziendeForUserProfile();
+	    final List<String> severityAccepted = Arrays.asList("SCARTO", "SEGNALAZIONE");
+
+	    final String fileName = errorFile.toString();
+	    final int dot = fileName.lastIndexOf('.');
+	    if (dot <= 0) return FlowOperationResult.failure("Errore in fase di scrittura dei file");
+
+	    final String ext = fileName.substring(dot + 1).toLowerCase();
+	    final String separator = Optional.ofNullable(tabGenValueFlowUploadConf.getField4()).orElse(FileUtility.SEPARATOR_CSV);
+	    String skipHeaderInit = Optional.ofNullable(tabGenValueFlowUploadConf.getField2()).orElse("N");
+	    List<String> msgErrors = new ArrayList<>();
+	    
+	    // ordinamento per posizione (come avevi)
+	    if (tabgenErrorsMap != null && tabgenErrorsMap.getTabgenValueList() != null) {
+	        tabgenErrorsMap.getTabgenValueList().sort(
+	                Comparator.comparing(TabgenValueMap::getPosition, Comparator.nullsLast(Integer::compareTo))
+	        );
+	    }
+
+	    try {
+	        Session session = entityManager.unwrap(Session.class);
+	        final String skipHeaderStart = skipHeaderInit;
+
+	        return session.doReturningWork((ReturningWork<FlowOperationResult<Boolean>>) conn -> {
+	            try (PreparedStatement stat = conn.prepareStatement(queryString)) {
+
+	                String skipHeader = skipHeaderStart;
+
+	                // ===================== TEXT =====================
+	                if (ext.equals(FileUtility.TEXT)) {
+	                    try (BufferedReader br = new BufferedReader(new FileReader(errorFile))) {
+	                        String line;
+	                        int seek = 0;
+
+	                        while ((line = br.readLine()) != null) {
+	                            seek++;
+
+	                            int fieldIndex = 0;
+	                            int fieldPosition = 0;
+	                            String fieldTipologiaValue = null;
+	                            String tabGenValueFieldSeverity = null;
+	                            boolean aziendaPermission = true;
+
+	                            for (TabgenValueMap tabgenValue : tabgenErrorsMap.getTabgenValueList()) {
+	                                fieldIndex++;
+	                                Integer fieldLength = tabgenValue.getLength();
+
+	                                String fieldValue;
+	                                try {
+	                                    fieldValue = line.substring(fieldPosition, fieldPosition + fieldLength).trim();
+	                                } catch (Exception e) {
+	                                    fieldValue = null;
+	                                }
+	                                fieldPosition += fieldLength;
+
+	                                if ("TIPOLOGIA".equalsIgnoreCase(tabgenValue.getFieldName())) {
+	                                    fieldTipologiaValue = fieldValue;
+	                                }
+
+	                                if (isCrypto(tabgenValue.getFieldName(), regConfiguration)) {
+	                                    fieldValue = cryptoManager.encryptString(fieldValue);
+	                                }
+
+	                                if ("CODICEAZIENDA".equalsIgnoreCase(tabgenValue.getFieldName())
+	                                        && !aziende.isEmpty()
+	                                        && fieldValue != null
+	                                        && !aziende.contains(fieldValue)) {
+	                                    aziendaPermission = false;
+	                                }
+
+	                                stat.setObject(fieldIndex, fieldValue);
+	                            }
+
+	                            fieldIndex++;
+	                            stat.setString(fieldIndex, extractionId);
+
+	                            fieldIndex++;
+	                            if (fieldTipologiaValue != null) {
+	                                tabGenValueFieldSeverity = "INVALID";
+	                                for (TabgenValue tv : tabGenValueFlowTipologiaRitorni) {
+	                                    if (tv.getField2().equalsIgnoreCase(fieldTipologiaValue)
+	                                            && tv.getField3() != null
+	                                            && severityAccepted.stream().anyMatch(s -> s.equalsIgnoreCase(tv.getField3()))) {
+	                                        tabGenValueFieldSeverity = tv.getField3();
+	                                        break;
+	                                    }
+	                                }
+	                            }
+	                            stat.setString(fieldIndex, tabGenValueFieldSeverity != null ? tabGenValueFieldSeverity : errorType);
+
+	                            fieldIndex++;
+	                            stat.setTimestamp(fieldIndex, new java.sql.Timestamp(System.currentTimeMillis()));
+
+	                            if (aziendaPermission) stat.addBatch();
+
+	                            if (seek % 1000 == 0) {
+	                                stat.executeBatch();
+	                                stat.clearBatch();
+	                                stat.clearParameters();
+	                            }
+	                        }
+
+	                        stat.executeBatch();
+	                        stat.clearBatch();
+	                        stat.clearParameters();
+//	                        return FlowOperationResult.success(true);
+	                    }  catch (Exception ex) {
+//	    					ex.printStackTrace();
+	    		    		msgErrors.add(ex.getMessage());
+	    		    		LogUtil.logException(LOGGER, "", ex);
+//	    	    			return FlowOperationResult.failure("Errore in fase di scrittura dei file");
+	                    }
+	                }
+
+	                // ===================== XLSX =====================
+	                else if (ext.equals(FileUtility.XLSX)) {
+	                    try (FileInputStream filei = new FileInputStream(errorFile);
+	                         XSSFWorkbook workbook = new XSSFWorkbook(filei)) {
+
+	                        XSSFSheet sheet = workbook.getSheetAt(0);
+	                        int rowsNum = sheet.getPhysicalNumberOfRows();
+
+	                        DataFormatter formatter = new DataFormatter();
+	                        int countRow = 0;
+	                        Map<String, Integer> headerIndexMap = null;
+	                        final boolean useHeaderMapping = "S".equals(skipHeaderStart);
+
+	                        for (Row row : sheet) {
+	                            if (row == null) continue;
+
+	                            if ("S".equals(skipHeader)) {
+	                                if (useHeaderMapping) {
+	                                    List<String> headers = new ArrayList<>();
+	                                    int lastCellNum = row.getLastCellNum();
+	                                    for (int c = 0; c < lastCellNum; c++) {
+	                                        Cell cell = row.getCell(c, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+	                                        headers.add(cell != null ? formatter.formatCellValue(cell).trim() : null);
+	                                    }
+	                                    headerIndexMap = buildHeaderIndexMap(headers);
+	                                }
+	                                skipHeader = "N";
+	                                continue;
+	                            }
+
+	                            int fieldIndex = 0;
+	                            String fieldTipologiaValue = null;
+	                            String tabGenValueFieldSeverity = null;
+	                            boolean aziendaPermission = true;
+
+	                            for (int i = 0; i < tabgenErrorsMap.getTabgenValueList().size(); i++) {
+	                                TabgenValueMap tvm = tabgenErrorsMap.getTabgenValueList().get(i);
+	                                fieldIndex++;
+
+	                                String fieldValue = null;
+
+	                                if (useHeaderMapping && headerIndexMap != null) {
+	                                    Integer realIndex = headerIndexMap.get(normalizeHeader(tvm.getFieldName()));
+	                                    if (realIndex != null) {
+	                                        Cell cell = row.getCell(realIndex, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+	                                        fieldValue = (cell != null) ? formatter.formatCellValue(cell).trim() : null;
+	                                    }
+	                                } else {
+	                                    Cell cell = row.getCell(i, Row.MissingCellPolicy.RETURN_BLANK_AS_NULL);
+	                                    fieldValue = (cell != null) ? formatter.formatCellValue(cell).trim() : null;
+	                                }
+
+	                                if ("TIPOLOGIA".equalsIgnoreCase(tvm.getFieldName())) {
+	                                    fieldTipologiaValue = fieldValue;
+	                                }
+
+	                                if (isCrypto(tvm.getFieldName(), regConfiguration)) {
+	                                    fieldValue = cryptoManager.encryptString(fieldValue);
+	                                }
+
+	                                if ("CODICEAZIENDA".equalsIgnoreCase(tvm.getFieldName())
+	                                        && !aziende.isEmpty()
+	                                        && fieldValue != null
+	                                        && !aziende.contains(fieldValue)) {
+	                                    aziendaPermission = false;
+	                                }
+
+	                                stat.setObject(fieldIndex, fieldValue);
+	                            }
+
+	                            fieldIndex++;
+	                            stat.setString(fieldIndex, extractionId);
+
+	                            fieldIndex++;
+	                            if (fieldTipologiaValue != null) {
+	                                tabGenValueFieldSeverity = "INVALID";
+	                                for (TabgenValue tv : tabGenValueFlowTipologiaRitorni) {
+	                                    if (tv.getField2().equalsIgnoreCase(fieldTipologiaValue)
+	                                            && tv.getField3() != null
+	                                            && severityAccepted.stream().anyMatch(s -> s.equalsIgnoreCase(tv.getField3()))) {
+	                                        tabGenValueFieldSeverity = tv.getField3();
+	                                        break;
+	                                    }
+	                                }
+	                            }
+	                            stat.setString(fieldIndex, tabGenValueFieldSeverity != null ? tabGenValueFieldSeverity : errorType);
+
+	                            fieldIndex++;
+	                            stat.setTimestamp(fieldIndex, new java.sql.Timestamp(System.currentTimeMillis()));
+
+	                            if (aziendaPermission) stat.addBatch();
+
+	                            countRow++;
+	                            if (countRow % 1000 == 0 || countRow == rowsNum - 1) {
+	                                stat.executeBatch();
+	                                stat.clearBatch();
+	                                stat.clearParameters();
+	                            }
+	                        }
+
+	                        stat.executeBatch();
+	                        stat.clearBatch();
+	                        stat.clearParameters();
+//	                        return FlowOperationResult.success(true);
+	                    }  catch (Exception ex) {
+//	    					ex.printStackTrace();
+	    		    		msgErrors.add(ex.getMessage());
+	    		    		LogUtil.logException(LOGGER, "", ex);
+//	    	    			return FlowOperationResult.failure("Errore in fase di scrittura dei file");
+	                    }
+	                }
+
+	                // ===================== XLS =====================
+	                else if (ext.equals(FileUtility.XLS)) {
+	                	try {
+		                    Workbook workbook = Workbook.getWorkbook(errorFile);
+		                    Sheet sheet = workbook.getSheet(0);
+		                    int rowsNum = sheet.getRows();
+	
+		                    int countRow = 0;
+		                    Map<String, Integer> headerIndexMap = null;
+		                    final boolean useHeaderMapping = "S".equals(skipHeaderStart);
+	
+		                    for (int r = 0; r < rowsNum; r++) {
+		                        if ("S".equals(skipHeader)) {
+		                            if (useHeaderMapping) {
+		                                List<String> headers = new ArrayList<>();
+		                                for (int c = 0; c < sheet.getColumns(); c++) {
+		                                    try {
+		                                        headers.add(sheet.getCell(c, r).getContents().trim());
+		                                    } catch (Exception e) {
+		                                        headers.add(null);
+		                                    }
+		                                }
+		                                headerIndexMap = buildHeaderIndexMap(headers);
+		                            }
+		                            skipHeader = "N";
+		                            continue;
+		                        }
+	
+		                        int fieldIndex = 0;
+		                        String fieldTipologiaValue = null;
+		                        String tabGenValueFieldSeverity = null;
+		                        boolean aziendaPermission = true;
+	
+		                        for (int i = 0; i < tabgenErrorsMap.getTabgenValueList().size(); i++) {
+		                            TabgenValueMap tvm = tabgenErrorsMap.getTabgenValueList().get(i);
+		                            fieldIndex++;
+	
+		                            String fieldValue;
+		                            try {
+		                                if (useHeaderMapping && headerIndexMap != null) {
+		                                    Integer realIndex = headerIndexMap.get(normalizeHeader(tvm.getFieldName()));
+		                                    fieldValue = (realIndex != null) ? sheet.getCell(realIndex, r).getContents().trim() : null;
+		                                } else {
+		                                    fieldValue = sheet.getCell(i, r).getContents().trim();
+		                                }
+		                            } catch (Exception e) {
+		                                fieldValue = null;
+		                            }
+	
+		                            if ("TIPOLOGIA".equalsIgnoreCase(tvm.getFieldName())) {
+		                                fieldTipologiaValue = fieldValue;
+		                            }
+	
+		                            if (isCrypto(tvm.getFieldName(), regConfiguration)) {
+		                                fieldValue = cryptoManager.encryptString(fieldValue);
+		                            }
+	
+		                            if ("CODICEAZIENDA".equalsIgnoreCase(tvm.getFieldName())
+		                                    && !aziende.isEmpty()
+		                                    && fieldValue != null
+		                                    && !aziende.contains(fieldValue)) {
+		                                aziendaPermission = false;
+		                            }
+	
+		                            stat.setObject(fieldIndex, fieldValue);
+		                        }
+	
+		                        fieldIndex++;
+		                        stat.setString(fieldIndex, extractionId);
+	
+		                        fieldIndex++;
+		                        if (fieldTipologiaValue != null) {
+		                            tabGenValueFieldSeverity = "INVALID";
+		                            for (TabgenValue tv : tabGenValueFlowTipologiaRitorni) {
+		                                if (tv.getField2().equalsIgnoreCase(fieldTipologiaValue)
+		                                        && tv.getField3() != null
+		                                        && severityAccepted.stream().anyMatch(s -> s.equalsIgnoreCase(tv.getField3()))) {
+		                                    tabGenValueFieldSeverity = tv.getField3();
+		                                    break;
+		                                }
+		                            }
+		                        }
+		                        stat.setString(fieldIndex, tabGenValueFieldSeverity != null ? tabGenValueFieldSeverity : errorType);
+	
+		                        fieldIndex++;
+		                        stat.setTimestamp(fieldIndex, new java.sql.Timestamp(System.currentTimeMillis()));
+	
+		                        if (aziendaPermission) stat.addBatch();
+	
+		                        countRow++;
+		                        if (countRow % 1000 == 0 || countRow == rowsNum - 1) {
+		                            stat.executeBatch();
+		                            stat.clearBatch();
+		                            stat.clearParameters();
+		                        }
+		                    }
+	
+		                    stat.executeBatch();
+		                    stat.clearBatch();
+		                    stat.clearParameters();
+//		                    return FlowOperationResult.success(true);
+	                	}  catch (Exception ex) {
+//	    					ex.printStackTrace();
+	    		    		msgErrors.add(ex.getMessage());
+	    		    		LogUtil.logException(LOGGER, "", ex);
+//	    	    			return FlowOperationResult.failure("Errore in fase di scrittura dei file");
+	                    }
+	                }
+
+	                // ===================== CSV =====================
+	                else if (ext.equals(FileUtility.CSV)) {
+	                    try (BufferedReader br = new BufferedReader(new FileReader(errorFile))) {
+	                        List<List<String>> lines = br.lines()
+	                                .map(l -> Arrays.asList(l.split(separator, -1)))
+	                                .collect(Collectors.toList());
+
+	                        int rowsNum = lines.size();
+
+	                        int countRow = 0;
+	                        Map<String, Integer> headerIndexMap = null;
+	                        final boolean useHeaderMapping = "S".equals(skipHeaderStart);
+
+	                        for (List<String> values : lines) {
+
+	                            if ("S".equals(skipHeader)) {
+	                                if (useHeaderMapping) {
+	                                    List<String> headers = values.stream()
+	                                            .map(v -> v != null ? v.trim() : null)
+	                                            .collect(Collectors.toList());
+	                                    headerIndexMap = buildHeaderIndexMap(headers);
+	                                }
+	                                skipHeader = "N";
+	                                continue;
+	                            }
+
+	                            int fieldIndex = 0;
+	                            String fieldTipologiaValue = null;
+	                            String tabGenValueFieldSeverity = null;
+	                            boolean aziendaPermission = true;
+
+	                            for (int i = 0; i < tabgenErrorsMap.getTabgenValueList().size(); i++) {
+	                                TabgenValueMap tvm = tabgenErrorsMap.getTabgenValueList().get(i);
+	                                fieldIndex++;
+
+	                                String fieldValue = null;
+
+	                                if (useHeaderMapping && headerIndexMap != null) {
+	                                    Integer realIndex = headerIndexMap.get(normalizeHeader(tvm.getFieldName()));
+	                                    fieldValue = (realIndex != null && realIndex < values.size()) ? values.get(realIndex).trim() : null;
+	                                } else {
+	                                    fieldValue = (i < values.size()) ? values.get(i).trim() : null;
+	                                }
+
+	                                if ("TIPOLOGIA".equalsIgnoreCase(tvm.getFieldName())) {
+	                                    fieldTipologiaValue = fieldValue;
+	                                }
+
+	                                if (isCrypto(tvm.getFieldName(), regConfiguration)) {
+	                                    fieldValue = cryptoManager.encryptString(fieldValue);
+	                                }
+
+	                                if ("CODICEAZIENDA".equalsIgnoreCase(tvm.getFieldName())
+	                                        && !aziende.isEmpty()
+	                                        && fieldValue != null
+	                                        && !aziende.contains(fieldValue)) {
+	                                    aziendaPermission = false;
+	                                }
+
+	                                stat.setObject(fieldIndex, fieldValue);
+	                            }
+
+	                            fieldIndex++;
+	                            stat.setString(fieldIndex, extractionId);
+
+	                            fieldIndex++;
+	                            if (fieldTipologiaValue != null) {
+	                                tabGenValueFieldSeverity = "INVALID";
+	                                for (TabgenValue tv : tabGenValueFlowTipologiaRitorni) {
+	                                    if (tv.getField2().equalsIgnoreCase(fieldTipologiaValue)
+	                                            && tv.getField3() != null
+	                                            && severityAccepted.stream().anyMatch(s -> s.equalsIgnoreCase(tv.getField3()))) {
+	                                        tabGenValueFieldSeverity = tv.getField3();
+	                                        break;
+	                                    }
+	                                }
+	                            }
+	                            stat.setString(fieldIndex, tabGenValueFieldSeverity != null ? tabGenValueFieldSeverity : errorType);
+
+	                            fieldIndex++;
+	                            stat.setTimestamp(fieldIndex, new java.sql.Timestamp(System.currentTimeMillis()));
+
+	                            if (aziendaPermission) stat.addBatch();
+
+	                            countRow++;
+	                            if (countRow % 1000 == 0 || countRow == rowsNum - 1) {
+	                                stat.executeBatch();
+	                                stat.clearBatch();
+	                                stat.clearParameters();
+	                            }
+	                        }
+
+	                        stat.executeBatch();
+	                        stat.clearBatch();
+	                        stat.clearParameters();
+//	                        return FlowOperationResult.success(true);
+	                    }  catch (Exception ex) {
+//	    					ex.printStackTrace();
+	    		    		msgErrors.add(ex.getMessage());
+	    		    		LogUtil.logException(LOGGER, "", ex);
+//	    	    			return FlowOperationResult.failure("Errore in fase di scrittura dei file");
+	                    }
+	                } else {
+	                	return FlowOperationResult.failure("Formato file non supportato: " + ext);
+	                }
+	                
+	                if (msgErrors.isEmpty()) {
+	        	    	return FlowOperationResult.success(true);
+	        	    } else {
+	        	    	//DOWNLOAD DEL FILE CON ERRORI RISCONTRATI NEL FILE
+	            		try {
+	        				//Creo un file log in memoria con gli errori
+	            			byte[] bytes = FileUtility.generateFileLog(msgErrors, "upload_ritorno_error_log");
+	            	        byte[] zipbytes = FileUtility.zipBytes("Errori_Upload_Ritorno_" + errorFile.getName() + ".log", bytes);
+
+	            	        DownloadFileDTO downloadFile = new DownloadFileDTO();
+	            	        downloadFile.setFileName("Errori_Upload_Ritorno_" + errorFile.getName() + ".zip");
+	            	        downloadFile.setContentType("application/zip");
+	            	        downloadFile.setBase64Content(Base64.getEncoder().encodeToString(zipbytes));
+
+	            	        return FlowOperationResult.failure(
+	            	                "Sono presenti errori nel file dei ritorni regionali. Consultare il file di log scaricabile nel Download della pagina web.",
+	            	                "Errori_Upload_Ritorno_" + errorFile.getName() + ".zip",
+	            	                "application/zip",
+	            	                Base64.getEncoder().encodeToString(zipbytes)
+	            	        );
+	        			} catch (Exception e) {
+	        				return FlowOperationResult.failure("Errore in fase di scrittura del file di log per errori sul file dei ritorni regionali");
+	        			}
+	        	    }
+	        		
+	                
+
+	            } catch (Exception ex) {
+	                LogUtil.logException(LOGGER, "", ex);
+	                throw new RuntimeException("Errore insertRecordsFromFile", ex);
+	            }
+	        });
+
+	    } catch (RuntimeException re) {
+	        LogUtil.logException(LOGGER, "", re);
+	        Throwable cause = re.getCause();
+	        if (cause instanceof SQLException se) throw se;
+	        return FlowOperationResult.failure("Errore in fase di scrittura dei file");
+	    }
+	}
+	
+	private static String normalizeHeader(String value) {
+	    if (value == null) return null;
+	    return value.trim().replaceAll("\\s+", "").toUpperCase();
+	}
+
+	private static Map<String, Integer> buildHeaderIndexMap(List<String> headers) {
+	    Map<String, Integer> map = new HashMap<>();
+	    if (headers == null) return map;
+
+	    for (int i = 0; i < headers.size(); i++) {
+	        String header = normalizeHeader(headers.get(i));
+	        if (header != null && !header.isEmpty()) {
+	            map.put(header, i);
+	        }
+	    }
+	    return map;
+	}
+
+	private static FlowOperationResult<Boolean> validateHeaders(
+	        Map<String, Integer> headerIndexMap,
+	        TabgenMap tabgenErrorsMap) {
+
+	    List<String> missingColumns = new ArrayList<>();
+
+	    for (TabgenValueMap tvm : tabgenErrorsMap.getTabgenValueList()) {
+	        String expected = normalizeHeader(tvm.getFieldName());
+	        if (!headerIndexMap.containsKey(expected)) {
+	            missingColumns.add(tvm.getFieldName());
+	        }
+	    }
+
+	    if (!missingColumns.isEmpty()) {
+	        return FlowOperationResult.failure(
+	                "Colonne mancanti nel file di input: " + String.join(", ", missingColumns)
+	        );
+	    }
+
+	    return FlowOperationResult.success(true);
+	}
+	
+	@Override
+	public Boolean updateSendRegionStatus(String extractionId, FormFlowDTO regConfiguration, Boolean checkErrorsAndWarnings, TabgenMap tracciatoSegnalazioniRegionali, boolean consolidata) throws SQLException {
+		FlowExportRequestDO extraction = flowExportService.retriveOne(extractionId);
+		FlowExportRequestDTO extractionDTO = conversionService.convertTo(extraction, FlowExportRequestDTO.class);
+		Integer pratiche=flowExportService.consolidaRitorni(regConfiguration, extractionDTO, StateSendRegionEnum.ACCETTATA.name(), checkErrorsAndWarnings, tracciatoSegnalazioniRegionali);
+		return pratiche >= 0;
+	}
+	
+	
+	@Override
+	public void saveRequest(UploadReturnsRequestDO request) {
+		uploadReturnsRequestDAO.save(request);
+		
+	}
+	
+	@Override
+	public void generateJsonDrg(List<SendDrgDTO> listSendDrg, String extractionId, String flowName) {
+
+	    BaseSearchInput input = new BaseSearchInput();
+	    input.setParam("nameNoLike", flowName.replace("_REG", ""));
+	    List<FlowDO> flow = flowDAO.cerca(input);
+
+	    ObjectMapper mapper = new ObjectMapper();
+
+	    try (StringWriter writer = new StringWriter()) {
+	    	//Scrive direttamente su Writer senza costruire la stringa in memoria
+	        mapper.writeValue(writer, listSendDrg);
+	        
+	        SendDrgDO sendDrgDO = new SendDrgDO();
+	        sendDrgDO.setCreationDate(new Date());
+	        sendDrgDO.setExtrId(extractionId);
+	        sendDrgDO.setJson(writer.toString());
+	        sendDrgDO.setStatus(ErrorServiceStatusEnum.PENDING.getStatus());
+	        sendDrgDO.setNretry(0);
+	        sendDrgDO.setFlowId(flow != null && !flow.isEmpty() ? flow.get(0) : null);
+
+	        sendDrgDao.save(sendDrgDO);
+
+	        try {
+	            sendDrgService.getPendingDrgAndSend();
+	        } catch (Exception e) {
+	        	LogUtil.logException(LOGGER, "", e);
+//	            e.printStackTrace();
+	        }
+
+	    } catch (Exception e) {
+	    	LogUtil.logException(LOGGER, "", e);
+//	        e.printStackTrace();
+	    }
+	}
+}

@@ -1,0 +1,231 @@
+/**
+ * Esito.java
+ *
+ * This file was auto-generated from WSDL
+ * by the Apache Axis 1.4 Apr 22, 2006 (06:55:48 PDT) WSDL2Java emitter.
+ */
+
+package it.eng.care.domain.flow.webservice.sis.ws.flussi;
+
+public class Esito  implements java.io.Serializable {
+    private java.lang.String codMessaggio;
+
+    private java.lang.String codStato;
+
+    private java.lang.String descMessaggio;
+
+    private java.lang.String descStato;
+
+    public Esito() {
+    }
+
+    public Esito(
+           java.lang.String codMessaggio,
+           java.lang.String codStato,
+           java.lang.String descMessaggio,
+           java.lang.String descStato) {
+           this.codMessaggio = codMessaggio;
+           this.codStato = codStato;
+           this.descMessaggio = descMessaggio;
+           this.descStato = descStato;
+    }
+
+
+    /**
+     * Gets the codMessaggio value for this Esito.
+     * 
+     * @return codMessaggio
+     */
+    public java.lang.String getCodMessaggio() {
+        return codMessaggio;
+    }
+
+
+    /**
+     * Sets the codMessaggio value for this Esito.
+     * 
+     * @param codMessaggio
+     */
+    public void setCodMessaggio(java.lang.String codMessaggio) {
+        this.codMessaggio = codMessaggio;
+    }
+
+
+    /**
+     * Gets the codStato value for this Esito.
+     * 
+     * @return codStato
+     */
+    public java.lang.String getCodStato() {
+        return codStato;
+    }
+
+
+    /**
+     * Sets the codStato value for this Esito.
+     * 
+     * @param codStato
+     */
+    public void setCodStato(java.lang.String codStato) {
+        this.codStato = codStato;
+    }
+
+
+    /**
+     * Gets the descMessaggio value for this Esito.
+     * 
+     * @return descMessaggio
+     */
+    public java.lang.String getDescMessaggio() {
+        return descMessaggio;
+    }
+
+
+    /**
+     * Sets the descMessaggio value for this Esito.
+     * 
+     * @param descMessaggio
+     */
+    public void setDescMessaggio(java.lang.String descMessaggio) {
+        this.descMessaggio = descMessaggio;
+    }
+
+
+    /**
+     * Gets the descStato value for this Esito.
+     * 
+     * @return descStato
+     */
+    public java.lang.String getDescStato() {
+        return descStato;
+    }
+
+
+    /**
+     * Sets the descStato value for this Esito.
+     * 
+     * @param descStato
+     */
+    public void setDescStato(java.lang.String descStato) {
+        this.descStato = descStato;
+    }
+
+    private java.lang.Object __equalsCalc = null;
+    public synchronized boolean equals(java.lang.Object obj) {
+        if (!(obj instanceof Esito)) return false;
+        Esito other = (Esito) obj;
+        if (obj == null) return false;
+        if (this == obj) return true;
+        if (__equalsCalc != null) {
+            return (__equalsCalc == obj);
+        }
+        __equalsCalc = obj;
+        boolean _equals;
+        _equals = true && 
+            ((this.codMessaggio==null && other.getCodMessaggio()==null) || 
+             (this.codMessaggio!=null &&
+              this.codMessaggio.equals(other.getCodMessaggio()))) &&
+            ((this.codStato==null && other.getCodStato()==null) || 
+             (this.codStato!=null &&
+              this.codStato.equals(other.getCodStato()))) &&
+            ((this.descMessaggio==null && other.getDescMessaggio()==null) || 
+             (this.descMessaggio!=null &&
+              this.descMessaggio.equals(other.getDescMessaggio()))) &&
+            ((this.descStato==null && other.getDescStato()==null) || 
+             (this.descStato!=null &&
+              this.descStato.equals(other.getDescStato())));
+        __equalsCalc = null;
+        return _equals;
+    }
+
+    private boolean __hashCodeCalc = false;
+    public synchronized int hashCode() {
+        if (__hashCodeCalc) {
+            return 0;
+        }
+        __hashCodeCalc = true;
+        int _hashCode = 1;
+        if (getCodMessaggio() != null) {
+            _hashCode += getCodMessaggio().hashCode();
+        }
+        if (getCodStato() != null) {
+            _hashCode += getCodStato().hashCode();
+        }
+        if (getDescMessaggio() != null) {
+            _hashCode += getDescMessaggio().hashCode();
+        }
+        if (getDescStato() != null) {
+            _hashCode += getDescStato().hashCode();
+        }
+        __hashCodeCalc = false;
+        return _hashCode;
+    }
+
+    // Type metadata
+    private static org.apache.axis.description.TypeDesc typeDesc =
+        new org.apache.axis.description.TypeDesc(Esito.class, true);
+
+    static {
+        typeDesc.setXmlType(new javax.xml.namespace.QName("http://ws.sis.eng.it/", "esito"));
+        org.apache.axis.description.ElementDesc elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("codMessaggio");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "codMessaggio"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("codStato");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "codStato"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("descMessaggio");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "descMessaggio"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+        elemField = new org.apache.axis.description.ElementDesc();
+        elemField.setFieldName("descStato");
+        elemField.setXmlName(new javax.xml.namespace.QName("", "descStato"));
+        elemField.setXmlType(new javax.xml.namespace.QName("http://www.w3.org/2001/XMLSchema", "string"));
+        elemField.setMinOccurs(0);
+        elemField.setNillable(false);
+        typeDesc.addFieldDesc(elemField);
+    }
+
+    /**
+     * Return type metadata object
+     */
+    public static org.apache.axis.description.TypeDesc getTypeDesc() {
+        return typeDesc;
+    }
+
+    /**
+     * Get Custom Serializer
+     */
+    public static org.apache.axis.encoding.Serializer getSerializer(
+           java.lang.String mechType, 
+           java.lang.Class _javaType,  
+           javax.xml.namespace.QName _xmlType) {
+        return 
+          new  org.apache.axis.encoding.ser.BeanSerializer(
+            _javaType, _xmlType, typeDesc);
+    }
+
+    /**
+     * Get Custom Deserializer
+     */
+    public static org.apache.axis.encoding.Deserializer getDeserializer(
+           java.lang.String mechType, 
+           java.lang.Class _javaType,  
+           javax.xml.namespace.QName _xmlType) {
+        return 
+          new  org.apache.axis.encoding.ser.BeanDeserializer(
+            _javaType, _xmlType, typeDesc);
+    }
+
+}

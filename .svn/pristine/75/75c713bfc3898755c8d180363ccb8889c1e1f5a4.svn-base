@@ -1,0 +1,138 @@
+package it.eng.care.domain.flow.jobs.service.impl;
+
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Example;
+import org.springframework.transaction.annotation.Transactional;
+
+import it.eng.care.domain.flow.core.dao.FlowExportRequestDAO;
+import it.eng.care.domain.flow.core.dao.FlowImportRequestDAO;
+import it.eng.care.domain.flow.core.dto.FlowExportRequestDTO;
+import it.eng.care.domain.flow.core.entity.FlowConfigurationFilterDO;
+import it.eng.care.domain.flow.core.entity.FlowConfigurationFilterFieldValueDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.entity.FlowImportRequestDO;
+import it.eng.care.domain.flow.core.enumeration.MachineState;
+import it.eng.care.domain.flow.core.service.FlowExportRequestService;
+import it.eng.care.domain.flow.drools.dao.ValidationRequestResultDAO;
+import it.eng.care.domain.flow.drools.entity.ValidationRequestResultDO;
+import it.eng.care.domain.flow.drools.model.status.ValidationResult;
+import it.eng.care.domain.flow.jobs.service.JobService;
+import it.eng.care.platform.tool.transport.conversion.ConversionService;
+
+@Transactional
+public class JobServiceImpl implements JobService {
+
+	@Autowired
+	private FlowImportRequestDAO flowImportRequestDAO;
+	
+	@Autowired
+	private FlowExportRequestDAO flowExportRequestDAO;
+
+	@Autowired
+	private ValidationRequestResultDAO validationRequestResultDAO;
+	
+	@Autowired
+    private ConversionService conversionService;
+	
+	@Autowired
+	private FlowExportRequestService flowExportRequestService;	
+	
+
+	@Override
+	public List<FlowImportRequestDO> getImportRequestToValidate() {
+		return flowImportRequestDAO.getRequestToValidate();
+	}
+	
+	@Override
+	public List<FlowExportRequestDO> getExportRequestToValidate() {
+		return flowExportRequestDAO.getRequestToManage(MachineState.TERMINATA_OK, "XSD_VALIDATED");
+	}
+	
+	@Override
+	public List<FlowExportRequestDTO> getExportRequestToExecute() {
+		List<FlowExportRequestDO> list = flowExportRequestDAO.getRequestToManage(MachineState.RICHIESTA, null);
+		List<FlowExportRequestDTO> listDTO = conversionService.convertAllTo(list, FlowExportRequestDTO.class);
+		return listDTO;
+	}
+
+	@Override
+	public void markImportRequestAsValidated(String id, ValidationResult validationResult) {
+		FlowImportRequestDO req = (id== null || id.isBlank()) ? null : flowImportRequestDAO.findById(id).orElse(null);
+		req.setValidationStatus("VALIDATED");
+
+		/*ValidationRequestResultDO validationRequestResult = new ValidationRequestResultDO();
+		validationRequestResult.setVrId(UUID.randomUUID().toString());
+		validationRequestResult.setImportingRequestId(id);
+		validationRequestResult.setErrors(validationResult.getErrors());
+		validationRequestResult.setWarnings(validationResult.getWarnings());
+		validationRequestResult.setValids(validationResult.getValids());
+		validationRequestResult.setValidationDate(new Date());
+		validationRequestResultDAO.save(validationRequestResult);*/
+
+	}
+	
+	@Override
+	public void markImportRequest(String id, String status) {
+		FlowImportRequestDO req = (id== null || id.isBlank()) ? null : flowImportRequestDAO.findById(id).orElse(null);
+		req.setValidationStatus(status);
+	}
+	
+	@Override
+	public void markExportRequestAsElaborated(String id, String status) {
+		FlowExportRequestDO req = (id== null || id.isBlank()) ? null : flowExportRequestDAO.findById(id).orElse(null);
+		req.setValidationStatusDrl(status);
+	}
+	
+	@Override
+	public void deleteOldResults(String id) {
+	    validationRequestResultDAO.deleteByImportingRequestId(id);
+	}
+
+	@Override
+	public void createNextSchedulation(String exportId, Date nextDate) {
+		FlowExportRequestDO flowExportRequest = (exportId== null || exportId.isBlank()) ? null : flowExportRequestDAO.findById(exportId).orElse(null);
+		if(flowExportRequest != null) {
+			FlowExportRequestDO nextRequest = conversionService.convertTo(flowExportRequest, FlowExportRequestDO.class);
+			nextRequest.setFlow(flowExportRequest.getFlow());
+			nextRequest.setJobTalendId(flowExportRequest.getJobTalendId());
+			nextRequest.setVersion(flowExportRequest.getVersion());
+			nextRequest.setEndExtractionDate(null);
+			nextRequest.setRequestDate(new Date());
+			nextRequest.setStatus(null);
+			nextRequest.setSchedulingNextTime(nextDate);
+			nextRequest.setStartExtractionDate(null);
+			nextRequest.setAziendeProfiloFlussi(flowExportRequest.getAziendeProfiloFlussi());
+			nextRequest.setSchedulingIntervalMinutes(flowExportRequest.getSchedulingIntervalMinutes());
+			nextRequest.setSchedulingIntervalSeconds(flowExportRequest.getSchedulingIntervalSeconds());
+			List<FlowConfigurationFilterDO> oldFilterList = new ArrayList<FlowConfigurationFilterDO>();
+			oldFilterList.addAll(flowExportRequest.getConfigurationFilters());
+			List<FlowConfigurationFilterDO> newFilterList = new ArrayList<FlowConfigurationFilterDO>();
+			for(FlowConfigurationFilterDO oldFilter: oldFilterList) {
+				FlowConfigurationFilterDO newFilter = oldFilter;
+				newFilter.setExportRequest(null);
+				newFilterList.add(newFilter);
+			}
+			nextRequest.setConfigurationFilters(new HashSet<FlowConfigurationFilterDO>(newFilterList));
+	        Set<FlowConfigurationFilterFieldValueDO> newValueSet = new HashSet<FlowConfigurationFilterFieldValueDO>();
+	        for(FlowConfigurationFilterFieldValueDO value: flowExportRequest.getValues()) {
+	        	FlowConfigurationFilterFieldValueDO newValue = new FlowConfigurationFilterFieldValueDO();
+	        	newValue.setId(null);
+	        	newValue.setFlowExportRequest(nextRequest);
+	        	newValue.setConfigurationFilterField(value.getConfigurationFilterField());
+	        	newValue.setValue(value.getValue());
+	        	newValueSet.add(newValue);
+	        }
+			nextRequest.setValues(newValueSet);
+			
+			flowExportRequestService.createEntity(nextRequest);
+		}
+    }
+	
+	
+}

@@ -1,0 +1,52 @@
+package it.eng.care.domain.flow.jobs.service.impl;
+
+import java.util.Date;
+import java.util.List;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+
+import it.eng.care.domain.flow.b2b.service.ValidationMessageService;
+import it.eng.care.domain.flow.b2b.utils.ErrorService;
+import it.eng.care.domain.flow.core.entity.ValidationErrorsDO;
+import it.eng.care.domain.flow.core.enumeration.ErrorServiceStatusEnum;
+import it.eng.care.domain.flow.jobs.service.JobSendErrorService;
+
+
+public class JobSendErrorServiceImpl implements JobSendErrorService{
+
+	
+	@Autowired
+	protected ValidationMessageService validationMessageService;
+	
+	@Autowired
+	protected ErrorService errorService;
+	
+	@Value("${flow.job.error.retrynum:5}")
+	private int numError; 
+	
+	@Override
+	public void getPendingErrorAndSend() throws Exception {
+		
+		List<ValidationErrorsDO> errors = validationMessageService.findAllPendingErrors(numError);
+		
+		for(ValidationErrorsDO error : errors) {
+			String status = errorService.restCall(error.getJson(), error.getFlowId().getName(), error.getCodiceAzienda());
+			//in base al risultato prodotto dal servizio restCall bisogna o meno aggiornare il record in modo da effettuare un retry consistente e aumentare il numero di try per ogni fallimento 
+		
+			if(status.equals(ErrorServiceStatusEnum.ERROR.getStatus()) && error.getNretry() < numError) {
+				error.setStatus(ErrorServiceStatusEnum.PENDING.getStatus());
+				error.setNretry(error.getNretry()+1);
+				validationMessageService.saveOrUpdateEvent(error);
+				
+			} else if(status.equals(ErrorServiceStatusEnum.SENT.getStatus())) {
+				error.setDateSent(new Date());
+				error.setStatus(ErrorServiceStatusEnum.SENT.getStatus());
+				validationMessageService.saveOrUpdateEvent(error);
+			}
+		
+		}
+		
+	}
+
+}

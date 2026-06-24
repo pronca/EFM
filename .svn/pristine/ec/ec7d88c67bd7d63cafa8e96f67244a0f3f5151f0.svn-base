@@ -1,0 +1,15 @@
+package it.eng.care.domain.flow.core.service;
+
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+
+public interface TalendThreadService {
+
+	void save(FlowExportRequestDO flowExportRequestDO);
+
+	int checkValidation(FlowExportRequestDO flowExportRequestDO);
+
+	Integer countExtractionRecord(FlowExportRequestDO flowExportRequestDO);
+	
+	void deleteErrors(String exportId);
+	
+}

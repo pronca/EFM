@@ -1,0 +1,257 @@
+<?xml version="1.1" encoding="UTF-8" standalone="no"?>
+<databaseChangeLog
+	xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+	xmlns:ext="http://www.liquibase.org/xml/ns/dbchangelog-ext"
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog-ext http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-ext.xsd http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.6.xsd"
+	logicalFilePath="db/changelogs">
+
+	<changeSet author="Dabarbal" id="1539600587737-59">
+		<createTable tableName="cp_rule">
+			<column name="ru_id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rulepk" />
+			</column>
+			<column name="ru_createdby" type="VARCHAR(255)" />
+			<column name="ru_createddate" type="TIMESTAMP" />
+			<column name="ru_deleted" type="BOOLEAN">
+				<constraints nullable="false" />
+			</column>
+			<column name="ru_deletedby" type="VARCHAR(255)" />
+			<column name="ru_deletiondate" type="TIMESTAMP" />
+			<column name="ru_lastmodifiedby" type="VARCHAR(255)" />
+			<column name="ru_lastmodifieddate" type="TIMESTAMP" />
+			<column name="ru_sessioncreated" type="VARCHAR(255)" />
+			<column name="ru_sessiondeleted" type="VARCHAR(255)" />
+			<column name="ru_sessionmodified" type="VARCHAR(255)" />
+			<column name="ru_enddate" type="TIMESTAMP" />
+			<column name="ru_startdate" type="TIMESTAMP" />
+			<column name="body" type="CLOB">
+				<constraints nullable="false" />
+			</column>
+			<column name="name" type="VARCHAR(255)">
+				<constraints nullable="false" />
+			</column>
+		</createTable>
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-63">
+		<createTable tableName="cp_rule_info">
+			<column name="ri_id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_infopk" />
+			</column>
+			<column name="ri_createdby" type="VARCHAR(255)" />
+			<column name="ri_createddate" type="TIMESTAMP" />
+			<column name="ri_deleted" type="BOOLEAN">
+				<constraints nullable="false" />
+			</column>
+			<column name="ri_deletedby" type="VARCHAR(255)" />
+			<column name="ri_deletiondate" type="TIMESTAMP" />
+			<column name="ri_lastmodifiedby" type="VARCHAR(255)" />
+			<column name="ri_lastmodifieddate" type="TIMESTAMP" />
+			<column name="ri_sessioncreated" type="VARCHAR(255)" />
+			<column name="ri_sessiondeleted" type="VARCHAR(255)" />
+			<column name="ri_sessionmodified" type="VARCHAR(255)" />
+			<column name="key" type="VARCHAR(255)">
+				<constraints nullable="false" />
+			</column>
+			<column name="value" type="VARCHAR(255)">
+				<constraints nullable="false" />
+			</column>
+			<column name="rule_id" type="VARCHAR(255)" />
+		</createTable>
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-61">
+		<createTable tableName="cp_rule_bean_schema">
+			<column name="rbs_id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_bean_schemapk" />
+			</column>
+			<column name="name" type="VARCHAR(255)">
+				<constraints nullable="false" />
+			</column>
+			<column name="schema" type="CLOB">
+				<constraints nullable="false" />
+			</column>
+			<column name="rule" type="VARCHAR(255)" />
+		</createTable>
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-65">
+		<createTable tableName="cp_rule_stats">
+			<column name="rs_id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_statspk" />
+			</column>
+			<column name="calls" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+			<column name="valid_calls" type="INTEGER">
+				<constraints nullable="false" />
+			</column>
+			<column name="rule" type="VARCHAR(255)" />
+		</createTable>
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-60">
+		<createTable tableName="cp_rule_aud">
+			<column name="ru_id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_audpk" />
+			</column>
+			<column name="rev" type="INTEGER">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_audpk" />
+			</column>
+			<column name="revtype" type="tinyint" />
+			<column name="ru_createdby" type="VARCHAR(255)" />
+			<column name="ru_createddate" type="TIMESTAMP" />
+			<column name="ru_deleted" type="BOOLEAN" />
+			<column name="ru_deletedby" type="VARCHAR(255)" />
+			<column name="ru_deletiondate" type="TIMESTAMP" />
+			<column name="ru_lastmodifiedby" type="VARCHAR(255)" />
+			<column name="ru_lastmodifieddate" type="TIMESTAMP" />
+			<column name="ru_sessioncreated" type="VARCHAR(255)" />
+			<column name="ru_sessiondeleted" type="VARCHAR(255)" />
+			<column name="ru_sessionmodified" type="VARCHAR(255)" />
+			<column name="ru_enddate" type="TIMESTAMP" />
+			<column name="ru_startdate" type="TIMESTAMP" />
+			<column name="body" type="CLOB" />
+			<column name="name" type="VARCHAR(255)" />
+		</createTable>
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-62">
+		<createTable tableName="cp_rule_bean_schema_aud">
+			<column name="rbs_id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_bean_schema_audpk" />
+			</column>
+			<column name="rev" type="INTEGER">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_bean_schema_audpk" />
+			</column>
+			<column name="revtype" type="tinyint" />
+			<column name="name" type="VARCHAR(255)" />
+			<column name="schema" type="CLOB" />
+			<column name="rule" type="VARCHAR(255)" />
+		</createTable>
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-64">
+		<createTable tableName="cp_rule_info_aud">
+			<column name="ri_id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_info_audpk" />
+			</column>
+			<column name="rev" type="INTEGER">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_info_audpk" />
+			</column>
+			<column name="revtype" type="tinyint" />
+			<column name="ri_createdby" type="VARCHAR(255)" />
+			<column name="ri_createddate" type="TIMESTAMP" />
+			<column name="ri_deleted" type="BOOLEAN" />
+			<column name="ri_deletedby" type="VARCHAR(255)" />
+			<column name="ri_deletiondate" type="TIMESTAMP" />
+			<column name="ri_lastmodifiedby" type="VARCHAR(255)" />
+			<column name="ri_lastmodifieddate" type="TIMESTAMP" />
+			<column name="ri_sessioncreated" type="VARCHAR(255)" />
+			<column name="ri_sessiondeleted" type="VARCHAR(255)" />
+			<column name="ri_sessionmodified" type="VARCHAR(255)" />
+			<column name="key" type="VARCHAR(255)" />
+			<column name="value" type="VARCHAR(255)" />
+			<column name="rule_id" type="VARCHAR(255)" />
+		</createTable>
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-66">
+		<createTable tableName="cp_rule_stats_aud">
+			<column name="rs_id" type="VARCHAR(255)">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_stats_audpk" />
+			</column>
+			<column name="rev" type="INTEGER">
+				<constraints primaryKey="true"
+					primaryKeyName="cp_rule_stats_audpk" />
+			</column>
+			<column name="revtype" type="tinyint" />
+			<column name="calls" type="INTEGER" />
+			<column name="valid_calls" type="INTEGER" />
+			<column name="rule" type="VARCHAR(255)" />
+		</createTable>
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-137">
+		<createIndex indexName="cp_rule_info_idx"
+			tableName="cp_rule_info">
+			<column name="key" />
+		</createIndex>
+	</changeSet>
+	<changeSet author="Dabarbal" id="1539600587737-138">
+		<createIndex indexName="cp_rule_info_idx_2"
+			tableName="cp_rule_info">
+			<column name="rule_id" />
+		</createIndex>
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-157">
+		<addForeignKeyConstraint baseColumnNames="rev"
+			baseTableName="cp_rule_stats_aud"
+			constraintName="FK1i9c6cujo340s24stlvicu45k" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="rev" referencedTableName="revinfo" />
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-164">
+		<addForeignKeyConstraint baseColumnNames="rev"
+			baseTableName="cp_rule_info_aud"
+			constraintName="FK3whsov9vy8v3hitmrwfust4iy" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="rev" referencedTableName="revinfo" />
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-171">
+		<addForeignKeyConstraint baseColumnNames="rev"
+			baseTableName="cp_rule_aud"
+			constraintName="FK51fm4muj7khvuxrscyoc5v9wy" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="rev" referencedTableName="revinfo" />
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-181">
+		<addForeignKeyConstraint
+			baseColumnNames="rule" baseTableName="cp_rule_bean_schema"
+			constraintName="FK81dx31885mp1e060m9aec00vs" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="ru_id" referencedTableName="cp_rule" />
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-197">
+		<addForeignKeyConstraint baseColumnNames="rev"
+			baseTableName="cp_rule_bean_schema_aud"
+			constraintName="FKcfx2cablr8qoi6nogvct62rdu" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="rev" referencedTableName="revinfo" />
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-217">
+		<addForeignKeyConstraint
+			baseColumnNames="rule_id" baseTableName="cp_rule_info"
+			constraintName="FKhmaoiuyrdqbhd77sp97v6bhlf" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="ru_id" referencedTableName="cp_rule" />
+	</changeSet>
+
+	<changeSet author="Dabarbal" id="1539600587737-262">
+		<addForeignKeyConstraint
+			baseColumnNames="rule" baseTableName="cp_rule_stats"
+			constraintName="FKtr55roft9ytf40gn5w85i70gk" deferrable="false"
+			initiallyDeferred="false" onDelete="NO ACTION" onUpdate="NO ACTION"
+			referencedColumnNames="ru_id" referencedTableName="cp_rule" />
+	</changeSet>
+
+
+</databaseChangeLog>

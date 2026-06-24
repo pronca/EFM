@@ -1,0 +1,341 @@
+package it.eng.care.domain.flow.jobs.dao;
+
+import java.util.Calendar;
+import java.util.Date;
+import java.util.List;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.Query;
+import jakarta.persistence.TemporalType;
+
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.entity.DashboardConfigDO;
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenFilter;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+
+public class DashboardJobDAOImpl implements DashboardJobDAO{
+	
+	@Autowired
+	private EntityManager entityManager;
+	
+	@Autowired
+	private TabgenDelegate tabgenDelegate;
+	
+	@Override
+	public List<Object[]> countPraticheDay(FormFlowDTO formFlowDTO, String filterName, String valueName, String codiceAzienda) {
+		Query query = null;
+        String selectSQL = "";
+        String innerQuery = "";
+        String outsideQuery = "SELECT COUNT(1), a.date_processing, a.codiceazienda from ( ";
+        String queryApp = "";
+        String tableName = "";
+        String whereSQL = "";
+        String groupBySQL = " group by a.date_processing, a.codiceazienda order by a.codiceazienda, a.date_processing desc";
+    	Calendar cal = Calendar.getInstance();
+    	cal.set(Calendar.HOUR_OF_DAY, 23);
+    	cal.set(Calendar.MINUTE, 59);
+    	cal.set(Calendar.SECOND, 59);
+    	cal.set(Calendar.MILLISECOND, 999);
+    	Date dateEnd = cal.getTime();
+    	cal.set(Calendar.HOUR_OF_DAY, 0);
+    	cal.set(Calendar.MINUTE, 0);
+    	cal.set(Calendar.SECOND, 0);
+    	cal.set(Calendar.MILLISECOND, 0);
+    	cal.add(Calendar.DATE, -6);
+    	Date dateStart = cal.getTime();
+    	
+		tableName = "FM_FLOW_" + formFlowDTO.getName() + "_0 b";
+		if (filterName != null && valueName != null) {
+			whereSQL = " where b."+filterName+ " = '"+valueName+"' and b.date_processing between ? and ? ";
+		} else {
+			whereSQL = " where b.date_processing between ? and ? ";
+		}
+		if (codiceAzienda!=null) {
+			whereSQL+=" and b.codiceazienda='"+codiceAzienda+"'";
+		}
+		whereSQL+=" ) a";
+		
+		for(FormFlowTableFieldDTO field : formFlowDTO.getFlowTableList().get(0).getFlowTableFieldList()) {
+			if(field.getGroups() == true) {
+				selectSQL += " b." + field.getName() + " , ";
+			}
+		}
+		
+		if (selectSQL.equals("")) {
+			innerQuery = "SELECT DISTINCT b.date_processing, b.codiceazienda FROM " + tableName;
+		} else {
+			innerQuery = "SELECT DISTINCT " + selectSQL + " b.date_processing FROM " + tableName;
+		}
+		
+		queryApp = outsideQuery + innerQuery + whereSQL + groupBySQL;
+		
+		query = entityManager.createNativeQuery((String) queryApp);
+		
+		query.setParameter(1,(Date) dateStart, TemporalType.DATE);
+		query.setParameter(2,(Date) dateEnd, TemporalType.DATE);
+		
+		try {
+			try {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			} catch (NullPointerException n) {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			}
+		} catch(Throwable ex) {
+			ex.printStackTrace();
+		}
+
+		return null;
+
+    }
+	
+	@Override
+	public List<Object[]> getAziendeAll(FormFlowDTO formFlowDTO, boolean onlyWeek) {
+		Query query = null;
+        String innerQuery = "";
+        String outsideQuery = "SELECT a.codiceazienda from ( ";
+        String queryApp = "";
+        String tableName = "";
+        String whereSQL = "";
+        String groupBySQL = " group by a.codiceazienda";
+        Calendar cal = Calendar.getInstance();
+    	cal.set(Calendar.HOUR_OF_DAY, 23);
+    	cal.set(Calendar.MINUTE, 59);
+    	cal.set(Calendar.SECOND, 59);
+    	cal.set(Calendar.MILLISECOND, 999);
+    	Date dateEnd = cal.getTime();
+    	cal.set(Calendar.HOUR_OF_DAY, 0);
+    	cal.set(Calendar.MINUTE, 0);
+    	cal.set(Calendar.SECOND, 0);
+    	cal.set(Calendar.MILLISECOND, 0);
+    	cal.add(Calendar.DATE, -6);
+    	Date dateStart = cal.getTime();
+    	
+		tableName = "FM_FLOW_" + formFlowDTO.getName() + "_0 b";
+		if (onlyWeek) {
+			whereSQL = " where b.date_processing between ? and ? ) a ";
+		} else {
+			whereSQL = " where 1=1 ) a ";
+		}
+		
+		innerQuery = "SELECT DISTINCT b.codiceazienda FROM " + tableName;
+		queryApp = outsideQuery + innerQuery + whereSQL + groupBySQL;
+		
+		query = entityManager.createNativeQuery((String) queryApp);
+		
+		if (onlyWeek) {
+			query.setParameter(1,(Date) dateStart, TemporalType.DATE);
+			query.setParameter(2,(Date) dateEnd, TemporalType.DATE);
+		}
+		
+		try {
+			try {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			} catch (NullPointerException n) {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			}
+		} catch(Throwable ex) {
+//			ex.printStackTrace();
+			return null;
+		}
+
+    }
+	
+	@Override
+	public List<Object[]> countErrorsTop5(FormFlowDTO formFlowDTO, String filterName, String valueName, String codiceAzienda) {
+	
+		Query queryFinal = null;
+		String campiSelectSub = "";
+	    String selectDistinct = "SELECT DISTINCT ";
+	    String onSQL = "ON ";
+        String fromSQl = "FROM ";
+        String joinSQL = "JOIN ";
+        String query = "";
+    	String outsideQueryStart = "SELECT * FROM ( ";
+    	String outsideQueryEnd = ") CC WHERE CC.YEAR_RIF IS NOT NULL AND CC.MONTH_RIF IS NOT NULL AND CC.CODICEAZIENDA='"+codiceAzienda+"' ORDER BY codiceazienda, YEAR_RIF, MONTH_RIF, CN DESC, MESSAGE";
+    	String innerQueryStart = "SELECT A.YEAR_RIF, A.MONTH_RIF, a.MESSAGE, COUNT(1) cn, A.DESCRIPTION, A.codiceazienda FROM ( ";
+    	String innerQueryEnd = ") A GROUP BY A.YEAR_RIF, A.MONTH_RIF, a.message, A.DESCRIPTION, A.codiceazienda";
+    	String subQuery ="";
+    	String unionSQL = " UNION ";
+		
+	    for (FormFlowTableDTO formFlowTableDTO : formFlowDTO.getFlowTableList()) {
+	        String tableNameMessage = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection() + "_MESSAGE P ";
+	        String tableName = "FM_FLOW_" + formFlowDTO.getName() + "_" + formFlowTableDTO.getSection() + " Q ";
+	        String tableErrors = "FM_ERROR_MESSAGE R ";
+	        
+	        for (FormFlowTableFieldDTO field : formFlowTableDTO.getFlowTableFieldList()) {
+	        	
+	        	if(field.isPk()) {
+	        		
+	        		campiSelectSub += "P." + field.getName() + " , ";
+	        		onSQL += "P." + field.getName() + " = " + "Q." + field.getName() + " AND ";
+	        		
+	        	}
+	        }
+	        
+	        if (onSQL.endsWith(" AND ")) {
+				onSQL = onSQL.substring(0, onSQL.length() - 4);
+	        }
+	        
+	        campiSelectSub += "P.MESSAGE, Q.YEAR_RIF, Q.MONTH_RIF, R.DESCRIPTION ";
+	                        
+	        subQuery = innerQueryStart + selectDistinct + campiSelectSub + fromSQl + tableNameMessage + joinSQL + tableName + onSQL;
+	        
+	        if (formFlowTableDTO.getSection() != 0 && filterName != null && valueName != null) {
+	        	String tableName0 = "FM_FLOW_" + formFlowDTO.getName() + "_0 Q1 ";
+	        	String onSQL0 = new String(onSQL);
+	        	onSQL0.replaceAll("Q", "Q1");
+	        	 subQuery += joinSQL + tableName0 + onSQL0 + "AND Q1." + filterName + "='" + valueName + "' ";
+	        } 
+	        
+	        subQuery += joinSQL + tableErrors + "ON P.MESSAGE = R.EM_ID ";
+
+	        if (formFlowTableDTO.getSection() == 0 && filterName != null && valueName != null) {
+	        	subQuery += " WHERE Q."+filterName+" = '"+valueName+"' ";
+	        }
+	        
+	        subQuery += innerQueryEnd + unionSQL;
+	
+	        query += subQuery;
+	        
+	        campiSelectSub = "";
+	        onSQL = "ON ";
+	        
+	    }     
+	    
+	    if (query.endsWith(" UNION ")) {
+	    	query = query.substring(0, query.length() - 6);
+	    }
+	    
+	    query = outsideQueryStart + query + outsideQueryEnd;
+	   
+		queryFinal = entityManager.createNativeQuery((String) query);
+		
+		try {
+			try {
+				List<Object[]> resultApp = queryFinal.getResultList();
+				return resultApp;
+			} catch (NullPointerException n) {
+				List<Object[]> resultApp = queryFinal.getResultList();
+				return resultApp;
+			}
+		} catch(Throwable ex) {
+			ex.printStackTrace();
+		}
+		
+		return null;
+		
+	}
+	
+	@Override
+	public List<Object[]> countQuery(FormFlowDTO formFlowDTO, DashboardConfigDO dashboardConfigDO, boolean jobYear, String filterName, String valueName, String codiceAzienda) {
+		
+		Query query = null;
+		String queryApp = dashboardConfigDO.getQuery();
+		Calendar cal = Calendar.getInstance();
+		String mese = "";
+		String meseScorso = "";
+		String mesi = "";
+		String anni = "";
+		if(jobYear) {
+			mesi = "'01','02','03','04','05','06','07','08','09','10','11','12'";
+			for(int i = 2018; i<=cal.get(Calendar.YEAR); i++) {
+				anni += "'" + i + "',";
+			}
+			if(anni.endsWith(",")) {
+				anni = anni.substring(0,anni.length()-1);
+			}
+		}else {
+			int lastMonth = cal.get(Calendar.MONTH);
+	    	int month = cal.get(Calendar.MONTH) + 1;
+	    	mese = Integer.toString(month);
+	    	
+	    	int lastYear = cal.get(Calendar.YEAR) -1;
+	    	int year = cal.get(Calendar.YEAR);
+	    	anni = "'" + Integer.toString(year) + "'";
+	    	
+	    	if(lastMonth == 0) {
+	    		lastMonth = 12;
+	    		anni = "'" + Integer.toString(lastYear) + "', '" + Integer.toString(year) + "'";
+	    	}
+	    	
+	    	meseScorso = Integer.toString(lastMonth);
+	    	if(mese.length()<2) {
+	    		mese = "0" + mese;
+	    	}
+	    	if(meseScorso.length()<2) {
+	    		meseScorso = "0" + meseScorso;
+	    	}
+	    	mesi = "'" + meseScorso + "','" + mese + "'";
+	    	
+		}
+		
+		queryApp = queryApp.replaceAll(":mesi", mesi);
+		queryApp = queryApp.replaceAll(":anni", anni);
+		if (codiceAzienda != null && !codiceAzienda.isEmpty()) {
+			queryApp = queryApp.replaceAll(":aziendeprofilate", "'" + String.join("','",codiceAzienda) + "'");
+		} else {
+			queryApp = queryApp.replaceAll(":aziendeprofilate", null);
+		}
+		
+		if (filterName!= null && valueName != null)  {
+			queryApp = queryApp.replaceAll(":"+filterName, valueName);
+		}
+		
+		query = entityManager.createNativeQuery((String) queryApp);
+		
+		try {
+			try {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			} catch(NullPointerException n) {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			}
+		} catch(Throwable ex) {
+			//ex.printStackTrace();
+			return null;
+		}
+    	
+    }
+
+
+	@Override
+	public void checkDashboardMeseAnno() {
+		Calendar cal = Calendar.getInstance();
+		int year = cal.get(Calendar.YEAR);
+		TabgenValueFilter filter = new TabgenValueFilter();
+		filter.setTabgenId("DASHBOARDMESEANNO");
+		filter.setField2(Integer.toString(year+1));
+		BasePagingLoadResult<Tabgen> list = tabgenDelegate.searchValue(filter);
+		if(list.getList().get(0).getId() == null) {
+			TabgenFilter tabgenFilter = new TabgenFilter();
+			tabgenFilter.setId("DASHBOARDMESEANNO");
+			List<Tabgen> tabgenList = tabgenDelegate.searchTable(tabgenFilter);
+			Tabgen tabgen = tabgenList.get(0);
+			for(int i=1; i<13; i++) {
+				String mese = Integer.toString(i);
+				if(i<10) {
+					mese = "0" + mese;
+				}
+				TabgenValue value = new TabgenValue();
+				value.setTabgen(tabgen);
+				value.setField1(mese);
+				value.setField2(Integer.toString(year+1));
+				tabgenDelegate.saveValue(value);
+			}
+		}
+	}
+	
+}

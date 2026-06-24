@@ -1,0 +1,227 @@
+package it.eng.care.domain.flow.flowupload.dao;
+
+import java.util.Date;
+import java.util.List;
+import java.util.Set;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Expression;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+
+import org.apache.commons.lang3.StringUtils;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataAccessException;
+
+import com.google.common.collect.Sets;
+
+import it.eng.care.domain.flow.flowupload.bean.WellFormedStatusEnum;
+import it.eng.care.domain.flow.flowupload.model.FlowFileUploadRequestDO;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+
+public class FlowFileUploadRequestDAObyBaseSearchInput {
+	
+	@Autowired
+    private EntityManager entityManager;
+	
+	public CriteriaQuery<FlowFileUploadRequestDO> cerca(BaseSearchInput poInput){
+        CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+        CriteriaQuery<FlowFileUploadRequestDO> criteriaQuery = builder.createQuery(FlowFileUploadRequestDO.class);
+        Root<FlowFileUploadRequestDO> rootTabella = criteriaQuery.from(FlowFileUploadRequestDO.class);
+        Set<Predicate> restrictions = Sets.newHashSet();
+
+        Join<Object, Object> versionJoin = rootTabella.join("version");
+        Join<Object, Object> flowJoin = rootTabella.join("flow");
+
+        String flow = (String) poInput.getValue("flow");
+        String version = (String) poInput.getValue("version");
+        Date creationDate = (Date) poInput.getValue("creationDate");
+        Date validationDate = (Date) poInput.getValue("validationDate");
+        String status = (String) poInput.getValue("status");
+        String sort = (String) poInput.getValue("sort");
+        String sortfield = (String) poInput.getValue("sortfield");
+        List<String> aziende = (List<String>) poInput.getValue("aziende");
+        String id = (String) poInput.getValue("id");
+        String codiceAzienda = (String) poInput.getValue("codiceazienda");
+        
+        if(aziende != null && !aziende.isEmpty()){
+        	Path<String> text = rootTabella.get("aziendeProfiloFlussi");
+        	Predicate predicate1 = builder.or(builder.isNull(text));
+        	Predicate predicateOr = null;
+        	Predicate predicateOrTot = null;
+        	if (aziende.size()==1) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"));
+        	} else if (aziende.size()==2) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"));
+        	} else if (aziende.size()==3) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"));
+        	} else if (aziende.size()==4) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"));
+        	} else if (aziende.size()==5) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"));
+        	} else if (aziende.size()==6) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"));
+        	} else if (aziende.size()==7) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(6).toUpperCase() + "%"));
+        	} else if (aziende.size()==8) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(6).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(7).toUpperCase() + "%"));
+        	} else if (aziende.size()==9) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(6).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(7).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(8).toUpperCase() + "%"));
+        	} else if (aziende.size()==10) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(6).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(7).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(8).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(9).toUpperCase() + "%"));
+        	}
+        	predicateOrTot = builder.or(predicate1, predicateOr);
+        	restrictions.add(predicateOrTot);
+        }
+        
+        for(WellFormedStatusEnum a: WellFormedStatusEnum.values()) {
+        	if((a.getDescription()).equals(status)) {
+        		status = a.name();
+        	}
+        }
+        
+        if (!StringUtils.isEmpty(flow)) {
+            Path<String> text = flowJoin.get("id");
+            restrictions.add(builder.equal(text, flow));
+        }
+        if (!StringUtils.isEmpty(version)) {
+            Path<String> text = versionJoin.get("id");
+            restrictions.add(builder.equal(text, version));
+        }
+
+        if (!StringUtils.isEmpty(status)) {
+            Path<String> text = rootTabella.get("status");
+            restrictions.add(builder.equal(text, status));
+        } 
+        
+        if (!StringUtils.isEmpty(id)) {
+            Path<String> text = rootTabella.get("id");
+            restrictions.add(builder.equal(text, id));
+        }
+        
+        if (creationDate != null) {
+        	restrictions.add(builder.equal(rootTabella.get("creationDate"), creationDate));
+        }
+        
+        if (validationDate != null) {
+        	restrictions.add(builder.equal(rootTabella.get("validationDate"), validationDate));
+        }
+        
+        if (!StringUtils.isEmpty(codiceAzienda)) {
+            Path<String> text = rootTabella.get("aziendeLoadedInFile");
+            restrictions.add(builder.equal(text, codiceAzienda));
+        } 
+        
+        if (!StringUtils.isEmpty(sort)) {
+            if (sort.equals("ASC")) {
+                criteriaQuery.orderBy(builder.asc(rootTabella.get(sortfield)));
+            } else {
+                criteriaQuery.orderBy(builder.desc(rootTabella.get(sortfield)));
+            }
+        } else {
+            criteriaQuery.orderBy(builder.desc(rootTabella.get("creationDate")));
+        }
+
+        return criteriaQuery
+                .select(rootTabella)
+                .where(restrictions.toArray(new Predicate[restrictions.size()]));
+    }
+	
+	public CriteriaQuery<Long> countFlowExportByFilter(BaseSearchInput filter) throws DataAccessException {
+		CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+		CriteriaQuery<Long> criteriaQuery=builder.createQuery(Long.class);
+        Root<FlowFileUploadRequestDO> rootTabella = criteriaQuery.from(FlowFileUploadRequestDO.class);
+        Set<Predicate> restrictions = Sets.newHashSet();
+
+        Join<Object, Object> versionJoin = rootTabella.join("version");
+        Join<Object, Object> flowJoin = rootTabella.join("flow");
+
+        String flow = (String) filter.getValue("flow");
+        String version = (String) filter.getValue("version");
+        Date creationDate = (Date) filter.getValue("creationDate");
+        Date validationDate = (Date) filter.getValue("validationDate");
+        String status = (String) filter.getValue("status");
+        List<String> aziende = (List<String>) filter.getValue("aziende");
+        String id = (String) filter.getValue("id");
+        String codiceAzienda = (String) filter.getValue("codiceazienda");
+        
+        if(aziende != null && !aziende.isEmpty()){
+        	Path<String> text = rootTabella.get("aziendeProfiloFlussi");
+        	Predicate predicate1 = builder.or(builder.isNull(text));
+        	Predicate predicateOr = null;
+        	Predicate predicateOrTot = null;
+        	if (aziende.size()==1) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"));
+        	} else if (aziende.size()==2) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"));
+        	} else if (aziende.size()==3) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"));
+        	} else if (aziende.size()==4) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"));
+        	} else if (aziende.size()==5) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"));
+        	} else if (aziende.size()==6) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"));
+        	} else if (aziende.size()==7) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(6).toUpperCase() + "%"));
+        	} else if (aziende.size()==8) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(6).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(7).toUpperCase() + "%"));
+        	} else if (aziende.size()==9) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(6).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(7).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(8).toUpperCase() + "%"));
+        	} else if (aziende.size()==10) {
+        		predicateOr = builder.or(builder.like(builder.upper(text), "%" + aziende.get(0).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(1).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(2).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(3).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(4).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(5).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(6).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(7).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(8).toUpperCase() + "%"), builder.like(builder.upper(text), "%" + aziende.get(9).toUpperCase() + "%"));
+        	}
+        	predicateOrTot = builder.or(predicate1, predicateOr);
+        	restrictions.add(predicateOrTot);
+        }
+        
+        for(WellFormedStatusEnum a: WellFormedStatusEnum.values()) {
+        	if((a.getDescription()).equals(status)) {
+        		status = a.name();
+        	}
+        }
+
+        if (!StringUtils.isEmpty(flow)) {
+            Path<String> text = flowJoin.get("id");
+            restrictions.add(builder.equal(text, flow));
+        }
+        if (!StringUtils.isEmpty(version)) {
+            Path<String> text = versionJoin.get("id");
+            restrictions.add(builder.equal(text, version));
+        }
+
+        if (!StringUtils.isEmpty(status)) {
+            Path<String> text = rootTabella.get("status");
+            restrictions.add(builder.equal(text, status));
+        } 
+        
+        if (!StringUtils.isEmpty(id)) {
+            Path<String> text = rootTabella.get("id");
+            restrictions.add(builder.equal(text, id));
+        } 
+        
+        if (creationDate != null) {
+        	restrictions.add(builder.equal(rootTabella.get("creationDate"), creationDate));
+        }
+        
+        if (validationDate != null) {
+        	restrictions.add(builder.equal(rootTabella.get("validationDate"), validationDate));
+        }
+        
+        if (!StringUtils.isEmpty(codiceAzienda)) {
+            Path<String> text = rootTabella.get("aziendeLoadedInFile");
+            restrictions.add(builder.equal(text, codiceAzienda));
+        } 
+        
+        Expression<Long> count=builder.count(rootTabella);
+        
+        return criteriaQuery.select(count).where(restrictions.toArray(new Predicate[restrictions.size()]));
+        
+
+}
+
+}

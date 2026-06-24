@@ -1,0 +1,55 @@
+package it.eng.care.domain.flow.b2b.service;
+
+import java.util.List;
+import java.util.Map;
+
+import org.json.JSONObject;
+
+import it.eng.care.domain.flow.b2b.model.FlowQueryBuilder;
+import it.eng.care.domain.flow.b2b.model.LockedMessageDTO;
+import it.eng.care.domain.flow.b2b.model.ProcessSingleFlowResult;
+import it.eng.care.domain.flow.core.enumeration.StateReceviedAppEnum;
+import jakarta.json.JsonObject;
+
+public interface JsonFlowService {
+
+	/**
+	 * @param obj          Oggetto contenente il flusso
+	 * @param flowName     nome del flusso
+	 * @param versionName  Versione del flusso
+	 * @param extractionId Id dell'estrazione
+	 * @return Lista di query da eseguire
+	 * @throws Exception
+	 */
+	List<FlowQueryBuilder> generateQueryFromJson(JsonObject obj, String flowName, String versionName,
+			String extractionId, String stateReceviedApp, String stateSendRegion)
+			throws Exception;
+	/**
+	 * @param objList      Lista di oggetti contenente il flusso
+	 * @param flowName     nome del flusso
+	 * @param versionName  Versione del flusso
+	 * @param extractionId Id dell'estrazione
+	 * @return Lista di query da eseguire
+	 * @throws Exception
+	 */
+
+	@Deprecated
+	List<FlowQueryBuilder> generateQueryFromJsonList(List<JsonObject> objList, String flowName, String versionName,
+			String extractionId, List<String> stateReceviedApp, List<String> stateSendRegion) throws Exception;
+
+	boolean deleteProcedure(String procedure, String flowName, String version) throws Exception;
+	Integer compareSecFlowData(JsonObject obj, String flowName, String versionName) throws Exception;
+
+	boolean isStatusRegionScarto(String flowName, Map<String, String> mapPk);
+	
+	StateReceviedAppEnum getStateReceviedAppFromSectionZero(String flowName, Map<String, String> mapPk);
+	
+	public void createPendingError(String flowName, JSONObject jsonObject, Map<String, Object> map, String extractionId);
+	
+	List<LockedMessageDTO> findPendingLockedMessages(String flowId, String extrId);
+
+	void markLockedMessageProcessed(String lockedMessageId, String extractionId);
+	
+	ProcessSingleFlowResult processSingleFlow(String flow, String flowName, String version, String extractionId);
+	
+}

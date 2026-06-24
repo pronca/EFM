@@ -1,0 +1,565 @@
+package it.eng.care.domain.flow.core.service;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.tabgen.dto.RegErrorFieldMap;
+import it.eng.care.domain.flow.tabgen.dto.TabgenMap;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueMap;
+
+public class QueryGenerator {
+
+    private static String TABLE_PREFIX = "FM_FLOW";
+    private static String TABLE_NAME_SEP = "_";
+    private static String INSERT_INTO = "INSERT INTO ";
+    private static String DELETE_FROM = "DELETE FROM ";
+    private static String SELECT = "SELECT ";
+    private static String COUNT = "COUNT(1) ";
+    private static String FROM = "FROM ";
+    private static String UPDATE = "UPDATE ";
+    private static String SET = "SET ";
+    private static String WHERE = " WHERE ";
+    private static String EXISTS = " EXISTS ";
+    private static String AND = "AND ";
+    private static String VALUES = "VALUES ";
+    
+    public static String STATIC_FLOW_FIELDS = 
+    		"UUID,EXPORTED,EXTRACTION_ID,STATUS,VERSION,STATUS_PROCESSING,DATE_PROCESSING,DATE_VALIDATION,DATE_CROSS_VALIDATION,STATUS_GROUP,"
+            + "MONTH_RIF,YEAR_RIF,IMPORT_TYPE,STATE_RECEVIED_APP,STATE_SEND_REGION,STATUS_REGION";
+    
+    /**
+     * Genera la query sql di inserimento di un messaggio di errore associato ad un record di un flusso
+     * <p>
+     * INSERT INTO FM_FLOW_SDO_0_MESSAGE (row_id, message, value, creation_date, severity) VALUES(?,?,?,?,?)
+     *
+     * @param configuration
+     * @return
+     */
+    public Map<Integer, String> generateFlowRecordMessageInsertQuery(FormFlowDTO configuration) {
+        List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+        Map<Integer, String> insertMessageMap = new HashMap<Integer, String>();
+        for (FormFlowTableDTO table : tableList) {
+            String messageTableName = getTableName(configuration, table, true);
+            StringBuilder insertMessageBuilder = new StringBuilder()
+                    .append(INSERT_INTO)
+                    .append(messageTableName)
+                    .append("(row_id, message, value, field, creation_date, severity,{PK_FIELDS}) VALUES(?,?,?,?,?,?,{PK_VALUES})");
+
+            String pkFields = "";
+            String pkValues = "";
+            for (FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+                if (field.isPk()) {
+                    pkFields += field.getName() + ",";
+                    pkValues += "?,";
+                }
+            }
+            
+            String insertMessageString = "";
+            if (pkValues != null & !pkValues.isEmpty()) {
+            	pkFields = pkFields.substring(0, pkFields.length() - 1);
+                pkValues = pkValues.substring(0, pkValues.length() - 1);
+                
+                insertMessageString = insertMessageBuilder.toString().replace("{PK_FIELDS}", pkFields);
+                insertMessageString = insertMessageString.replace("{PK_VALUES}", pkValues);
+            } else {
+            	insertMessageString = insertMessageBuilder.toString().replace(",{PK_FIELDS}", "").replace(",{PK_VALUES}", "");
+            }
+
+            insertMessageMap.put(table.getSection(), insertMessageString);
+        }
+        return insertMessageMap;
+    }
+
+    /**
+     * Genera la query di cancellazione di un messaggio di errore associato ad un record di un flusso
+     * <p>
+     * DELETE FROM FM_FLOW_SDO_0_MESSAGE WHERE row_id = ?
+     *
+     * @param configuration
+     * @return
+     */
+    public Map<Integer, String> generateDeleteMessageQuery(FormFlowDTO configuration) {
+        List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+        Map<Integer, String> deleteMessageMap = new HashMap<Integer, String>();
+        for (FormFlowTableDTO table : tableList) {
+            String messageTableName = getTableName(configuration, table, true);
+            StringBuilder deleteMessageBuilder = new StringBuilder()
+                    .append(DELETE_FROM)
+                    .append(messageTableName)
+                    .append(WHERE)
+                    .append("row_id = ?");
+            deleteMessageMap.put(table.getSection(), deleteMessageBuilder.toString());
+        }
+        return deleteMessageMap;
+    }
+    
+    public Map<Integer, String> generateDeleteRowByExtractionIdQuery(FormFlowDTO configuration) {
+    	List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+    	Map<Integer, String> deleteMap = new HashMap<Integer, String>();
+    	for (FormFlowTableDTO table : tableList) {
+    		String tableName = getTableName(configuration, table, false);
+    		StringBuilder deleteBuilder = new StringBuilder()
+    				.append(DELETE_FROM)
+    				.append(tableName)
+    				.append(WHERE)
+    				.append("extraction_id = ?");
+    		deleteMap.put(table.getSection(), deleteBuilder.toString());
+    	}
+    	return deleteMap;
+    }
+    
+    public String generateDeleteRowByFirstSectionIdQuery(FormFlowDTO configuration, Integer section, Boolean message) {
+    	List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+    	String query = "";
+    	for (FormFlowTableDTO table : tableList) {
+    		if(table.getSection() == section.intValue()) {
+	    		String tableName = getTableName(configuration, table, message);
+	    		StringBuilder deleteBuilder = new StringBuilder()
+	    				.append(DELETE_FROM)
+	    				.append(tableName)
+	    				.append(WHERE);
+	    		
+	    		for (FormFlowTableDTO table1 : tableList) {
+	    			if(table1.getSection() == 0) {
+	    				for(FormFlowTableFieldDTO field1 : table1.getFlowTableFieldList()) {
+	    					if(field1.isPk()) {
+	    						deleteBuilder.append(field1.getName() + " = ? " + AND);
+	    					}
+	    				}
+	    			}
+	    		}
+	    		
+	    		query = deleteBuilder.toString();
+	    		query = query.substring(0, query.length() - 4);
+    		}
+    	}
+    	return query;
+    }
+
+    public Map<Integer, String> generateDeleteRowMessageByExtractionIdQuery(FormFlowDTO configuration) {
+        List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+        Map<Integer, String> deleteMessageMap = new HashMap<Integer, String>();
+        for (FormFlowTableDTO table : tableList) {
+            String messageTableName = getTableName(configuration, table, true);
+            String tableName = getTableName(configuration, table, false);
+            StringBuilder deleteMessageBuilder = new StringBuilder()
+                    .append(DELETE_FROM)
+                    .append(messageTableName + " m ")
+                    .append(WHERE + EXISTS)
+                    .append("(" + SELECT + " 1 " + FROM + tableName + " f " + WHERE + "extraction_id = ? ");
+            
+            for(FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+            	if(field.isPk()) {
+            		deleteMessageBuilder.append(" and m." + field.getName()  + " = f." + field.getName());
+            	}
+            }
+            
+            deleteMessageBuilder.append(") ");
+            
+            deleteMessageMap.put(table.getSection(), deleteMessageBuilder.toString());
+        }
+        return deleteMessageMap;
+    }
+    
+    public Map<Integer, String> generateDeleteMessageQueryForReset(FormFlowDTO configuration, Boolean crossValidation) {
+        List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+        Map<Integer, String> deleteMessageMap = new HashMap<Integer, String>();
+        for (FormFlowTableDTO table : tableList) {
+            String messageTableName = getTableName(configuration, table, true);
+            String tableName = getTableName(configuration, table, false);
+            StringBuilder deleteMessageBuilder = new StringBuilder()
+                    .append(DELETE_FROM)
+                    .append(messageTableName + " m ")
+                    .append(WHERE + EXISTS)
+                    .append("(")
+            		.append(SELECT + " 1 " + FROM + tableName + " f " + WHERE)
+            		.append("month_rif = ? and year_rif = ? and (status is null or status <> 'TO_VALIDATE') ");
+            
+            for(FormFlowTableFieldDTO field : table.getFlowTableFieldList()) {
+            	if(field.isPk()) {
+            		deleteMessageBuilder.append(" and m." + field.getName()  + " = f." + field.getName());
+            	}
+            }
+            
+            deleteMessageBuilder.append(") ");
+            
+            if(crossValidation) {
+            	deleteMessageBuilder.append(AND + EXISTS + " ( " + SELECT + "1 " + FROM + " FM_ERROR_MESSAGE FEM " + WHERE + " FEM.TYPE = 'CROSS' " + AND + " m.message = FEM.em_id ) ");
+            }
+            
+            deleteMessageMap.put(table.getSection(), deleteMessageBuilder.toString());
+        }
+        return deleteMessageMap;
+    }
+    
+    public Map<Integer, String> generateUpdateRecordQueryForReset(FormFlowDTO configuration) {
+        List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+        Map<Integer, String> deleteMessageMap = new HashMap<Integer, String>();
+        for (FormFlowTableDTO table : tableList) {
+            String tableName = getTableName(configuration, table, false);
+            StringBuilder updateRecordBuilder = new StringBuilder()
+            		.append(UPDATE)
+                    .append(tableName)
+                    .append(" " + SET)
+                    .append("status = 'RESET', status_group = null, date_validation = null, date_cross_validation = null ")
+                    .append(WHERE)
+                    .append("month_rif = ? and year_rif = ? and (status is null or status <> 'TO_VALIDATE') ");
+            deleteMessageMap.put(table.getSection(), updateRecordBuilder.toString());
+        }
+        return deleteMessageMap;
+    }
+
+    /**
+     * Genera la query sql di aggiornamento dello stato di validazione di un record di un flusso
+     * <p>
+     * UPDATE FM_FLOW_SDO_0 SET STATUS = ?, DATE_PROCESSING = ? WHERE INSTITUTODIMISSIONE = ? AND NUMEROSCHEDA = ?;
+     *
+     * @param configuration
+     * @param pkListCfg
+     * @return
+     */
+    public Map<Integer, String> generateFlowRecordUpdateQuery(FormFlowDTO configuration, List<FormFlowTableFieldDTO> pkListCfg) {
+
+        List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+        Map<Integer, String> updateMessageMap = new HashMap<Integer, String>();
+        if (pkListCfg!=null && !pkListCfg.isEmpty()) {
+        	for (FormFlowTableDTO table : tableList) {
+                String updateTableName = getTableName(configuration, table, false);
+                StringBuilder updateBuilder = new StringBuilder()
+                        .append(UPDATE)
+                        .append(updateTableName)
+                        .append(" SET status = ? , DATE_VALIDATION = ? , status_group = ?, YEAR_RIF = ?, MONTH_RIF = ? ")
+                        .append(" WHERE ");
+                String key = "";
+                for (FormFlowTableFieldDTO formFlowTableFieldDTO : pkListCfg) {
+                    if (formFlowTableFieldDTO.getSection().equals(table.getSection())) {
+                        key += formFlowTableFieldDTO.getName() + " = ? and ";
+                    }
+                }
+
+                key = key.substring(0, key.length() - 5);
+
+                updateBuilder.append(key);
+                updateMessageMap.put(table.getSection(), updateBuilder.toString());
+
+            }
+        }
+        
+        return updateMessageMap;
+    }
+    
+    public Map<Integer, String> generateCrossUpdateGroupQuery(FormFlowDTO configuration, List<FormFlowTableFieldDTO> pkListCfg) {
+
+        List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+        Map<Integer, String> updateMessageMap = new HashMap<Integer, String>();
+        if (pkListCfg!=null && !pkListCfg.isEmpty()) {
+	        for (FormFlowTableDTO table : tableList) {
+	            String updateTableName = getTableName(configuration, table, false);
+	            StringBuilder updateBuilder = new StringBuilder()
+	                    .append(UPDATE)
+	                    .append(updateTableName)
+	                    .append(" SET DATE_CROSS_VALIDATION = ? , status_group = ? ")
+	                    .append(" WHERE ");
+	            String key = "";
+	            for (FormFlowTableFieldDTO formFlowTableFieldDTO : pkListCfg) {
+	                if (formFlowTableFieldDTO.getSection().equals(table.getSection())) {
+	                    key += formFlowTableFieldDTO.getName() + " = ? and ";
+	                }
+	            }
+	
+	            key = key.substring(0, key.length() - 5);
+	
+	            updateBuilder.append(key);
+	            updateMessageMap.put(table.getSection(), updateBuilder.toString());
+	
+	        }
+        }
+        return updateMessageMap;
+    }
+    
+    public Map<Integer, String> generateCrossUpdateRecordQuery(FormFlowDTO configuration, List<FormFlowTableFieldDTO> pkListCfg) {
+
+        List<FormFlowTableDTO> tableList = configuration.getFlowTableList();
+        Map<Integer, String> updateMessageMap = new HashMap<Integer, String>();
+        if (pkListCfg!=null && !pkListCfg.isEmpty()) {
+        	for (FormFlowTableDTO table : tableList) {
+                String updateTableName = getTableName(configuration, table, false);
+                StringBuilder updateBuilder = new StringBuilder()
+                        .append(UPDATE)
+                        .append(updateTableName)
+                        .append(" SET status = ? , DATE_CROSS_VALIDATION = ? ")
+                        .append(" WHERE ");
+                String key = "";
+                for (FormFlowTableFieldDTO formFlowTableFieldDTO : pkListCfg) {
+                    if (formFlowTableFieldDTO.getSection().equals(table.getSection())) {
+                        key += formFlowTableFieldDTO.getName() + " = ? and ";
+                    }
+                }
+
+                key = key.substring(0, key.length() - 5);
+
+                updateBuilder.append(key);
+                updateMessageMap.put(table.getSection(), updateBuilder.toString());
+
+            }
+        }
+        
+        return updateMessageMap;
+    }
+
+    private String getTableName(FormFlowDTO configuration, FormFlowTableDTO table, Boolean isMessageTable) {
+        String flowPrefix = TABLE_PREFIX + TABLE_NAME_SEP + configuration.getName() + TABLE_NAME_SEP;
+        String tableName = flowPrefix + table.getSection();
+        if (isMessageTable) {
+            tableName += TABLE_NAME_SEP + "MESSAGE";
+        }
+        return tableName;
+    }
+    
+    /**
+     * Query utilizzata per salvate gli errori restituiti dalla validazione regionale
+     * @param tabgenMap
+     * @return
+     */
+    public static String generateInsertQueryFromTabgen(TabgenMap tabgenMap) {
+    	if(tabgenMap != null && tabgenMap.getId() != null && tabgenMap.getTabgenValueList() != null && !tabgenMap.getTabgenValueList().isEmpty()) {
+	    	String queryFields = "";
+	    	String queryParams = "";
+	    	for(TabgenValueMap tabgenValueMap : tabgenMap.getTabgenValueList()) {
+	    		queryFields += 	tabgenValueMap.getFieldName() + ",";
+	    		queryParams += "?,";
+	    	}
+	    	
+	    	queryFields += "extraction_id,severity,receiving_date";
+	    	queryParams += "?,?,?";
+	
+	    	String queryString = "insert into " + tabgenMap.getId();
+	    	queryString += "(" + queryFields + ")";
+	    	queryString += " values(" + queryParams + ")";
+	    	
+	    	return queryString;
+    	}
+    	
+    	return null;
+    	
+    }
+    
+    public static String generateDeleteQueryFromTabgen(String tableName) {
+    	String queryString = "delete from " + tableName + " where extraction_id = ?";
+    	return queryString;
+    }
+    
+    /** 
+     * Query utilizzata per aggiornare i record in base ai ritorni forniti dalla regione
+     * 
+     * @param regErrorField
+     * @return
+     */
+    public static String generateUpdateQueryForUploadingReturns(RegErrorFieldMap regErrorField, boolean produzioneTot, List<String> azPkList) {
+    	String queryString;
+
+    	String flowName = regErrorField.getFlowName();
+    	FormFlowTableDTO secDef = regErrorField.getSectionDef();
+    	Integer sec = secDef.getSection();
+    	String tableName = "FM_FLOW_" + flowName + "_" + sec;
+    	
+    	String where = "WHERE ";
+    	String set = "SET ";
+    	
+    	Boolean foundedFieldsToUpdate = false;
+    	
+    	for(TabgenValueMap valueMap : regErrorField.getFieldList()) {
+    		if(valueMap.getIsPk()) {
+    			if(produzioneTot) {
+    				where += "reg1." + valueMap.getFieldName() + "= ? AND ";
+    			}else {
+    				where += valueMap.getFieldName() + "= ? AND ";
+    			}
+    		} else {
+    			if(produzioneTot) {
+    				set += "reg1." + valueMap.getFieldName() + "= ? , ";
+    				foundedFieldsToUpdate = true;
+    			}else {
+    				String simulation=valueMap.getFieldName().replace("REGIONALE","SIMULATO");
+    				set += simulation + "= ? , ";
+        			foundedFieldsToUpdate = true;
+    			}
+    			
+	    	}
+    	}
+    	
+    	if(!foundedFieldsToUpdate) {
+    		return "";
+    	}
+    	
+    	
+   		set = set.substring(0, set.length() - 3);
+   		where = where.substring(0, where.length() - 5);
+   		if(!produzioneTot) {
+   			where += " and extraction_id = ?";
+   		}else {
+   			where += " and reg1.year_rif = ?";   			
+   		}
+    	if(produzioneTot) {
+    		String campiWhere = "";
+    		for(String azKey: azPkList) {
+    			campiWhere += "reg1." + azKey + "= sdo1." + azKey + " AND ";
+			}
+    		where += " and reg1.extraction_id in (select max(sdo1.extraction_id) from " + tableName + " sdo1 where " + campiWhere + "reg1.year_rif = sdo1.year_rif)";
+
+        	queryString = "UPDATE " + tableName + " reg1 " + set + " " + where;
+    	}else {
+        	queryString = "UPDATE " + tableName + " " + set + " " + where;
+    	}
+    	
+    	return queryString;
+    }
+    
+    public static String generateUpdateQueryForUploadingReturnsAziendale(RegErrorFieldMap regErrorField, FormFlowDTO configurationVert, List<String> azPkList, boolean produzioneTot) {
+    	
+    	String where = "";
+		String where2 = "";
+		String set = "";
+		for(TabgenValueMap valueMap : regErrorField.getFieldList()) {
+    		if(valueMap.getIsPk()) {
+    			where += "reg1." + valueMap.getFieldName() + "= ? AND ";
+    		} else {
+    			if(produzioneTot) {
+    				set += valueMap.getFieldName() + "= ? , ";
+    			}else {
+    				String simulation=valueMap.getFieldName().replace("REGIONALE","SIMULATO");
+    				set += simulation + "= ? , ";
+    			}
+	    	}
+    	}
+		for(String azKey: azPkList) {
+			where2 += "reg1." + azKey + "= sdo1." + azKey + " AND ";
+		}
+		set = set.substring(0, set.length() - 3);
+   		where2 = where2.substring(0, where2.length() - 5);
+		
+		String queryStringAz = "update fm_flow_" + configurationVert.getName() + "_" + regErrorField.getSectionDef().getSection() 
+				+ " sdo1 set " + set + 
+	        		" where exists (select 1 from fm_flow_" + regErrorField.getFlowName() + "_" + regErrorField.getSectionDef().getSection() +
+	        		" reg1 where " + where + where2 +")";
+    	
+    	return queryStringAz;
+    }
+    
+    /**
+     * select selectFields, count(1) OCCORRENZE from configuration where searchFields = UPPER(?) group by selectFields
+     * 
+     * @param configuration
+     * @param searchFields
+     * @param selectFields
+     * @param aziende 
+     * @return
+     */
+    public static String generateSearchPatientQuery(String flowName, List<String> searchFields, List<String> selectFields, Boolean useGroupBy, List<String> aziende) {
+    	String queryString = "";
+//    	if (searchFields.isEmpty()) {
+//    		return queryString;
+//    	}
+
+    	String tableName = "FM_FLOW_" + flowName + "_0";
+    	
+    	String select = "select ";
+    	String groupBy = " group by ";
+    	for(String field : selectFields) {
+    		select += field.toUpperCase() + ",";
+    		groupBy += field + ",";
+    	}
+    	
+    	if(useGroupBy) {
+    		select += " count(1) OCCORRENZE";
+    	} else {
+    		select = select.substring(0,select.length() - 1);	
+    	}
+    	
+    	groupBy = groupBy.substring(0,groupBy.length() - 1);
+    	
+    	String from = " from " + tableName;    	
+    	
+    	String where = "";
+    	if (!searchFields.isEmpty()) {
+    		where = "  where ";
+    		for(String field : searchFields) {
+        		if(field.equalsIgnoreCase("DATANASCITA")) {
+        			where += field + " between ? and ? and ";
+        		} else {
+        			where += "UPPER(" + field + ") = UPPER(?) and ";
+        		}
+        	}
+    		where = where.substring(0,where.length() - 4);
+    	} else {
+    		where = "  where 1=1 ";
+    	}
+    	
+    	where += " and month_rif is not null and year_rif is not null ";
+    	if (!aziende.isEmpty()) {
+    		where += " and CODICEAZIENDA IN ('" + String.join("','",aziende) + "') ";
+		}
+    	
+    	queryString = select + from + where + (useGroupBy ? groupBy : "");
+    	
+    	return queryString;
+    }
+
+    public static String generateLookupQuery(String fields, String table, String[] filterFields) {
+    	String sql = SELECT + fields + ",count(1) OCCORRENZE " + FROM + table.replace(" ", "");
+    	String groupBy = " group by ";
+    	
+    	if(filterFields != null && filterFields.length > 0) {
+    		sql += " " + WHERE;
+    		for(String filterField : filterFields) {
+    			sql += filterField.replace(" ", "") + " = ? " + AND;
+    		}
+    		sql = sql.substring(0, sql.length() - AND.length());
+    	}
+    	sql += groupBy + fields;
+    	
+    	return sql;
+    }
+    
+    public static String generateFlowRecordInsertQuery(List<FormFlowTableFieldDTO> fields, String flowName, Integer flowSection) {
+    	String query = INSERT_INTO + "FM_FLOW_" + flowName + "_" + flowSection + "(" + STATIC_FLOW_FIELDS + " , ";
+    	
+    	String values = "";    	
+    	for(int i = 0 ; i < STATIC_FLOW_FIELDS.split(",").length; i++) {
+    		values += "?,";    		
+    	}
+    	
+    	for(FormFlowTableFieldDTO field : fields) {
+    		query += field.getName() + ",";
+    		values += "?,";
+    	}
+    	
+    	query = query.substring(0, query.length() - 1) + ") ";
+    	values = values.substring(0, values.length() - 1);
+    	
+    	query += VALUES + "(" + values + ")";
+    	
+    	return query;
+    }
+    
+    public static String generateUpdateReferenceDateQuery(String flowName, Integer flowSection) {
+    	String query = UPDATE + " FM_FLOW_" + flowName + "_" + flowSection + " " + SET + " MONTH_RIF=? , YEAR_RIF=? " + WHERE;
+    	
+    	return query;
+    }
+    
+    public String generateCountRecordsWithDrgQuery(String flowName, String flowSection) {
+    	String query = SELECT + COUNT + FROM + "FM_FLOW_" + flowName + "_" + flowSection;
+    	query += WHERE + "EXTRACTION_ID=? ";
+    	query += AND + "DRG_REGIONALE IS NOT NULL";
+    	
+    	return query;
+    }
+    
+}
+
+

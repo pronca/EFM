@@ -1,0 +1,546 @@
+package it.eng.care.domain.flow.jobs.dao;
+
+import java.util.ArrayList;
+import java.util.Calendar;
+import java.util.Comparator;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.FlushModeType;
+import jakarta.persistence.Query;
+import jakarta.persistence.TemporalType;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.core.controller.impl.FlowControllerImpl;
+import it.eng.care.domain.flow.core.dto.ReferenceDateFieldDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
+import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
+import it.eng.care.domain.flow.core.entity.DashboardConfigDO;
+import it.eng.care.domain.flow.core.service.FlowService;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.domain.flow.tabgen.dto.BasePagingLoadResult;
+import it.eng.care.domain.flow.tabgen.dto.Tabgen;
+import it.eng.care.domain.flow.tabgen.dto.TabgenFilter;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValue;
+import it.eng.care.domain.flow.tabgen.dto.TabgenValueFilter;
+import it.eng.care.domain.flow.tabgen.service.TabgenDelegate;
+
+public class DashboardJobDAOImpl implements DashboardJobDAO{
+	
+	@Autowired
+	private EntityManager entityManager;
+	
+	@Autowired
+	private TabgenDelegate tabgenDelegate;
+	
+	@Autowired
+	private FlowService flowService;
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(DashboardJobDAOImpl.class);
+	
+	@Override
+	public List<Object[]> countPraticheDay(FormFlowDTO formFlowDTO, String filterName, String valueName, String codiceAzienda) {
+		Query query = null;
+        String selectSQL = "";
+        String innerQuery = "";
+        String outsideQuery = "SELECT COUNT(1), a.date_processing, a.codiceazienda from ( ";
+        String queryApp = "";
+        String tableName = "";
+        String whereSQL = "";
+        String groupBySQL = " group by a.date_processing, a.codiceazienda order by a.codiceazienda, a.date_processing desc";
+    	Calendar cal = Calendar.getInstance();
+    	cal.set(Calendar.HOUR_OF_DAY, 23);
+    	cal.set(Calendar.MINUTE, 59);
+    	cal.set(Calendar.SECOND, 59);
+    	cal.set(Calendar.MILLISECOND, 999);
+    	Date dateEnd = cal.getTime();
+    	cal.set(Calendar.HOUR_OF_DAY, 0);
+    	cal.set(Calendar.MINUTE, 0);
+    	cal.set(Calendar.SECOND, 0);
+    	cal.set(Calendar.MILLISECOND, 0);
+    	cal.add(Calendar.DATE, -6);
+    	Date dateStart = cal.getTime();
+    	
+		tableName = "FM_FLOW_" + formFlowDTO.getName() + "_0 b";
+		if (filterName != null && valueName != null) {
+			whereSQL = " where b."+filterName+ " = '"+valueName+"' and b.date_processing between ? and ? ";
+		} else {
+			whereSQL = " where b.date_processing between ? and ? ";
+		}
+		if (codiceAzienda!=null) {
+			whereSQL+=" and b.codiceazienda='"+codiceAzienda+"'";
+		}
+		whereSQL+=" ) a";
+		
+		for(FormFlowTableFieldDTO field : formFlowDTO.getFlowTableList().get(0).getFlowTableFieldList()) {
+			if(field.getGroups() == true) {
+				selectSQL += " b." + field.getName() + " , ";
+			}
+		}
+		
+		if (selectSQL.equals("")) {
+			innerQuery = "SELECT DISTINCT b.date_processing, b.codiceazienda FROM " + tableName;
+		} else {
+			innerQuery = "SELECT DISTINCT " + selectSQL + " b.date_processing FROM " + tableName;
+		}
+		
+		queryApp = outsideQuery + innerQuery + whereSQL + groupBySQL;
+		query = entityManager.createNativeQuery((String) queryApp);
+		
+		query.setParameter(1,(Date) dateStart, TemporalType.DATE);
+		query.setParameter(2,(Date) dateEnd, TemporalType.DATE);
+		
+		try {
+			try {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			} catch (NullPointerException n) {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			}
+		} catch(Throwable ex) {
+			LogUtil.logException(LOGGER, "Errore countPraticheDay per flusso "+formFlowDTO.getName()+"", ex);
+			//ex.printStackTrace();
+			return null;
+		}
+
+    }
+	
+	@Override
+	public List<Object[]> getAziendeAll(FormFlowDTO formFlowDTO, boolean onlyWeek) {
+		Query query = null;
+        String innerQuery = "";
+        String outsideQuery = "SELECT a.codiceazienda from ( ";
+        String queryApp = "";
+        String tableName = "";
+        String whereSQL = "";
+        String groupBySQL = " group by a.codiceazienda";
+        Calendar cal = Calendar.getInstance();
+    	cal.set(Calendar.HOUR_OF_DAY, 23);
+    	cal.set(Calendar.MINUTE, 59);
+    	cal.set(Calendar.SECOND, 59);
+    	cal.set(Calendar.MILLISECOND, 999);
+    	Date dateEnd = cal.getTime();
+    	cal.set(Calendar.HOUR_OF_DAY, 0);
+    	cal.set(Calendar.MINUTE, 0);
+    	cal.set(Calendar.SECOND, 0);
+    	cal.set(Calendar.MILLISECOND, 0);
+    	cal.add(Calendar.DATE, -6);
+    	Date dateStart = cal.getTime();
+    	
+		tableName = "FM_FLOW_" + formFlowDTO.getName() + "_0 b";
+		if (onlyWeek) {
+			whereSQL = " where b.date_processing between ? and ? ) a ";
+		} else {
+			whereSQL = " where 1=1 ) a ";
+		}
+		
+		innerQuery = "SELECT DISTINCT b.codiceazienda FROM " + tableName;
+		queryApp = outsideQuery + innerQuery + whereSQL + groupBySQL;
+		query = entityManager.createNativeQuery((String) queryApp);
+		
+		if (onlyWeek) {
+			query.setParameter(1,(Date) dateStart, TemporalType.DATE);
+			query.setParameter(2,(Date) dateEnd, TemporalType.DATE);
+		}
+		
+		try {
+			try {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			} catch (NullPointerException n) {
+				List<Object[]> resultApp = query.getResultList();
+				return resultApp;
+			}
+		} catch(Throwable ex) {
+			LogUtil.logException(LOGGER, "Errore getAziendeAll per flusso "+formFlowDTO.getName()+"", ex);
+//			ex.printStackTrace();
+			return null;
+		}
+
+    }
+	
+	@Override
+	public List<Object[]> countErrorsTop5(FormFlowDTO formFlowDTO,
+	                                     String filterName,
+	                                     String valueName,
+	                                     String codiceAzienda) {
+
+	    try {
+	        final String flowName = formFlowDTO.getName();
+	        if (flowName == null || flowName.isBlank()) return List.of();
+
+	        final boolean hasFilter =
+	                filterName != null && !filterName.isBlank() &&
+	                valueName != null && !valueName.isBlank();
+
+	        // PK per section
+	        Map<Integer, List<String>> pkBySection = new HashMap<>();
+	        for (FormFlowTableDTO t : formFlowDTO.getFlowTableList()) {
+	            List<String> pks = new ArrayList<>();
+	            for (FormFlowTableFieldDTO f : t.getFlowTableFieldList()) {
+	                if (f.isPk()) pks.add(f.getName());
+	            }
+	            pkBySection.put(t.getSection(), pks);
+	        }
+
+	        // reference date (solo se forDate=true)
+	        ReferenceDateFieldDTO ref = null;
+	        List<ReferenceDateFieldDTO> refs = flowService.findReferenceDateFieldsByFlowName(flowName);
+            if (refs != null && !refs.isEmpty()) {
+                // in genere è 1 sola, ma prendo la prima “più bassa”
+                ref = refs.stream()
+                        .min(Comparator.comparingInt(ReferenceDateFieldDTO::section))
+                        .orElse(null);
+            }
+            
+	        // header/body/footer query
+	        final String outsideQueryStart = "SELECT * FROM ( ";
+	        final String unionSQL = " UNION ";
+
+	        final String innerQueryStart;
+	        final String innerQueryGroupBy;
+	        final String outsideQueryEnd;
+
+	        innerQueryStart =
+                    "SELECT A.YEAR_RIF, A.MONTH_RIF, A.DATA_RIFERIMENTO, A.MESSAGE, COUNT(1) cn, A.DESCRIPTION, A.codiceazienda " +
+                    "FROM ( ";
+            innerQueryGroupBy =
+                    " GROUP BY A.YEAR_RIF, A.MONTH_RIF, A.DATA_RIFERIMENTO, A.MESSAGE, A.DESCRIPTION, A.codiceazienda";
+            outsideQueryEnd =
+                    ") CC WHERE CC.YEAR_RIF IS NOT NULL AND CC.MONTH_RIF IS NOT NULL AND CC.DATA_RIFERIMENTO IS NOT NULL " +
+                    "AND CC.CODICEAZIENDA = :codiceAzienda " +
+                    "ORDER BY codiceazienda, YEAR_RIF, MONTH_RIF, DATA_RIFERIMENTO, CN DESC, MESSAGE";
+
+	        StringBuilder union = new StringBuilder();
+
+	        for (FormFlowTableDTO tableDTO : formFlowDTO.getFlowTableList()) {
+
+	            int section = tableDTO.getSection();
+
+	            String tableNameMessage = "FM_FLOW_" + flowName + "_" + section + "_MESSAGE P";
+	            String tableNameSection = "FM_FLOW_" + flowName + "_" + section + " Q";
+
+	            List<String> pkCurrent = pkBySection.getOrDefault(section, List.of());
+
+	            // ===== SELECT DISTINCT fields
+	            List<String> fields = new ArrayList<>();
+	            for (String pk : pkCurrent) fields.add("P." + pk);
+
+	            fields.add("P.MESSAGE");
+	            fields.add("Q.YEAR_RIF");
+	            fields.add("Q.MONTH_RIF");
+
+	            // join extra + date expr
+	            StringBuilder joinsExtra = new StringBuilder();
+
+	            String dateExpr = buildDateExprAndJoins(flowName, section, ref, pkBySection, joinsExtra);
+	            fields.add(dateExpr + " DATA_RIFERIMENTO");
+
+	            fields.add("R.DESCRIPTION");
+	            if (!pkCurrent.contains("codiceazienda")) fields.add("Q.codiceazienda");
+
+	            String selectDistinct = "SELECT DISTINCT " + String.join(", ", fields);
+
+	            // ===== FROM + JOIN base P<->Q
+	            String onPQ = buildOn("P", "Q", pkCurrent);
+
+	            StringBuilder fromAndJoins = new StringBuilder();
+	            fromAndJoins.append(" FROM ")
+	                        .append(tableNameMessage)
+	                        .append(" JOIN ")
+	                        .append(tableNameSection)
+	                        .append(" ON ")
+	                        .append(onPQ);
+
+	            // ✅ tutte le JOIN extra PRIMA di R e PRIMA del WHERE
+	            fromAndJoins.append(joinsExtra);
+
+	            // join error message
+	            fromAndJoins.append(" JOIN FM_ERROR_MESSAGE R ON P.MESSAGE = R.EM_ID");
+
+	            // ===== WHERE (sempre dopo le join)
+	            StringBuilder where = new StringBuilder(" WHERE 1=1");
+
+	            if (hasFilter) {
+	                if (section == 0) {
+	                    where.append(" AND Q.").append(filterName).append(" = :valueName");
+	                } else {
+	                    // se devo filtrare su section0, aggiungo Q0 come join (se manca)
+	                    if (fromAndJoins.indexOf(" FM_FLOW_" + flowName + "_0 Q0 ") < 0) {
+	                        fromAndJoins.append(buildJoinToSection0(flowName, section, pkBySection));
+	                    }
+	                    where.append(" AND Q0.").append(filterName).append(" = :valueName");
+	                }
+	            }
+
+	            String innerSelect = selectDistinct + fromAndJoins + where;
+
+	            // ===== subquery completa
+	            union.append(innerQueryStart)
+	                 .append(innerSelect)
+	                 .append(" ) A")
+	                 .append(innerQueryGroupBy)
+	                 .append(unionSQL);
+	        }
+
+	        String query = union.toString();
+	        if (query.endsWith(unionSQL)) query = query.substring(0, query.length() - unionSQL.length());
+	        query = outsideQueryStart + query + outsideQueryEnd;
+
+	        Query queryFinal = entityManager.createNativeQuery(query);
+	        queryFinal.setParameter("codiceAzienda", codiceAzienda);
+	        if (hasFilter) queryFinal.setParameter("valueName", valueName);
+
+	        @SuppressWarnings("unchecked")
+	        List<Object[]> result = queryFinal.getResultList();
+	        return result;
+
+	    } catch (Throwable ex) {
+	    	LogUtil.logException(LOGGER, "Errore countErrorsTop5 per flusso "+formFlowDTO.getName()+"", ex);
+	        return null;
+	    }
+	}
+
+	/* =========================================================
+	   Helpers
+	   ========================================================= */
+
+	private static String buildOn(String leftAlias, String rightAlias, List<String> pkFields) {
+	    if (pkFields == null || pkFields.isEmpty()) return "1=1";
+	    StringBuilder sb = new StringBuilder();
+	    for (String pk : pkFields) {
+	        sb.append(leftAlias).append('.').append(pk)
+	          .append(" = ")
+	          .append(rightAlias).append('.').append(pk)
+	          .append(" AND ");
+	    }
+	    sb.setLength(sb.length() - 5);
+	    return sb.toString();
+	}
+
+	/**
+	 * Join a section 0 con alias Q0 usando solo le PK comuni tra section corrente e section 0.
+	 */
+	private static String buildJoinToSection0(String flowName,
+	                                         int currentSection,
+	                                         Map<Integer, List<String>> pkBySection) {
+	    if (currentSection == 0) return "";
+
+	    List<String> pk0 = pkBySection.getOrDefault(0, List.of());
+	    List<String> pkCur = pkBySection.getOrDefault(currentSection, List.of());
+
+	    List<String> joinFields = new ArrayList<>();
+	    for (String f : pk0) if (pkCur.contains(f)) joinFields.add(f);
+
+	    if (joinFields.isEmpty() && pkCur.contains("codiceazienda")) joinFields.add("codiceazienda");
+	    if (joinFields.isEmpty()) joinFields.addAll(pkCur);
+
+	    String on = buildOn("Q", "Q0", joinFields);
+	    return " JOIN FM_FLOW_" + flowName + "_0 Q0 ON " + on;
+	}
+
+	/**
+	 * Costruisce:
+	 * - l'espressione data TRUNC(...)
+	 * - e aggiunge a joinsExtra le JOIN necessarie per arrivare alla section di riferimento (ref.section)
+	 *
+	 * Regole:
+	 * - se ref == null -> TRUNC(Q.DATA_RIFERIMENTO)
+	 * - se section == ref.section -> TRUNC(Q.<refField>)
+	 * - se section != ref.section:
+	 *    - base = (section==0 ? Q : Q0)  (Q0 viene aggiunto come join se section!=0)
+	 *    - poi join sequenziale base -> 1..ref.section con alias finale QREF
+	 *    - TRUNC(QREF.<refField>)
+	 */
+	private static String buildDateExprAndJoins(String flowName,
+	                                           int currentSection,
+	                                           ReferenceDateFieldDTO ref,
+	                                           Map<Integer, List<String>> pkBySection,
+	                                           StringBuilder joinsExtra) {
+
+	    // fallback “vecchio comportamento”
+	    if (ref == null || ref.fieldName() == null || ref.fieldName().isBlank()) {
+	        return "TRUNC(Q.DATE_VALIDATION)";
+	    }
+
+	    if (currentSection == ref.section()) {
+	        return "TRUNC(Q." + ref.fieldName() + ")";
+	    }
+
+	    // devo leggere la data da un'altra section
+	    String baseAlias;
+
+	    if (currentSection == 0) {
+	        baseAlias = "Q";
+	    } else {
+	        // per agganciarmi alla 0
+	        joinsExtra.append(buildJoinToSection0(flowName, currentSection, pkBySection));
+	        baseAlias = "Q0";
+	    }
+
+	    // join sequenziale fino alla section ref (alias finale QREF)
+	    joinsExtra.append(buildSequentialJoinFromBaseToRef(flowName, baseAlias, ref.section(), pkBySection, "QREF"));
+
+	    return "TRUNC(QREF." + ref.fieldName() + ")";
+	}
+
+	/**
+	 * Parte da un alias base che rappresenta “dati section 0” (Q oppure Q0),
+	 * e aggiunge JOIN FM_FLOW_<flow>_1 Q1 ... fino alla section ref, con alias finale refAlias.
+	 *
+	 * NB: i join usano l'intersezione (PK section0 ∩ PK sectionS), così funzionano anche
+	 * quando le section successive hanno PK aggiuntive (progressivi ecc.).
+	 */
+	private static String buildSequentialJoinFromBaseToRef(String flowName,
+	                                                       String baseAlias,
+	                                                       int refSection,
+	                                                       Map<Integer, List<String>> pkBySection,
+	                                                       String refAlias) {
+	    if (refSection <= 0) return "";
+
+	    StringBuilder sb = new StringBuilder();
+
+	    List<String> pk0 = pkBySection.getOrDefault(0, List.of());
+
+	    for (int s = 1; s <= refSection; s++) {
+
+	        String leftAlias = (s == 1) ? baseAlias : ("Q" + (s - 1));
+	        String rightAlias = (s == refSection) ? refAlias : ("Q" + s);
+
+	        List<String> pkRight = pkBySection.getOrDefault(s, List.of());
+
+	        List<String> joinFields = new ArrayList<>();
+	        for (String f : pk0) if (pkRight.contains(f)) joinFields.add(f);
+
+	        if (joinFields.isEmpty() && pkRight.contains("codiceazienda")) joinFields.add("codiceazienda");
+	        if (joinFields.isEmpty()) joinFields.addAll(pkRight);
+
+	        String on = buildOn(leftAlias, rightAlias, joinFields);
+
+	        sb.append(" JOIN FM_FLOW_")
+	          .append(flowName).append('_').append(s).append(' ')
+	          .append(rightAlias)
+	          .append(" ON ")
+	          .append(on);
+	    }
+
+	    return sb.toString();
+	}
+
+	@Override
+	public List<Object[]> countQuery(FormFlowDTO formFlowDTO, DashboardConfigDO dashboardConfigDO, boolean jobYear, String filterName, String valueName, String codiceAzienda) {
+		Query query = null;
+		String queryApp = dashboardConfigDO.getQuery();
+		
+		Calendar cal = Calendar.getInstance();
+		String mese = "";
+		String meseScorso = "";
+		String mesi = "";
+		String anni = "";
+		if(jobYear) {
+			mesi = "'01','02','03','04','05','06','07','08','09','10','11','12'";
+			for(int i = 2018; i<=cal.get(Calendar.YEAR); i++) {
+				anni += "'" + i + "',";
+			}
+			if(anni.endsWith(",")) {
+				anni = anni.substring(0,anni.length()-1);
+			}
+		}else {
+			int lastMonth = cal.get(Calendar.MONTH);
+	    	int month = cal.get(Calendar.MONTH) + 1;
+	    	mese = Integer.toString(month);
+	    	
+	    	int lastYear = cal.get(Calendar.YEAR) -1;
+	    	int year = cal.get(Calendar.YEAR);
+	    	anni = "'" + Integer.toString(year) + "'";
+	    	
+	    	if(lastMonth == 0) {
+	    		lastMonth = 12;
+	    		anni = "'" + Integer.toString(lastYear) + "', '" + Integer.toString(year) + "'";
+	    	}
+	    	
+	    	meseScorso = Integer.toString(lastMonth);
+	    	if(mese.length()<2) {
+	    		mese = "0" + mese;
+	    	}
+	    	if(meseScorso.length()<2) {
+	    		meseScorso = "0" + meseScorso;
+	    	}
+	    	mesi = "'" + meseScorso + "','" + mese + "'";
+	    	
+		}
+		
+		queryApp = queryApp.replaceAll(":mesi", mesi);
+		queryApp = queryApp.replaceAll(":anni", anni);
+		if (codiceAzienda != null && !codiceAzienda.isEmpty()) {
+			queryApp = queryApp.replaceAll(":aziendeprofilate", "'" + String.join("','",codiceAzienda) + "'");
+		} else {
+			queryApp = queryApp.replaceAll(":aziendeprofilate", null);
+		}
+		
+		if (filterName!= null && valueName != null)  {
+			queryApp = queryApp.replaceAll(":"+filterName, valueName);
+		}
+		
+		if (queryApp != null) {
+		  queryApp = queryApp.trim();
+		  while (queryApp.endsWith(";")) {
+		    queryApp = queryApp.substring(0, queryApp.length() - 1).trim();
+		  }
+		  
+		  query = entityManager.createNativeQuery((String) queryApp);
+			
+		  try {
+			  try {
+				  List<Object[]> resultApp = query.getResultList();
+				  return resultApp;
+			  } catch(NullPointerException n) {
+				  List<Object[]> resultApp = query.getResultList();
+				  return resultApp;
+			  }
+			} catch(Throwable ex) {
+				LogUtil.logException(LOGGER, "Errore countQuery per flusso : "+formFlowDTO.getName()+" Dashboard : "+dashboardConfigDO.getName()+" Query : "+queryApp+"", ex);
+				return null;
+			}
+		} else {
+			LOGGER.warn("Query non presente su countQuery per flusso={} - badge={} - query={}", formFlowDTO.getName(), dashboardConfigDO.getName(), queryApp);
+			return null;
+		}
+    }
+
+	@Override
+	public void checkDashboardMeseAnno() {
+		Calendar cal = Calendar.getInstance();
+		int year = cal.get(Calendar.YEAR);
+		TabgenValueFilter filter = new TabgenValueFilter();
+		filter.setTabgenId("DASHBOARDMESEANNO");
+		filter.setField2(Integer.toString(year+1));
+		BasePagingLoadResult<Tabgen> list = tabgenDelegate.searchValue(filter);
+		if(list.getList().get(0).getId() == null) {
+			TabgenFilter tabgenFilter = new TabgenFilter();
+			tabgenFilter.setId("DASHBOARDMESEANNO");
+			List<Tabgen> tabgenList = tabgenDelegate.searchTable(tabgenFilter);
+			Tabgen tabgen = tabgenList.get(0);
+			for(int i=1; i<13; i++) {
+				String mese = Integer.toString(i);
+				if(i<10) {
+					mese = "0" + mese;
+				}
+				TabgenValue value = new TabgenValue();
+				value.setTabgen(tabgen);
+				value.setField1(mese);
+				value.setField2(Integer.toString(year+1));
+				tabgenDelegate.saveValue(value);
+			}
+		}
+	}
+	
+}

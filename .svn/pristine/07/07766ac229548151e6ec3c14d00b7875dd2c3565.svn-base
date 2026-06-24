@@ -1,0 +1,482 @@
+package it.eng.care.domain.flow.core.converter.FlowImportExportRequest;
+
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.core.dao.FlowExtstdConfigDAO;
+import it.eng.care.domain.flow.core.dto.FlowExportRequestDTO;
+import it.eng.care.domain.flow.core.dto.FlowConfigurationFilter.FlowConfigurationFilterDTO;
+import it.eng.care.domain.flow.core.dto.FlowConfigurationFilter.FlowConfigurationFilterFieldDTO;
+import it.eng.care.domain.flow.core.entity.FlowConfigurationFilterDO;
+import it.eng.care.domain.flow.core.entity.FlowConfigurationFilterFieldDO;
+import it.eng.care.domain.flow.core.entity.FlowConfigurationFilterFieldValueDO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.entity.FmFlowExtstdConfigDO;
+import it.eng.care.domain.flow.core.entity.JobTalendDO;
+import it.eng.care.domain.flow.core.entity.VersionDO;
+import it.eng.care.domain.flow.core.service.JobTalendService;
+import it.eng.care.platform.authentication.api.service.LoggedUserService;
+import it.eng.care.platform.tool.transport.conversion.ConversionContext;
+import it.eng.care.platform.tool.transport.conversion.Converter;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+
+public class FlowExportRequestDTOtoFlowExportRequestDO implements Converter<FlowExportRequestDTO, FlowExportRequestDO> {
+
+    @Autowired
+    FlowExtstdConfigDAO flowExtstdConfigDAO;
+    @Autowired
+    private LoggedUserService loggUserService;
+    @Autowired
+    private JobTalendService jobTalendService;
+
+    @Override
+    public void convert(FlowExportRequestDTO fromObject, FlowExportRequestDO intoObject, ConversionContext ctx) {
+
+        intoObject.setId(fromObject.getId());
+        intoObject.setFlow(ctx.convertTo(fromObject.getFlow(), FlowDO.class));
+        intoObject.setVersion(ctx.convertTo(fromObject.getVersion(), VersionDO.class));
+        intoObject.setRequester(loggUserService.getCurrentUser().getUsername());
+        intoObject.setStatus(fromObject.getStatus());
+        intoObject.setRequestDate(fromObject.getRequestDate());
+        intoObject.setRecord(fromObject.getRecord());
+        intoObject.setEndExtractionDate(fromObject.getEndExtractionDate());
+        intoObject.setStartExtractionDate(fromObject.getStartExtractionDate());
+        intoObject.setSchedulingInterval(fromObject.getSchedulingInterval());
+        intoObject.setSchedulingStartingTime(fromObject.getSchedulingStartingTime());
+        intoObject.setSchedulingNextTime(fromObject.getSchedulingNextTime());
+        intoObject.setSchedulingType(fromObject.getSchedulingType());
+        intoObject.setValidationStatus(fromObject.getValidationStatus());
+        intoObject.setValidationStatusDrl(fromObject.getValidationStatusDrl());
+        intoObject.setConsolidata(fromObject.getConsolidata());
+        intoObject.setDateCons(fromObject.getDateCons());
+        intoObject.setUserCons(fromObject.getUserCons());
+        intoObject.setDrg(fromObject.isDrg());
+
+        //prendi il jobtalend flusso versione
+        BaseSearchInput baseSearchInput = new BaseSearchInput();
+        baseSearchInput.setValue("id", fromObject.getJobTalendId().getId());
+        JobTalendDO jobTalendDO = jobTalendService.retrieveAllFiltered(baseSearchInput, false).getFirst().get(0);
+        //intoObject.setJobTalendId(ctx.convertTo(jobTalendDO, JobTalendDO.class));
+        intoObject.setJobTalendId(jobTalendDO);
+        Set<FlowConfigurationFilterDO> list = new HashSet<>();
+        for (FlowConfigurationFilterDTO flowConfigurationFilterDTO : fromObject.getFlowConfigurationFilters()) {
+            list.add(ctx.convertTo(flowConfigurationFilterDTO, FlowConfigurationFilterDO.class));
+        }
+        intoObject.setConfigurationFilters(list);
+
+//        if(fromObject.getFlowConfigurationFilterFieldValues().size()>0){
+//            for (FlowConfigurationFilterFieldValueDTO filterValuesDTO : fromObject.getFlowConfigurationFilterFieldValues()) {
+//                filterValuesDTO.
+//            }
+//        else {
+        //ADD VALUES
+        Set<FlowConfigurationFilterFieldValueDO> list2 = new HashSet<>();
+        FmFlowExtstdConfigDO result = new FmFlowExtstdConfigDO();
+        //CREATE
+        if(fromObject.getId()==null) {
+            for (FlowConfigurationFilterDTO flowConfigurationFilterDTO : fromObject.getFlowConfigurationFilters()) {
+                //Gestione Filtro STANDARD
+                if (flowConfigurationFilterDTO.getType() == 2) {
+                    //Gestione Ricerca Combo
+                    for (List<FlowConfigurationFilterFieldDTO> listfilterFieldDTO : flowConfigurationFilterDTO.getFields()) {
+                        for (FlowConfigurationFilterFieldDTO filterFieldDTO : listfilterFieldDTO) {
+                            FlowConfigurationFilterFieldDO flowConfigurationFilterFieldDO = ctx.convertTo(filterFieldDTO, FlowConfigurationFilterFieldDO.class);
+                            FlowConfigurationFilterFieldValueDO filterFieldValueDO = new FlowConfigurationFilterFieldValueDO();
+//                            //GESTIONE VALORE SINGOLO
+//                            if (filterFieldDTO.getFilterType().equals("ComboBox") && filterFieldDTO.getName().toUpperCase().equals("NUMERO INVIO")) {
+//                                if (filterFieldDTO.getSingleValue() != null) {
+//                                    result = flowExtstdConfigDAO.findByFlussoAndNuminvio(flowConfigurationFilterDTO.getFlow().getCode(), filterFieldDTO.getSingleValue().toUpperCase());
+//                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+//                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+//                                    filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+//                                    list2.add(filterFieldValueDO);
+//                                }
+//                            }
+//                            if (filterFieldDTO.getFilterType().equals("ComboBox") && filterFieldDTO.getName().toUpperCase().equals("ANNO")) {
+//                                if (filterFieldDTO.getSingleValue() != null) {
+//                                    //result = flowExtstdConfigDAO.findByFlussoAndNuminvio(flowConfigurationFilterDTO.getFlow().getCode(), filterFieldDTO.getSingleValue().toUpperCase());
+//                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+//                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+//                                    filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+//                                    list2.add(filterFieldValueDO);
+//                                }
+//                            }
+//                            if (filterFieldDTO.getFilterType().equals("ComboBox") && filterFieldDTO.getName().toUpperCase().equals("STATO VALIDAZIONE PRATICHE")) {
+//                                if (filterFieldDTO.getSingleValue() != null) {
+//                                    //result = flowExtstdConfigDAO.findByFlussoAndNuminvio(flowConfigurationFilterDTO.getFlow().getCode(), filterFieldDTO.getSingleValue().toUpperCase());
+//                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+//                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+//                                    filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+//                                    list2.add(filterFieldValueDO);
+//                                }
+//                            }
+//                            if (filterFieldDTO.getFilterType().equals("ComboBox") && filterFieldDTO.getName().toUpperCase().equals("ESCLUDI SO")) {
+//                                if (filterFieldDTO.getSingleValue() != null) {
+//                                    //result = flowExtstdConfigDAO.findByFlussoAndNuminvio(flowConfigurationFilterDTO.getFlow().getCode(), filterFieldDTO.getSingleValue().toUpperCase());
+//                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+//                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+//                                    filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+//                                    list2.add(filterFieldValueDO);
+//                                }
+//                            }
+
+//                            if (listfilterFieldDTO.size() > 4) {
+//                                break;
+//                            }
+                            
+                          //GESTIONE VALORE SINGOLO
+                            if (filterFieldDTO.getFilterType().equals("ComboBox") && filterFieldDTO.getName().toUpperCase().equals("NUMERO INVIO")) {
+                                if (filterFieldDTO.getSingleValue() != null) {
+                                    result = flowExtstdConfigDAO.findByFlussoAndNuminvio(flowConfigurationFilterDTO.getFlow().getCode(), filterFieldDTO.getSingleValue().toUpperCase());
+                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+                                    filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+                                    list2.add(filterFieldValueDO);
+                                }
+                            }
+                            if (filterFieldDTO.getFilterType().equals("ComboBox") && !filterFieldDTO.getName().toUpperCase().equals("NUMERO INVIO")) {
+                                if (filterFieldDTO.getSingleValue() != null) {
+                                    //result = flowExtstdConfigDAO.findByFlussoAndNuminvio(flowConfigurationFilterDTO.getFlow().getCode(), filterFieldDTO.getSingleValue().toUpperCase());
+                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+                                    filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+                                    list2.add(filterFieldValueDO);
+                                }
+                            }
+                            
+                        }
+                    }
+                    //Gestione Ricerca Text
+                    for (List<FlowConfigurationFilterFieldDTO> listfilterFieldDTO : flowConfigurationFilterDTO.getFields()) {
+                        for (FlowConfigurationFilterFieldDTO filterFieldDTO : listfilterFieldDTO) {
+                            FlowConfigurationFilterFieldDO flowConfigurationFilterFieldDO = ctx.convertTo(filterFieldDTO, FlowConfigurationFilterFieldDO.class);
+                            FlowConfigurationFilterFieldValueDO filterFieldValueDO = new FlowConfigurationFilterFieldValueDO();
+
+                            if (filterFieldDTO.getName().equals("Data_Inizio_P1")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatainizioP1());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Fine_P1")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatafineP1());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Stato_P1")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getStatoP1());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Inizio_P2")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatainizioP2());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Fine_P2")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatafineP2());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Stato_P2")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getStatoP2());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Inizio_P3")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatainizioP3());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Fine_P3")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatafineP3());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Stato_P3")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getStatoP3());
+                                list2.add(filterFieldValueDO);
+                            }
+
+                        }
+                    }
+                } else {
+                    //Gestione Filtro Dinamico/Statico
+                    for (List<FlowConfigurationFilterFieldDTO> listfilterFieldDTO : flowConfigurationFilterDTO.getFields()) {
+                        for (FlowConfigurationFilterFieldDTO filterFieldDTO : listfilterFieldDTO) {
+                            FlowConfigurationFilterFieldDO flowConfigurationFilterFieldDO = ctx.convertTo(filterFieldDTO, FlowConfigurationFilterFieldDO.class);
+                            FlowConfigurationFilterFieldValueDO filterFieldValueDO = new FlowConfigurationFilterFieldValueDO();
+                            FlowConfigurationFilterFieldValueDO filterFieldValueDO2 = new FlowConfigurationFilterFieldValueDO();
+                            //GESTIONE VALORE SINGOLO
+                            if (filterFieldDTO.getSingleValue() != null) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                            }
+                            //GESTIONE DATE
+                            if (filterFieldDTO.getDateFromValue() != null && filterFieldDTO.getDateToValue() == null) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getDateFromValue().toString());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                            }
+//                    if (filterFieldDTO.getDateFromValue() == null && filterFieldDTO.getDateToValue() != null) {
+//                        for (FlowConfigurationFilterFieldValueDTO fieldValueDTO : fromObject.getFlowConfigurationFilterFieldValues()){
+//                            if(filterFieldDTO.getId().equals(fieldValueDTO.getFilterId())){
+//                                filterFieldValueDO = flowConfigurationFilterFieldValueDAO.getOne(fieldValueDTO.getId());
+//                                filterFieldValueDO.setValue(filterFieldDTO.getDateFromValue().toString());
+//                                list2.add(filterFieldValueDO);
+//                            }
+//                        }
+//                        if(filterFieldValueDO.getId()==null){
+//                            filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+//                            filterFieldValueDO.setValue(filterFieldDTO.getDateFromValue().toString());
+//                            filterFieldValueDO.setFlowExportRequest(intoObject);
+//                            list2.add(filterFieldValueDO);
+//                        }
+//                    }
+                            if (filterFieldDTO.getDateFromValue() != null && filterFieldDTO.getDateToValue() != null) {
+                                //filterFieldValueDO.setId(flowConfigurationFilterFieldDO.getId());
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getDateFromValue().toString());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                                //filterFieldValueDO2.setId(flowConfigurationFilterFieldDO.getId());
+                                filterFieldValueDO2.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO2.setValue(filterFieldDTO.getDateToValue().toString());
+                                filterFieldValueDO2.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO2);
+                            }
+                            //GESTIONE NUMERIOC
+                            if (filterFieldDTO.getNumFromValue() != null && filterFieldDTO.getNumToValue() == null) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getNumFromValue());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getNumFromValue() == null && filterFieldDTO.getNumToValue() != null) {
+                                if (filterFieldValueDO.getId() == null) {
+                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                    filterFieldValueDO.setValue(filterFieldDTO.getNumToValue());
+                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+                                    list2.add(filterFieldValueDO);
+                                }
+                            }
+                            if (filterFieldDTO.getNumFromValue() != null && filterFieldDTO.getNumToValue() != null) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getNumFromValue());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                                filterFieldValueDO2.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO2.setValue(filterFieldDTO.getNumToValue());
+                                filterFieldValueDO2.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO2);
+                            }
+                            //GESTIONE MULTIVALORE
+                            if (filterFieldDTO.getMultiValues() != null && filterFieldDTO.getMultiValues().size() > 0) {
+                                for (String value : filterFieldDTO.getMultiValues()) {
+                                    FlowConfigurationFilterFieldValueDO filterFieldValueDO3 = new FlowConfigurationFilterFieldValueDO();
+                                    filterFieldValueDO3.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                    filterFieldValueDO3.setValue(value);
+                                    filterFieldValueDO3.setFlowExportRequest(intoObject);
+                                    list2.add(filterFieldValueDO3);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        //UPDATE
+        else{
+            for (FlowConfigurationFilterDTO flowConfigurationFilterDTO : fromObject.getFlowConfigurationFilters()) {
+                //Gestione Filtro STANDARD
+                if (flowConfigurationFilterDTO.getType() == 2) {
+                    //Gestione Ricerca Combo
+                    for (List<FlowConfigurationFilterFieldDTO> listfilterFieldDTO : flowConfigurationFilterDTO.getFields()) {
+                        for (FlowConfigurationFilterFieldDTO filterFieldDTO : listfilterFieldDTO) {
+                            FlowConfigurationFilterFieldDO flowConfigurationFilterFieldDO = ctx.convertTo(filterFieldDTO, FlowConfigurationFilterFieldDO.class);
+                            FlowConfigurationFilterFieldValueDO filterFieldValueDO = new FlowConfigurationFilterFieldValueDO();
+                            //GESTIONE VALORE SINGOLO
+                            if (filterFieldDTO.getFilterType().equals("ComboBox") && filterFieldDTO.getName().toUpperCase().equals("NUMERO INVIO")) {
+                                if (filterFieldDTO.getSingleValue() != null) {
+                                    result = flowExtstdConfigDAO.findByFlussoAndNuminvio(flowConfigurationFilterDTO.getFlow().getCode(), filterFieldDTO.getSingleValue().toUpperCase());
+                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+                                    filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+                                    list2.add(filterFieldValueDO);
+                                }
+                            }
+                            if (filterFieldDTO.getFilterType().equals("ComboBox") && !filterFieldDTO.getName().toUpperCase().equals("NUMERO INVIO")) {
+                                if (filterFieldDTO.getSingleValue() != null) {
+                                    //result = flowExtstdConfigDAO.findByFlussoAndNuminvio(flowConfigurationFilterDTO.getFlow().getCode(), filterFieldDTO.getSingleValue().toUpperCase());
+                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+                                    filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+                                    list2.add(filterFieldValueDO);
+                                }
+                            }
+
+                            if (filterFieldDTO.getName().equals("Data_Inizio_P1")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatainizioP1());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Fine_P1")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatafineP1());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Stato_P1")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getStatoP1());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Inizio_P2")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatainizioP2());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Fine_P2")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatafineP2());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Stato_P2")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getStatoP2());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Inizio_P3")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatainizioP3());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Data_Fine_P3")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getDatafineP3());
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getName().equals("Stato_P3")) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                filterFieldValueDO.setValue(result.getStatoP3());
+                                list2.add(filterFieldValueDO);
+                            }
+
+                        }
+                    }
+                } else {
+                    //Gestione Filtro Dinamico/Statico
+                    for (List<FlowConfigurationFilterFieldDTO> listfilterFieldDTO : flowConfigurationFilterDTO.getFields()) {
+                        for (FlowConfigurationFilterFieldDTO filterFieldDTO : listfilterFieldDTO) {
+                            FlowConfigurationFilterFieldDO flowConfigurationFilterFieldDO = ctx.convertTo(filterFieldDTO, FlowConfigurationFilterFieldDO.class);
+                            FlowConfigurationFilterFieldValueDO filterFieldValueDO = new FlowConfigurationFilterFieldValueDO();
+                            FlowConfigurationFilterFieldValueDO filterFieldValueDO2 = new FlowConfigurationFilterFieldValueDO();
+                            //GESTIONE VALORE SINGOLO
+                            if (filterFieldDTO.getSingleValue() != null) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getSingleValue());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                            }
+                            //GESTIONE DATE
+                            if (filterFieldDTO.getDateFromValue() != null && filterFieldDTO.getDateToValue() == null) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getDateFromValue().toString());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                            }
+//                    if (filterFieldDTO.getDateFromValue() == null && filterFieldDTO.getDateToValue() != null) {
+//                        for (FlowConfigurationFilterFieldValueDTO fieldValueDTO : fromObject.getFlowConfigurationFilterFieldValues()){
+//                            if(filterFieldDTO.getId().equals(fieldValueDTO.getFilterId())){
+//                                filterFieldValueDO = flowConfigurationFilterFieldValueDAO.getOne(fieldValueDTO.getId());
+//                                filterFieldValueDO.setValue(filterFieldDTO.getDateFromValue().toString());
+//                                list2.add(filterFieldValueDO);
+//                            }
+//                        }
+//                        if(filterFieldValueDO.getId()==null){
+//                            filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+//                            filterFieldValueDO.setValue(filterFieldDTO.getDateFromValue().toString());
+//                            filterFieldValueDO.setFlowExportRequest(intoObject);
+//                            list2.add(filterFieldValueDO);
+//                        }
+//                    }
+                            if (filterFieldDTO.getDateFromValue() != null && filterFieldDTO.getDateToValue() != null) {
+                                //filterFieldValueDO.setId(flowConfigurationFilterFieldDO.getId());
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getDateFromValue().toString());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                                //filterFieldValueDO2.setId(flowConfigurationFilterFieldDO.getId());
+                                filterFieldValueDO2.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO2.setValue(filterFieldDTO.getDateToValue().toString());
+                                filterFieldValueDO2.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO2);
+                            }
+                            //GESTIONE NUMERIOC
+                            if (filterFieldDTO.getNumFromValue() != null && filterFieldDTO.getNumToValue() == null) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getNumFromValue());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                            }
+                            if (filterFieldDTO.getNumFromValue() == null && filterFieldDTO.getNumToValue() != null) {
+                                if (filterFieldValueDO.getId() == null) {
+                                    filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                    filterFieldValueDO.setValue(filterFieldDTO.getNumToValue());
+                                    filterFieldValueDO.setFlowExportRequest(intoObject);
+                                    list2.add(filterFieldValueDO);
+                                }
+                            }
+                            if (filterFieldDTO.getNumFromValue() != null && filterFieldDTO.getNumToValue() != null) {
+                                filterFieldValueDO.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO.setValue(filterFieldDTO.getNumFromValue());
+                                filterFieldValueDO.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO);
+                                filterFieldValueDO2.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                filterFieldValueDO2.setValue(filterFieldDTO.getNumToValue());
+                                filterFieldValueDO2.setFlowExportRequest(intoObject);
+                                list2.add(filterFieldValueDO2);
+                            }
+                            //GESTIONE MULTIVALORE
+                            if (filterFieldDTO.getMultiValues() != null && filterFieldDTO.getMultiValues().size() > 0) {
+                                for (String value : filterFieldDTO.getMultiValues()) {
+                                    FlowConfigurationFilterFieldValueDO filterFieldValueDO3 = new FlowConfigurationFilterFieldValueDO();
+                                    filterFieldValueDO3.setConfigurationFilterField(flowConfigurationFilterFieldDO);
+                                    filterFieldValueDO3.setValue(value);
+                                    filterFieldValueDO3.setFlowExportRequest(intoObject);
+                                    list2.add(filterFieldValueDO3);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+        }
+        intoObject.setValues(list2);
+}
+}

@@ -1,0 +1,11 @@
+eclipse.preferences.version=1
+encoding//src/main/java=UTF-8
+encoding//src/main/resources=UTF-8
+encoding//src/test/java=UTF-8
+encoding//src/test/resources=UTF-8
+encoding/<project>=UTF-8
+org.eclipse.jdt.core.compiler.compliance=17
+org.eclipse.jdt.core.compiler.source=17
+org.eclipse.jdt.core.compiler.codegen.targetPlatform=17
+org.eclipse.jdt.core.compiler.release=enabled
+org.eclipse.jdt.core.compiler.releaseVersion=17

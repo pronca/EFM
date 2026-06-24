@@ -1,0 +1,57 @@
+package it.eng.care.domain.flow.jobs.jobs.secondLevelValidation;
+
+import java.util.List;
+
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import it.eng.care.domain.flow.core.dao.FlowDrgDAO;
+import it.eng.care.domain.flow.core.dao.FlowExportRequestDAO;
+import it.eng.care.domain.flow.core.entity.FlowDrgDO;
+import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
+import it.eng.care.domain.flow.core.service.FlowDrgService;
+import it.eng.care.domain.flow.core.service.FlowExportRequestService;
+import it.eng.care.domain.flow.jobs.enumeration.FlowDrgEnum;
+
+public class ExecuteDrgJob implements Job {
+	
+	private static final Logger LOGGER = LoggerFactory.getLogger(ExecuteDrgJob.class);
+	
+	@Autowired
+	private FlowDrgDAO flowDrgDAO; 
+	
+	@Autowired
+	private FlowDrgService flowDrgService;
+	
+	@Autowired
+	private FlowExportRequestService flowExportService;
+	
+	@Autowired
+	private FlowExportRequestDAO flowExportRequestDAO;
+
+	@Override
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+
+		LOGGER.info("<<<<<<<<<<<<<<<<<<<<<<<  DRG CALCULATION JOB - START >>>>>>>>>>>>>>>>>>>>>>>");
+		
+		List<FlowDrgDO> listDrg = flowDrgDAO.findByState(FlowDrgEnum.RICHIESTA.name());
+		
+		for(FlowDrgDO drg: listDrg) {
+			FlowExportRequestDO extraction = flowExportRequestDAO.findById(drg.getExtraction().getId()).get();
+			if(("XSD_VALIDATED".equals(extraction.getValidationStatus()) || "VALIDATED".equals(extraction.getValidationStatus())) && extraction.getDeleted() == 0){
+				flowDrgService.startDrgInvocationResults(drg,true);
+				Boolean res = flowExportService.calculateDrg(drg);
+				if(res) {
+					flowExportService.calculateDrgStatistics(drg);
+				}
+			}else if(("NOT_VALID".equals(extraction.getValidationStatus()) || "NO_ROWS".equals(extraction.getValidationStatus()) || "NOT_VALIDATED".equals(extraction.getValidationStatus())) && extraction.getDeleted() == 0) {
+				flowDrgService.startDrgInvocationResults(drg,false);
+			}
+		}
+	}
+
+}

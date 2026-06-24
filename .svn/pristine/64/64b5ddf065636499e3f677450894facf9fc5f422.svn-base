@@ -1,0 +1,14 @@
+sonar.projectKey=it.eng.care.domain.flow.api
+sonar.projectName=it.eng.care.domain.flow.api
+sonar.sourceEncoding=UTF-8
+
+# Path relativi alla root del workspace Jenkins
+sonar.tests=it.eng.care.domain.flow.api/src/test/java
+sonar.java.binaries=it.eng.care.domain.flow.api/target/classes
+
+# Escludi metadati SVN, target, script e tutto ciò che non è API
+sonar.exclusions=**/.svn/**,**/target/**,**/script_liquibase/**,pom.xml,it.eng.care.domain.flow.core/**,it.eng.care.domain.flow.drools/**,it.eng.care.domain.flow.jobs/**
+
+# Tieni dentro solo il modulo API
+sonar.inclusions=it.eng.care.domain.flow.api/src/main/java/**/*.java
+sonar.test.inclusions=it.eng.care.domain.flow.api/src/test/java/**/*.java

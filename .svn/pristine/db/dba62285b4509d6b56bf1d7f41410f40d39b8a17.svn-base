@@ -1,0 +1,144 @@
+package it.eng.care.domain.flow.core.dao.querySearch;
+
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.Set;
+
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+
+import org.springframework.beans.factory.annotation.Autowired;
+
+import com.google.common.collect.Sets;
+
+import it.eng.care.domain.flow.core.entity.AnagraficaAssistitoDO;
+import it.eng.care.domain.flow.core.service.AnagraficaAssistitoService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+
+public class AnagraficaAssistitoDAOQueryByCriteria {
+	
+	@Autowired
+	private EntityManager entityManager;
+	
+	@Autowired
+	private AnagraficaAssistitoService anagraficaAssistatoService;
+	
+	public CriteriaQuery<AnagraficaAssistitoDO> searchAnagrafica (BaseSearchInput poInput){
+		
+		Predicate predicateCodiceFiscale = null,
+		predicateCodicePaziente = null,
+		predicateCodiceNome = null,
+		predicateCodiceCognome = null,
+		predicateCodiceDatanascita = null,
+		predicateCodiceComunenascita = null,
+		predicateCodiceSesso = null;
+				
+		CriteriaBuilder builder = entityManager.getCriteriaBuilder();
+		CriteriaQuery<AnagraficaAssistitoDO> query = builder.createQuery(AnagraficaAssistitoDO.class);
+		Root<AnagraficaAssistitoDO> rootTabella = query.from(AnagraficaAssistitoDO.class);
+		Set<Predicate> restrictions = Sets.newHashSet();
+		AnagraficaAssistitoDO anaAssEdit = new AnagraficaAssistitoDO();
+		
+		String id = 			isNullOrEmpty(poInput.getValue("id".trim()));
+		if (id!=null && !id.isEmpty()) {
+			anaAssEdit = anagraficaAssistatoService.getEntityById(id);
+		}
+		String nome = 			isNullOrEmpty(poInput.getValue("nome".trim()));
+		String cognome = 		isNullOrEmpty(poInput.getValue("cognome".trim()));		
+		String comunenascita =  isNullOrEmpty(poInput.getValue("comunenascita".trim()));
+		String sesso = 			isNullOrEmpty(poInput.getValue("sesso".trim()));
+		String codiceFiscale =  isNullOrEmpty(poInput.getValue("codiceFiscale".trim()));
+		String codicePaziente = isNullOrEmpty(poInput.getValue("codicePaziente".trim()));
+		
+		if (!nome.isEmpty()) {
+			Path<String> pathNome = rootTabella.get("nome".trim());
+			predicateCodiceNome = builder.equal(builder.upper(pathNome), nome.toUpperCase().trim());
+		}
+		
+		if (!cognome.isEmpty()) {
+			Path<String> pathCognome = rootTabella.get("cognome".trim());
+	        predicateCodiceCognome = builder.equal(builder.upper(pathCognome), cognome.toUpperCase().trim());   
+		}
+		
+		if (!comunenascita.isEmpty()) {
+			Path<String> pathComunenascita = rootTabella.get("comunenascita".trim());
+			predicateCodiceComunenascita = builder.equal(pathComunenascita, comunenascita.trim());	
+		}
+		
+		if (!sesso.isEmpty()) {
+	        Path<String> pathSesso = rootTabella.get("sesso".trim());
+	        predicateCodiceSesso = builder.equal(pathSesso,sesso.trim()); 
+		}
+		
+		if (!codiceFiscale.isEmpty()) {
+	        Path<String> pathFiscale= rootTabella.get("codiceFiscale".trim());
+	        predicateCodiceFiscale = builder.equal(pathFiscale,codiceFiscale.trim());
+		}
+		
+		if (!codicePaziente.isEmpty()) {
+	        Path<String> pathPaziente =rootTabella.get("codicePaziente".trim());    	
+	        predicateCodicePaziente = builder.equal(pathPaziente, codicePaziente);
+		}
+		
+        Predicate andPred;
+        if(poInput.getValue("datanascita") == null) { 	
+        	andPred = builder.and(predicateCodiceNome,predicateCodiceCognome,predicateCodiceComunenascita,predicateCodiceSesso);
+        }else {
+        	Date   datanascita =   poInput.getValue("datanascita");
+        	Path<Date> pathDatanascita = rootTabella.get("datanascita".trim());
+        	predicateCodiceDatanascita = builder.equal(pathDatanascita,datanascita); 
+        	andPred = builder.and(predicateCodiceNome,predicateCodiceCognome,predicateCodiceDatanascita,predicateCodiceComunenascita,predicateCodiceSesso);
+        }
+        
+        Predicate finalPredicate=null;
+        Predicate firstCheck=null;
+        Predicate secondCheck = null;
+        if (predicateCodiceFiscale!=null) {
+        	if (anaAssEdit.getId()==null || (anaAssEdit.getId()!=null && !codiceFiscale.isEmpty() && !codiceFiscale.equals(anaAssEdit.getCodiceFiscale()))) {
+            	firstCheck =  builder.or(predicateCodiceFiscale);
+    		}
+        }
+        if (predicateCodicePaziente!=null) {
+	        if (anaAssEdit.getId()==null || (anaAssEdit.getId()!=null && !codicePaziente.isEmpty() && !codicePaziente.equals(anaAssEdit.getCodicePaziente()))) {
+	        	secondCheck = builder.or(predicateCodicePaziente);
+	        }
+        }
+        
+        if (anaAssEdit.getId()==null) {
+        	if (firstCheck != null && secondCheck != null) {
+        		finalPredicate = builder.or(firstCheck,secondCheck,andPred);
+        	} else {
+        		finalPredicate = builder.or(andPred);
+        	}
+        } else {
+        	if (firstCheck!=null && secondCheck!=null)
+            	finalPredicate = builder.or(firstCheck,secondCheck,andPred);
+            if (firstCheck!=null && secondCheck==null)
+            	finalPredicate = builder.or(firstCheck,andPred);
+            if (firstCheck==null && secondCheck!=null)
+            	finalPredicate = builder.or(secondCheck,andPred);
+            if (firstCheck==null && secondCheck==null)
+//            	return query.select(rootTabella).where(builder.isFalse(builder.literal(true)));
+            	finalPredicate = builder.or(andPred);
+        }
+        
+        restrictions.add(finalPredicate);
+        //System.out.println("Condition== "+codicePaziente+" "+pathPaziente+" "+codicePaziente.equals("sdsd".trim()));			
+        
+		return query.select(rootTabella)
+				.where(restrictions.toArray(new Predicate[restrictions.size()]));
+		
+	}
+	
+	private String isNullOrEmpty(String data) {
+		String dataTmp = data;
+		if(dataTmp == null || dataTmp.isEmpty()) {
+			return "";
+		}
+		return dataTmp;
+	}	
+}

@@ -1,0 +1,30 @@
+spring.main.allow-bean-definition-overriding=true
+
+# Jax-rs url
+spring.jpa.show-sql=true
+spring.jpa.hibernate.ddl-auto=none
+encryptor.password=pwd_ellipse
+encryptor.algorithm=PBEWithMD5AndDES
+liquibase.enabled=false
+jasypt.encryptor.password=pwd_ellipse
+jasypt.encryptor.algorithm=PBEWithMD5AndDES
+
+
+## SPRING JMX
+spring.jmx.enabled=false
+
+
+
+url.login=/
+
+origins=http://is.enginsan.it:8080,http://localhost:8080,http://localhost:4200,http://192.168.90.55:4200,http://161.27.202.26:8087
+tabgen.temp.dir=temp/
+talend.temp.dir=
+talend.jar.dir=
+talend.host=
+talend.port=
+talend.database=
+talend.username=
+talend.password=
+talend.jar.file.dir=
+drools.path=drools

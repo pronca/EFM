@@ -1,0 +1,54 @@
+package it.eng.care.domain.flow.jobs.jobs.secondLevelValidation;
+
+import it.eng.care.domain.flow.jobs.look.LockJob;
+import org.quartz.DisallowConcurrentExecution;
+import org.quartz.Job;
+import org.quartz.JobExecutionContext;
+import org.quartz.JobExecutionException;
+import org.springframework.beans.factory.annotation.Autowired;
+
+@DisallowConcurrentExecution
+public class SecondLevelValidationJob implements Job {
+	
+	@Autowired
+	private CrossValidationJob crossValidationJob;
+	
+	@Autowired
+	private ExecuteDrgJob executeDrgJob;
+	
+	@Autowired
+	private ExecuteFlowExportRequestJob executeFlowExportRequestJob;
+	
+	@Autowired
+	private ValidateFlowExportRequestJob validateFlowExportRequestJob;
+	
+	@Override
+	@LockJob(entity = "SecondLevelValidationJob", untilCfg = "SecondLevelValidationJob.locktimeout")
+	public void execute(JobExecutionContext context) throws JobExecutionException {
+		try {
+			executeFlowExportRequestJob.execute(null);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+		
+		try {
+			validateFlowExportRequestJob.execute(null);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+		
+		/*try {
+			crossValidationJob.execute(null);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}*/
+		
+		try {
+			executeDrgJob.execute(null);
+		} catch (Exception ex) {
+			ex.printStackTrace();
+		}
+		
+	}
+
+}

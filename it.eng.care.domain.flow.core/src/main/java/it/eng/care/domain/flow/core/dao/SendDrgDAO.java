@@ -1,0 +1,13 @@
+package it.eng.care.domain.flow.core.dao;
+
+import java.util.List;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import it.eng.care.domain.flow.core.entity.SendDrgDO;
+
+public interface SendDrgDAO extends JpaRepository<SendDrgDO, String> {
+	
+	public List<SendDrgDO> findTopByStatusAndNretryLessThan(String status,int trys);
+
+}

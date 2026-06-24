@@ -1,0 +1,90 @@
+package it.eng.care.domain.flow.core.service.impl;
+
+import java.util.Date;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import jakarta.transaction.Transactional;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.util.Pair;
+import org.springframework.stereotype.Service;
+
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.FlowDAO;
+import it.eng.care.domain.flow.core.dao.FlowReceiverLogDAO;
+import it.eng.care.domain.flow.core.entity.ConfigurationDO;
+import it.eng.care.domain.flow.core.entity.FlowDO;
+import it.eng.care.domain.flow.core.entity.FlowReceiverLogDO;
+import it.eng.care.domain.flow.core.service.FlowService;
+import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
+import it.eng.care.platform.tool.transport.service.SearchInfo;
+import it.eng.care.platform.tool.transport.service.SearchInfos;
+
+@Service
+@Transactional
+public class FlowServiceImpl implements FlowService {
+
+    @Autowired
+    private FlowDAO flowDAO;
+    
+    @Autowired
+    private FlowReceiverLogDAO flowReceiverLogDAO;
+    
+    @Autowired
+    private ConfigurationDAO configurationDAO;
+
+    public FlowDO createEntity(FlowDO poValue) {
+        return flowDAO.save(poValue);
+    }
+
+    public FlowDO updateEntity(FlowDO poValue) {
+//    	String schema = flowDAO.findOne(poValue.getId()).getJson_schema();
+//    	poValue.setJson_schema(schema);
+        return flowDAO.save(poValue);
+    }
+
+    public Pair<List<FlowDO>, SearchInfo> retrieveAllFiltered(BaseSearchInput searchInput, Boolean useFlowProfile) {
+    	List<FlowDO> loList = null;
+    	if(useFlowProfile) {
+    		loList = flowDAO.cercaInProfile(searchInput);
+    	} else {
+    		loList = flowDAO.cerca(searchInput);
+    	}
+        return Pair.of(loList, SearchInfos.create());
+    }
+
+    @Override
+    public List<FlowDO> findAll() {
+        try {
+            return flowDAO.findAll();
+        } catch (Exception e) {
+        }
+        return null;
+    }
+
+    public FlowDO retrieveOne(String id) {
+        return flowDAO.findById(id).get();
+    }
+
+    public void deleteEntity(String id) {
+        flowDAO.deleteById(id);
+    }
+
+    @Override
+    public List<FlowDO> getAllWithVersions(String flowType) {
+        return flowDAO.getAllWithVersions(flowType);
+    }
+    
+    @Override
+    public void logFlowSending(String flowname, String version, String operation, String pk) {
+    	ConfigurationDO cfg = configurationDAO.findByKeyId("FM_RECEIVER_LOG");
+    	if(cfg != null && "true".equals(cfg.getValue() + "")) {
+    		FlowReceiverLogDO log = new FlowReceiverLogDO(flowname, version, operation,pk,  new Date());
+    		log.setId(UUID.randomUUID().toString());
+    		flowReceiverLogDAO.save(log);
+    	}
+    }
+
+}

@@ -1,0 +1,69 @@
+package it.eng.care.domain.flow.core.config;
+
+import com.mchange.v2.c3p0.ComboPooledDataSource;
+import it.eng.care.domain.flow.core.dto.DataSourceDTO;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.beans.PropertyVetoException;
+import java.sql.Connection;
+import java.sql.SQLException;
+
+public class C3P0DataSource {
+
+    private static C3P0DataSource dataSource;
+    private Logger LOG = LoggerFactory.getLogger(this.getClass());
+    private ComboPooledDataSource comboPooledDataSource;
+
+    private C3P0DataSource(DataSourceDTO dataSourceDTO) {
+        try {
+            comboPooledDataSource = new ComboPooledDataSource();
+            if (dataSourceDTO.getDriver().getName().trim().equals("MySQL")) {
+                comboPooledDataSource.setDriverClass("com.mysql.jdbc.Driver");
+                comboPooledDataSource.setJdbcUrl("jdbc:mysql://" +
+                        dataSourceDTO.getHostname() +
+                        ":" + dataSourceDTO.getPort() +
+                        "/" + dataSourceDTO.getServiceName()
+                        + "?autoReconnect=true&useSSL=false");
+            }
+            //TODO Gestione SID or ServiceName
+            if (dataSourceDTO.getDriver().getName().trim().equals("Oracle")) {
+                comboPooledDataSource.setDriverClass("oracle.jdbc.OracleDriver");
+                //+ dataSourceDTO.getServiceName() +
+                //".world=" +
+                comboPooledDataSource.setJdbcUrl("jdbc:oracle:thin:@(DESCRIPTION=" +
+                        "(ADDRESS_LIST=" +
+                        "(ADDRESS=(PROTOCOL = TCP)" +
+                        "(HOST =" + dataSourceDTO.getHostname() + ")" +
+                        "(PORT =" + dataSourceDTO.getPort() + ")))" +
+                        "(CONNECT_DATA = (SID =" + dataSourceDTO.getServiceName() + ")))");
+            }
+            //TODO Others DB
+            comboPooledDataSource.setUser(dataSourceDTO.getUsername());
+            comboPooledDataSource.setPassword(dataSourceDTO.getPassword());
+            LOG.info("Datasource URL Connection: " + comboPooledDataSource.getJdbcUrl());
+        } catch (PropertyVetoException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static C3P0DataSource getInstance(DataSourceDTO dataSourceDTO) {
+        if (dataSource == null)
+            dataSource = new C3P0DataSource(dataSourceDTO);
+        return dataSource;
+    }
+
+    public Connection getConnection() {
+        Connection con = null;
+        try {
+            con = comboPooledDataSource.getConnection();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        return con;
+    }
+
+
+}
+
+

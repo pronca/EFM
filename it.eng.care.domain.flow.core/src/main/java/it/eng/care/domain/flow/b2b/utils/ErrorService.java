@@ -1,0 +1,256 @@
+package it.eng.care.domain.flow.b2b.utils;
+
+import org.apache.http.HttpEntity;
+import org.apache.http.HttpResponse;
+import org.apache.http.NoHttpResponseException;
+import org.apache.http.client.HttpClient;
+import org.apache.http.client.config.RequestConfig;
+import org.apache.http.client.methods.HttpPost;
+import org.apache.http.entity.StringEntity;
+import org.apache.http.impl.client.DefaultHttpClient;
+import org.apache.http.util.EntityUtils;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import it.eng.care.domain.flow.b2b.model.ErrorModelDTO;
+import it.eng.care.domain.flow.b2b.service.ValidationMessageService;
+import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.FlowDAO;
+import it.eng.care.domain.flow.core.entity.AppIdentityDO;
+import it.eng.care.domain.flow.core.enumeration.ErrorServiceStatusEnum;
+import it.eng.care.domain.flow.core.service.AppIdentityService;
+import it.eng.care.domain.flow.core.utility.LogUtil;
+import it.eng.care.platform.authentication.api.service.LoggedUserService;
+
+/**
+ * 
+ * @author mpirozzi
+ * 
+ * 
+ */
+public class ErrorService {
+
+	@Autowired
+	private LoggedUserService loggUserService;
+
+	@Autowired
+	private AppIdentityService appIdentityService;
+
+	@Autowired
+	protected ConfigurationDAO configuration;
+
+	@Autowired
+	protected JWTAuth auth;
+
+	@Autowired
+	protected ValidationMessageService validationMessageService;
+
+	@Autowired
+	protected FlowDAO flowDAO;
+
+	private String token;
+
+	private static Logger logger = LoggerFactory.getLogger(ErrorService.class);
+
+	// MP: CRREAZIONE JSON + INVIO ERRORI
+
+	public void getAndSendErrors(ErrorModelDTO model, String flowName) throws Exception {
+
+		ObjectMapper mapper = new ObjectMapper();
+		String jsonString;
+		// MP: CREAZIONE JSON DA RESTITUIRE AL VERTICALE
+		try {
+			jsonString = mapper.writeValueAsString(model);
+
+			validationMessageService.insertEvent(model, flowName, jsonString);
+
+			// write on table per il job
+			// restCall(jsonString, flowName);
+
+		} catch (JsonProcessingException e) {
+			LogUtil.logException(logger, "", e);
+//			e.printStackTrace();
+		}
+
+	}
+
+//MP: metodo per inviare gli errori ai verticali
+	public String restCall(String jsonString, String flowName, String codiceAzienda) throws Exception {
+
+		// MP: autenticazione remota
+		// REFRESH TOKEN
+		if (token == null) {
+			token = auth.loginRestCall();
+		}
+
+		HttpEntity reqEntity = null;
+
+		try {
+			reqEntity = new StringEntity(jsonString);
+		} catch (Exception e) {
+			LogUtil.logException(logger, "Errore 1 - per il flusso " + flowName, e);
+			
+			return ErrorServiceStatusEnum.ERROR.getStatus();
+		}
+
+		logger.info("Tentativo di invio errori...");
+		AppIdentityDO appIdentity = new AppIdentityDO();
+		try {
+			if (codiceAzienda!=null) {
+				appIdentity = appIdentityService.searchApp(flowName, codiceAzienda);
+				//se nella FM_APP_IDENTITY non è stato configurato il codice azienda provo a cercare solo per flusso
+				if (appIdentity==null) {
+					appIdentity = appIdentityService.searchApp(flowName);
+				}
+			} else {
+				appIdentity = appIdentityService.searchApp(flowName);
+			}
+		} catch (Exception e) {
+			LogUtil.logException(logger, "Errore 2 - Errore nel recupero dell'identity sulla tabella FM_APP_IDENTITY per il flusso " + flowName + "", e);
+			return ErrorServiceStatusEnum.ERROR.getStatus();
+		}
+		
+		if (appIdentity!=null) {
+			String flowIdentity = appIdentity.getIdentity();
+			String versionIdentity = appIdentity.getVersion();
+			String fi = (flowIdentity == null) ? "" : flowIdentity.trim();
+			String vi = (versionIdentity == null) ? "" : versionIdentity;			String base = (fi.startsWith("http://") || fi.startsWith("https://")) ? fi : "http://" + fi;
+			String url = base + vi;
+	
+			HttpClient client = new DefaultHttpClient();
+			HttpPost post = new HttpPost(url);
+	
+			RequestConfig.Builder requestConfig = RequestConfig.custom();
+			requestConfig.setConnectTimeout(10 * 1000);
+			requestConfig.setConnectionRequestTimeout(10 * 1000);
+			requestConfig.setSocketTimeout(10 * 1000);
+	
+			// add header
+			post.setHeader("Authorization", "Bearer" + " " + token);
+			post.setHeader("Accpet", "application/json");
+			post.setHeader("content-type", "application/json");
+			post.setEntity(reqEntity);
+			post.setConfig(requestConfig.build());
+	
+			try {
+				HttpResponse response = client.execute(post);
+				HttpEntity respEntity = response.getEntity();
+				String responseString = EntityUtils.toString(respEntity);
+				if (response.getStatusLine().getStatusCode() == 200) {
+					logger.info("Errori inviati con successo: " + responseString);
+					return ErrorServiceStatusEnum.SENT.getStatus();
+	
+					
+				} else if (response.getStatusLine().getStatusCode() == 401) {
+					logger.info("refresh token" + response.toString());
+					token = auth.loginRestCall();
+					// richiamo la funzione per invio errori
+					restCall(jsonString, flowName, codiceAzienda);
+	
+				} else {
+					logger.info("Errore 3 - Errore nell'invio dei dati per il flusso: " + flowName + " - Errore: " + response.toString());
+					return ErrorServiceStatusEnum.ERROR.getStatus();
+	
+	
+				}
+	
+			} catch (NoHttpResponseException nhre) {
+				LogUtil.logException(logger, "Errore 4 - Errore nell'invio dei dati per il flusso "+flowName+"", nhre);
+	
+				return ErrorServiceStatusEnum.ERROR.getStatus();
+	//			throw new Exception("ERROR : RETRIEVING RESPONSE: " + nhre.getMessage());
+			} catch (Exception e) {
+				LogUtil.logException(logger, "Errore 5 - Errore nell'invio dei dati per il flusso "+flowName+"", e);
+				
+				return ErrorServiceStatusEnum.ERROR.getStatus();
+	
+	//			throw new Exception("ERROR : RETRIEVING RESPONSE: " + e.getMessage());
+			}
+		}
+		
+		return ErrorServiceStatusEnum.ERROR.getStatus();
+
+	}
+	
+	public String sendRegionRestCall(String jsonString, String flowName, String codiceAzienda) throws Exception {
+
+	    if (token == null) {
+	        token = auth.loginRestCall();
+	    }
+
+	    HttpEntity reqEntity = null;
+
+	    try {
+	        reqEntity = new StringEntity(jsonString);
+	    } catch (Exception e) {
+	        LogUtil.logException(logger, "Errore 1 - invio risultati regionali per il flusso " + flowName, e);
+	        return ErrorServiceStatusEnum.ERROR.getStatus();
+	    }
+
+	    AppIdentityDO appIdentity = null;
+	    try {
+	        if (codiceAzienda != null) {
+	            appIdentity = appIdentityService.searchApp(flowName, codiceAzienda);
+	            if (appIdentity == null) {
+	                appIdentity = appIdentityService.searchApp(flowName);
+	            }
+	        } else {
+	            appIdentity = appIdentityService.searchApp(flowName);
+	        }
+	    } catch (Exception e) {
+	        LogUtil.logException(logger, "Errore 2 - recupero FM_APP_IDENTITY.IDENTITY_REG_ERRORS per il flusso " + flowName, e);
+	        return ErrorServiceStatusEnum.ERROR.getStatus();
+	    }
+
+	    if (appIdentity != null && appIdentity.getIdentityRegErrors() != null) {
+	        String url = appIdentity.getIdentityRegErrors();
+
+	        HttpClient client = new DefaultHttpClient();
+	        HttpPost post = new HttpPost(url);
+
+	        RequestConfig.Builder requestConfig = RequestConfig.custom();
+	        requestConfig.setConnectTimeout(10 * 1000);
+	        requestConfig.setConnectionRequestTimeout(10 * 1000);
+	        requestConfig.setSocketTimeout(10 * 1000);
+
+	        post.setHeader("Authorization", "Bearer " + token);
+	        post.setHeader("Accept", "application/json");
+	        post.setHeader("content-type", "application/json");
+	        post.setEntity(reqEntity);
+	        post.setConfig(requestConfig.build());
+
+	        try {
+	            HttpResponse response = client.execute(post);
+	            HttpEntity respEntity = response.getEntity();
+	            String responseString = EntityUtils.toString(respEntity);
+
+	            if (response.getStatusLine().getStatusCode() == 200) {
+	                logger.info("Risultati regionali inviati con successo: " + responseString);
+	                return ErrorServiceStatusEnum.SENT.getStatus();
+
+	            } else if (response.getStatusLine().getStatusCode() == 401) {
+	                token = auth.loginRestCall();
+	                return sendRegionRestCall(jsonString, flowName, codiceAzienda);
+
+	            } else {
+	                logger.info("Errore invio risultati regionali per il flusso {} - response {}", flowName, response);
+	                return ErrorServiceStatusEnum.ERROR.getStatus();
+	            }
+
+	        } catch (NoHttpResponseException nhre) {
+	            LogUtil.logException(logger, "Errore 4 - invio risultati regionali per il flusso " + flowName, nhre);
+	            return ErrorServiceStatusEnum.ERROR.getStatus();
+
+	        } catch (Exception e) {
+	            LogUtil.logException(logger, "Errore 5 - invio risultati regionali per il flusso " + flowName, e);
+	            return ErrorServiceStatusEnum.ERROR.getStatus();
+	        }
+	    }
+
+	    return ErrorServiceStatusEnum.ERROR.getStatus();
+	}
+}
