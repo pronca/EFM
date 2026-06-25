@@ -843,6 +843,7 @@ public class FlowFileUploadServiceImpl implements FlowFileUploadService {
 	            ps.setString(index++, StateReceviedAppEnum.NUOVA.name());
 	            ps.setString(index++, StateSendRegionEnum.DA_INVIARE.name());
 	            ps.setString(index++, null);
+	            ps.setString(index++, null);
 
 	            int position = 0;
 	            for (FormFlowTableFieldDTO field : fields) {
@@ -932,6 +933,7 @@ public class FlowFileUploadServiceImpl implements FlowFileUploadService {
 	            ps.setString(index++, ImportTypeEnum.FROM_FILE_UPLOAD.name());
 	            ps.setString(index++, StateReceviedAppEnum.NUOVA.name());
 	            ps.setString(index++, StateSendRegionEnum.DA_INVIARE.name());
+	            ps.setString(index++, null);
 	            ps.setString(index++, null);
 
 	            for (FormFlowTableFieldDTO field : fields) {
@@ -1127,6 +1129,7 @@ public class FlowFileUploadServiceImpl implements FlowFileUploadService {
 	                ps.setString(index++, StateReceviedAppEnum.NUOVA.name());
 	                ps.setString(index++, StateSendRegionEnum.DA_INVIARE.name());
 	                ps.setString(index++, null);
+	                ps.setString(index++, null);
 
 	                for (FormFlowTableFieldDTO field : fields) {
 	                    String fv = "";
@@ -1241,6 +1244,7 @@ public class FlowFileUploadServiceImpl implements FlowFileUploadService {
 	                ps.setString(index++, ImportTypeEnum.FROM_FILE_UPLOAD.name());
 	                ps.setString(index++, StateReceviedAppEnum.NUOVA.name());
 	                ps.setString(index++, StateSendRegionEnum.DA_INVIARE.name());
+	                ps.setString(index++, null);
 	                ps.setString(index++, null);
 
 	                for (FormFlowTableFieldDTO field : fields) {

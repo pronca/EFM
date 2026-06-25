@@ -759,6 +759,9 @@ public class TransactionalTwoLevelResultsServiceImpl implements TransactionalTwo
 	                            return Pair.of(FlowOperationResult.failure("Formato file non supportato: " + extension), listSendDrg);
 	                        }
 
+	                        if (!msgErrors.isEmpty()) {
+	                            return Pair.of(FlowOperationResult.failure(msgErrors), listSendDrg);
+	                        }
 	                        return Pair.of(FlowOperationResult.success(true), listSendDrg);
 
 	                    } catch (Exception e) {
@@ -772,46 +775,40 @@ public class TransactionalTwoLevelResultsServiceImpl implements TransactionalTwo
 	                });
 
 	        // se fallisce, ritorna subito
-	        if (out == null || out.getFirst() == null || !out.getFirst().getSuccess()) {
-	            return (out != null && out.getFirst() != null)
-	                    ? out.getFirst()
-	                    : FlowOperationResult.failure("Errore in fase di scrittura dei file");
+	        if (out == null || out.getFirst() == null) {
+	            return FlowOperationResult.failure("Errore in fase di scrittura dei file");
+	        }
+
+	        if (!out.getFirst().getSuccess()) {
+	            if (!msgErrors.isEmpty()) {
+	                try {
+	                    byte[] bytes = FileUtility.generateFileLog(msgErrors, "upload_ritorno_error_log");
+	                    byte[] zipbytes = FileUtility.zipBytes("Errori_Upload_Ritorno_" + file.getName() + ".log", bytes);
+
+	                    return FlowOperationResult.failure(
+	                            "Sono presenti errori nel file dei ritorni regionali. Consultare il file di log scaricabile nel Download della pagina web.",
+	                            "Errori_Upload_Ritorno_" + file.getName() + ".zip",
+	                            "application/zip",
+	                            Base64.getEncoder().encodeToString(zipbytes)
+	                    );
+	                } catch (Exception e) {
+	                    LogUtil.logException(LOGGER, "", e);
+	                    return FlowOperationResult.failure("Errore in fase di scrittura del file di log per errori sul file dei ritorni regionali");
+	                }
+	            }
+
+	            return out.getFirst();
 	        }
 	        
-	        if (msgErrors.isEmpty()) {
-		        // richiamo generateJsonDrg come prima (fuori dal doWork)
-		        List<SendDrgDTO> listSendDrg = out.getSecond();
-		        if (listSendDrg != null && !listSendDrg.isEmpty()) {
-		            if (produzioneTot) {
-		                generateJsonDrg(listSendDrg, "TOT", configurationRegion.getName());
-		            } else {
-		                generateJsonDrg(listSendDrg, extractionId, configurationRegion.getName());
-		            }
-		        }
-	        } else {
-	        	//DOWNLOAD DEL FILE CON ERRORI RISCONTRATI NEL FILE
-	    		try {
-					//Creo un file log in memoria con gli errori
-	    			byte[] bytes = FileUtility.generateFileLog(msgErrors, "upload_ritorno_error_log");
-	    	        byte[] zipbytes = FileUtility.zipBytes("Errori_Upload_Ritorno_" + file.getName() + ".log", bytes);
-
-	    	        DownloadFileDTO downloadFile = new DownloadFileDTO();
-	    	        downloadFile.setFileName("Errori_Upload_Ritorno_" + file.getName() + ".zip");
-	    	        downloadFile.setContentType("application/zip");
-	    	        downloadFile.setBase64Content(Base64.getEncoder().encodeToString(zipbytes));
-
-	    	        return FlowOperationResult.failure(
-	    	                "Sono presenti errori nel file dei ritorni regionali. Consultare il file di log scaricabile nel Download della pagina web.",
-	    	                "Errori_Upload_Ritorno_" + file.getName() + ".zip",
-	    	                "application/zip",
-	    	                Base64.getEncoder().encodeToString(zipbytes)
-	    	        );
-				} catch (Exception e) {
-					LogUtil.logException(LOGGER, "", e);
-					return FlowOperationResult.failure("Errore in fase di scrittura del file di log per errori sul file dei ritorni regionali");
-				}
+	        List<SendDrgDTO> listSendDrg = out.getSecond();
+	        if (listSendDrg != null && !listSendDrg.isEmpty()) {
+	            if (produzioneTot) {
+	                generateJsonDrg(listSendDrg, "TOT", configurationRegion.getName());
+	            } else {
+	                generateJsonDrg(listSendDrg, extractionId, configurationRegion.getName());
+	            }
 	        }
-	        
+
 	        return FlowOperationResult.success(true);
 
 	    } catch (RuntimeException re) {
@@ -903,7 +900,7 @@ public class TransactionalTwoLevelResultsServiceImpl implements TransactionalTwo
 	        }
 	        LOGGER.error(msgError);
 	        msgErrors.add(msgError);
-//	        return FlowOperationResult.failure(msgError);
+	        return FlowOperationResult.failure(msgErrors);
 	    }
 
 	    // estrazioneId verticale è l'ultima colonna dopo le pk
