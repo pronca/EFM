@@ -6,6 +6,7 @@ import java.io.FileInputStream;
 import java.io.FileReader;
 import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.charset.StandardCharsets;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -381,7 +382,7 @@ public class TwoLevelResultsServiceImpl implements TwoLevelResultsService {
 			/***************** 3 fine **********************/
 			if(produzioneTot) {
 				MyC myCallable = new MyC(produzioneTot, checkErrorsAndWarnings, files, tableNameRegUpdate, tableNameRegUpdateTot, tableNameRegErrors, 
-						tableNameRegWarnings, configurationRegion, extractionId, flowRegionId, versionId, checkTabgenErrors, checkTabgenUpdate, checkTabgenUpdateTot, file, this, tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni, consolidata);
+						tableNameRegWarnings, configurationRegion, extractionId, flowRegionId, flowLocalId, versionId, checkTabgenErrors, checkTabgenUpdate, checkTabgenUpdateTot, file, this, tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni, consolidata);
 	    			Thread thread = new Thread() {
 					@Transactional
 					public void run() {
@@ -402,7 +403,7 @@ public class TwoLevelResultsServiceImpl implements TwoLevelResultsService {
 //	    			thread.join();
 			}else {
 				result = uploadResultsThread(produzioneTot, checkErrorsAndWarnings, files, tableNameRegUpdate, tableNameRegUpdateTot, tableNameRegErrors, 
-						tableNameRegWarnings, configurationRegion, extractionId, flowRegionId, versionId, checkTabgenErrors, checkTabgenUpdate, checkTabgenUpdateTot, file, tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni, consolidata);
+						tableNameRegWarnings, configurationRegion, extractionId, flowRegionId, flowLocalId, versionId, checkTabgenErrors, checkTabgenUpdate, checkTabgenUpdateTot, file, tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni, consolidata);
 			}
 			
 		} else {
@@ -741,7 +742,7 @@ public class TwoLevelResultsServiceImpl implements TwoLevelResultsService {
 	}
 	
 	protected FlowOperationResult<Boolean> uploadResultsThread(boolean produzioneTot, boolean checkErrorsAndWarnings, List<File> files, String tableNameRegUpdate, String tableNameRegUpdateTot
-			, String tableNameRegErrors, String tableNameRegWarnings, FormFlowDTO configurationRegion, String extractionId, String flowRegionId, String versionId, FlowOperationResult<TabgenMap> checkTabgenErrors,
+			, String tableNameRegErrors, String tableNameRegWarnings, FormFlowDTO configurationRegion, String extractionId, String flowRegionId, String flowLocalId, String versionId, FlowOperationResult<TabgenMap> checkTabgenErrors,
 	FlowOperationResult<TabgenMap> checkTabgenUpdate, FlowOperationResult<TabgenMap> checkTabgenUpdateTot, File file, TabgenValue tabGenValueFlowUploadConf, List<TabgenValue> tabGenValueFlowTipologiaRitorni, boolean consolidata) throws IOException, SQLException {
 		
 		FlowOperationResult<Boolean> result = FlowOperationResult.success(true);
@@ -749,12 +750,19 @@ public class TwoLevelResultsServiceImpl implements TwoLevelResultsService {
 		boolean processedWarningFile = false;
 
 		/***************** 4 salva la richiesta di caricamento ********************/
-		if(!produzioneTot) {
-			UploadReturnsRequestDO request = new UploadReturnsRequestDO();
+		UploadReturnsRequestDO request = new UploadReturnsRequestDO();
+		try {
+			//se si tratta di upload su dashboard (importazione TOTALE), elimino eventuali precedenti upload di tipologia TOTALE per il flusso di riferimento in modo da gestirne sempre e solo uno a livello FE 
+			if (produzioneTot) {
+		        transactionalTwoLevelResultsService.deleteUploadReturnsRequestByExtractionIdAndFlowId("TOTALE", flowLocalId);
+		    }
+		
 			request.setId(UUID.randomUUID().toString());
 			request.setExtractionId(extractionId);
 			request.setCreationDate(new Date());
 			request.setFile(FileUtils.readFileToByteArray(file));
+			request.setFileNameOrigin(file.getName());
+			request.setFlowId(flowLocalId);
 			request.setUserId(userService.getCurrentUser().getUsername());
 			if (consolidata) {
 				request.setTipoValidazioneReg("DEFINITIVA");
@@ -763,66 +771,90 @@ public class TwoLevelResultsServiceImpl implements TwoLevelResultsService {
 			}
 			
 			transactionalTwoLevelResultsService.saveRequest(request);
-		}
-		/***************** 4 fine ********************/
-		
-		/************ 5 cancella eventuali ritorni associati all'estrazione e inserisci i nuovi **************/
-		if(checkErrorsAndWarnings) {
-			transactionalTwoLevelResultsService.deleteReturnsFromExtraction(tableNameRegErrors, extractionId);
-		}
-
-		/************ 6 inserisci le segnalazioni - 7 aggiorna i record con i dati forniti dalla regione **************/
-		for (File currentFile : files) {
-			String filename = currentFile.getName();
-
-			if (filename.equalsIgnoreCase(tableNameRegUpdate + "." + FileUtility.TEXT)
-					|| filename.equalsIgnoreCase(tableNameRegUpdate + "." + FileUtility.XLS)
-					|| filename.equalsIgnoreCase(tableNameRegUpdate + "." + FileUtility.XLSX)
-					|| filename.equalsIgnoreCase(tableNameRegUpdate + "." + FileUtility.CSV)) {
-
-				result = transactionalTwoLevelResultsService.updateRecordsFromFile(
-						configurationRegion, extractionId, flowRegionId, versionId, currentFile,
-						checkTabgenUpdate.getResult(), false, tabGenValueFlowUploadConf);
-
-			} else if (filename.equalsIgnoreCase(tableNameRegUpdateTot + "." + FileUtility.TEXT)
-					|| filename.equalsIgnoreCase(tableNameRegUpdateTot + "." + FileUtility.XLS)
-					|| filename.equalsIgnoreCase(tableNameRegUpdateTot + "." + FileUtility.XLSX)
-					|| filename.equalsIgnoreCase(tableNameRegUpdateTot + "." + FileUtility.CSV)) {
-
-				result = transactionalTwoLevelResultsService.updateRecordsFromFile(
-						configurationRegion, extractionId, flowRegionId, versionId, currentFile,
-						checkTabgenUpdateTot.getResult(), true, tabGenValueFlowUploadConf);
-
-			} else if (filename.equalsIgnoreCase(tableNameRegErrors + "." + FileUtility.TEXT)
-					|| filename.equalsIgnoreCase(tableNameRegErrors + "." + FileUtility.XLS)
-					|| filename.equalsIgnoreCase(tableNameRegErrors + "." + FileUtility.XLSX)
-					|| filename.equalsIgnoreCase(tableNameRegErrors + "." + FileUtility.CSV)) {
-
-				result = transactionalTwoLevelResultsService.insertRecordsFromFile(
-						configurationRegion, currentFile, checkTabgenErrors.getResult(),
-						extractionId, "SCARTO", tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni);
-
-				if (result.getSuccess()) {
-					processedScartoFile = true;
+	
+			/***************** 4 fine ********************/
+			
+			/************ 5 cancella eventuali ritorni associati all'estrazione e inserisci i nuovi **************/
+			if(checkErrorsAndWarnings) {
+				transactionalTwoLevelResultsService.deleteReturnsFromExtraction(tableNameRegErrors, extractionId);
+			}
+	
+			/************ 6 inserisci le segnalazioni - 7 aggiorna i record con i dati forniti dalla regione **************/
+			for (File currentFile : files) {
+				String filename = currentFile.getName();
+	
+				if (filename.equalsIgnoreCase(tableNameRegUpdate + "." + FileUtility.TEXT)
+						|| filename.equalsIgnoreCase(tableNameRegUpdate + "." + FileUtility.XLS)
+						|| filename.equalsIgnoreCase(tableNameRegUpdate + "." + FileUtility.XLSX)
+						|| filename.equalsIgnoreCase(tableNameRegUpdate + "." + FileUtility.CSV)) {
+	
+					result = transactionalTwoLevelResultsService.updateRecordsFromFile(
+							configurationRegion, extractionId, flowRegionId, versionId, currentFile,
+							checkTabgenUpdate.getResult(), false, tabGenValueFlowUploadConf);
+	
+				} else if (filename.equalsIgnoreCase(tableNameRegUpdateTot + "." + FileUtility.TEXT)
+						|| filename.equalsIgnoreCase(tableNameRegUpdateTot + "." + FileUtility.XLS)
+						|| filename.equalsIgnoreCase(tableNameRegUpdateTot + "." + FileUtility.XLSX)
+						|| filename.equalsIgnoreCase(tableNameRegUpdateTot + "." + FileUtility.CSV)) {
+	
+					result = transactionalTwoLevelResultsService.updateRecordsFromFile(
+							configurationRegion, extractionId, flowRegionId, versionId, currentFile,
+							checkTabgenUpdateTot.getResult(), true, tabGenValueFlowUploadConf);
+	
+				} else if (filename.equalsIgnoreCase(tableNameRegErrors + "." + FileUtility.TEXT)
+						|| filename.equalsIgnoreCase(tableNameRegErrors + "." + FileUtility.XLS)
+						|| filename.equalsIgnoreCase(tableNameRegErrors + "." + FileUtility.XLSX)
+						|| filename.equalsIgnoreCase(tableNameRegErrors + "." + FileUtility.CSV)) {
+	
+					result = transactionalTwoLevelResultsService.insertRecordsFromFile(
+							configurationRegion, currentFile, checkTabgenErrors.getResult(),
+							extractionId, "SCARTO", tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni);
+	
+					if (result.getSuccess()) {
+						processedScartoFile = true;
+					}
+	
+				} else if (filename.equalsIgnoreCase(tableNameRegWarnings + "." + FileUtility.TEXT)
+						|| filename.equalsIgnoreCase(tableNameRegWarnings + "." + FileUtility.XLS)
+						|| filename.equalsIgnoreCase(tableNameRegWarnings + "." + FileUtility.XLSX)
+						|| filename.equalsIgnoreCase(tableNameRegWarnings + "." + FileUtility.CSV)) {
+	
+					result = transactionalTwoLevelResultsService.insertRecordsFromFile(
+							configurationRegion, currentFile, checkTabgenErrors.getResult(),
+							extractionId, "SEGNALAZIONE", tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni);
+					
+					if (result.getSuccess()) {
+						processedWarningFile = true;
+					}
 				}
-
-			} else if (filename.equalsIgnoreCase(tableNameRegWarnings + "." + FileUtility.TEXT)
-					|| filename.equalsIgnoreCase(tableNameRegWarnings + "." + FileUtility.XLS)
-					|| filename.equalsIgnoreCase(tableNameRegWarnings + "." + FileUtility.XLSX)
-					|| filename.equalsIgnoreCase(tableNameRegWarnings + "." + FileUtility.CSV)) {
-
-				result = transactionalTwoLevelResultsService.insertRecordsFromFile(
-						configurationRegion, currentFile, checkTabgenErrors.getResult(),
-						extractionId, "SEGNALAZIONE", tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni);
-				
-				if (result.getSuccess()) {
-					processedWarningFile = true;
+	
+				if(!result.getSuccess()) {
+					// Salvataggio file errori nei casi di produzione totale in quanto eseguita dal thread e non intercettata dal FE
+					try {
+					    List<String> allErrors = new ArrayList<>();
+					    // se hai già result.getMessage() o collezioni msgErrors, usa quelle reali
+					    if (result != null && !result.getSuccess() && result.getMessages() != null && !result.getMessages().isEmpty()) {
+					        allErrors.addAll(result.getMessages());
+					    }
+					    if (!allErrors.isEmpty()) {
+					        String errorText = String.join(System.lineSeparator(), allErrors);
+					        request.setErrorFile(errorText.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+					    }
+					    request.setHasErrors(Boolean.TRUE);
+					} catch (Exception e) {
+					    LogUtil.logException(LOGGER, "", e);
+					}
+					return result;
+				} else {
+					request.setHasErrors(Boolean.FALSE);
 				}
 			}
-
-			if(!result.getSuccess()) {
-				return result;
-			}
+		} catch (Exception e) {
+		    LogUtil.logException(LOGGER, "", e);
+		} finally {
+			//salvo in qualsiasi caso la data del termine processo di upload per gestire download file e log lato FE
+			request.setEndProcessDate(new Date());
+			transactionalTwoLevelResultsService.saveRequest(request);
 		}
 		/************ 4 5 6 fine **************/
 		
@@ -1559,17 +1591,18 @@ public class TwoLevelResultsServiceImpl implements TwoLevelResultsService {
     public byte[] sendAuditUploadRitornoToPM(BaseSearchInput searchInput, byte[] bytes) {
     	return bytes;
     }
+	
 }
 
 class MyC implements Callable<FlowOperationResult<Boolean>>  {
 
 	boolean produzioneTot; boolean checkErrorsAndWarnings; List<File> files; String tableNameRegUpdate; String tableNameRegUpdateTot; String tableNameRegErrors; 
-	String tableNameRegWarnings; FormFlowDTO configurationRegion; String extractionId; String flowRegionId; String versionId; FlowOperationResult<TabgenMap> checkTabgenErrors;
+	String tableNameRegWarnings; FormFlowDTO configurationRegion; String extractionId; String flowRegionId; String flowLocalId; String versionId; FlowOperationResult<TabgenMap> checkTabgenErrors;
 	FlowOperationResult<TabgenMap> checkTabgenUpdate; FlowOperationResult<TabgenMap> checkTabgenUpdateTot; File file; TwoLevelResultsServiceImpl service; TabgenValue tabGenValueFlowUploadConf; List<TabgenValue> tabGenValueFlowTipologiaRitorni; boolean consolidata;
 	
 	public MyC(boolean produzioneTot, boolean checkErrorsAndWarnings, List<File> files, String tableNameRegUpdate,
 		String tableNameRegUpdateTot, String tableNameRegErrors, String tableNameRegWarnings,
-		FormFlowDTO configurationRegion, String extractionId, String flowRegionId, String versionId,
+		FormFlowDTO configurationRegion, String extractionId, String flowRegionId, String flowLocalId, String versionId,
 		FlowOperationResult<TabgenMap> checkTabgenErrors, FlowOperationResult<TabgenMap> checkTabgenUpdate,
 		FlowOperationResult<TabgenMap> checkTabgenUpdateTot, File file, TwoLevelResultsServiceImpl service, TabgenValue tabGenValueFlowUploadConf, List<TabgenValue> tabGenValueFlowTipologiaRitorni, boolean consolidata) {
 	super();
@@ -1583,6 +1616,7 @@ class MyC implements Callable<FlowOperationResult<Boolean>>  {
 	this.configurationRegion = configurationRegion;
 	this.extractionId = extractionId;
 	this.flowRegionId = flowRegionId;
+	this.flowLocalId = flowLocalId;
 	this.versionId = versionId;
 	this.checkTabgenErrors = checkTabgenErrors;
 	this.checkTabgenUpdate = checkTabgenUpdate;
@@ -1598,6 +1632,7 @@ class MyC implements Callable<FlowOperationResult<Boolean>>  {
 	@Override
 	public FlowOperationResult<Boolean> call() throws Exception {
 		return service.uploadResultsThread(produzioneTot, checkErrorsAndWarnings, files, tableNameRegUpdate, tableNameRegUpdateTot, tableNameRegErrors, 
-				tableNameRegWarnings, configurationRegion, extractionId, flowRegionId, versionId, checkTabgenErrors, checkTabgenUpdate, checkTabgenUpdateTot, file, tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni, consolidata);
+				tableNameRegWarnings, configurationRegion, extractionId, flowRegionId, flowLocalId, versionId, checkTabgenErrors, checkTabgenUpdate, checkTabgenUpdateTot, file, tabGenValueFlowUploadConf, tabGenValueFlowTipologiaRitorni, consolidata);
 	}
+	
 }

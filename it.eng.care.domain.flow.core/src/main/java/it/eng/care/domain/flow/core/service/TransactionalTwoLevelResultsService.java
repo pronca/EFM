@@ -22,6 +22,10 @@ public interface TransactionalTwoLevelResultsService {
 			String extractionId, String errorType, TabgenValue tabGenValueFlowUploadConf, List<TabgenValue>  tabGenValueFlowTipologiaRitorni) throws SQLException;
 	
 	public void saveRequest(UploadReturnsRequestDO request);
+	
+	public void deleteUploadReturnsRequestByExtractionId(String extractionId);
+	
+	public void deleteUploadReturnsRequestByExtractionIdAndFlowId(String extractionId, String flowId);
 
 	Boolean updateSendRegionStatus(String extractionId, FormFlowDTO regConfiguration, Boolean checkErrorsAndWarnings,
 			TabgenMap tracciatoSegnalazioniRegionali, boolean consolidata) throws SQLException;

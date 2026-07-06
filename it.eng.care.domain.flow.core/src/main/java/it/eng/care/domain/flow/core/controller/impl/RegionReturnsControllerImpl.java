@@ -1,7 +1,9 @@
 package it.eng.care.domain.flow.core.controller.impl;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -25,8 +27,10 @@ import org.springframework.web.bind.annotation.RestController;
 import it.eng.care.domain.flow.core.config.LogAccessiPMConfig;
 import it.eng.care.domain.flow.core.controller.RegionReturnsController;
 import it.eng.care.domain.flow.core.dao.ConfigurationDAO;
+import it.eng.care.domain.flow.core.dao.UploadReturnsRequestDAO;
 import it.eng.care.domain.flow.core.dto.FlowOperationResult;
 import it.eng.care.domain.flow.core.dto.RegionReturnsDTO;
+import it.eng.care.domain.flow.core.dto.ReturnDownloadDTO;
 import it.eng.care.domain.flow.core.dto.FlowView.FlowViewFilterError;
 import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowDTO;
 import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableDTO;
@@ -34,11 +38,13 @@ import it.eng.care.domain.flow.core.dto.FormFlowConfig.FormFlowTableFieldDTO;
 import it.eng.care.domain.flow.core.entity.FlowDO;
 import it.eng.care.domain.flow.core.entity.FlowExportRequestDO;
 import it.eng.care.domain.flow.core.entity.FlowRegionUnionDO;
+import it.eng.care.domain.flow.core.entity.UploadReturnsRequestDO;
 import it.eng.care.domain.flow.core.service.FlowExportRequestService;
 import it.eng.care.domain.flow.core.service.FlowManagerProfileService;
 import it.eng.care.domain.flow.core.service.FlowRegionUnionService;
 import it.eng.care.domain.flow.core.service.FlowService;
 import it.eng.care.domain.flow.core.service.TwoLevelResultsService;
+import it.eng.care.domain.flow.core.utility.FileUtility;
 import it.eng.care.domain.flow.core.utility.LogUtil;
 import it.eng.care.domain.flow.crypt.CryptoManager;
 import it.eng.care.platform.tool.transport.operations.BaseSearchInput;
@@ -74,6 +80,9 @@ public class RegionReturnsControllerImpl implements RegionReturnsController {
 	
 	@Autowired
     private FlowService flowService;
+	
+	@Autowired
+	private UploadReturnsRequestDAO uploadReturnsRequestDAO;
 	
 	private static final Logger LOGGER = LoggerFactory.getLogger(RegionReturnsControllerImpl.class);
 
@@ -306,7 +315,7 @@ public class RegionReturnsControllerImpl implements RegionReturnsController {
 	@PostMapping(path = "/_importTot")
 	@ResponseBody
 	public FlowOperationResult<Boolean> fileUploadTot(
-			@RequestHeader(name = "year", defaultValue = "unknown") String year,
+			@RequestHeader(name = "extractionId", defaultValue = "unknown") String extractionId,
 			@RequestHeader(name = "flowId", defaultValue = "unknown") String flowId,
 			@RequestHeader(name = "versionId", defaultValue = "unknown") String versionId,
 			@RequestHeader(name = "fileName", defaultValue = "unknown") String fileName,
@@ -335,7 +344,7 @@ public class RegionReturnsControllerImpl implements RegionReturnsController {
 				FlowDO flowRegion = union.getFlowRegion();
 				String flowRegionId = flowRegion.getId();
 				// la versione è la stessa del flusso locale perchè il flusso regionale viene creato automaticamente durante la creazione del flusso locale
-				FlowOperationResult<Boolean> result = twoLevelResultsService.uploadResults(filea, flowId, flowRegionId, versionId ,year,true,false);
+				FlowOperationResult<Boolean> result = twoLevelResultsService.uploadResults(filea, flowId, flowRegionId, versionId ,extractionId,true,false);
 				
 				if (result.getSuccess()) {
 					if (logAccessiPMConfig != null && "1".equals(logAccessiPMConfig.getAccessLogDashboardUploadRitorno())) {
@@ -366,6 +375,163 @@ public class RegionReturnsControllerImpl implements RegionReturnsController {
 		return FlowOperationResult.failure("Caricamento fallito");
 
 	}
+	
+//	@PostMapping(path = "/_downloadImportTotFile", consumes = "text/plain")
+//	@ResponseBody
+//	public FlowOperationResult<ReturnDownloadDTO> downloadImportTotFile(@RequestBody ReturnDownloadDTO request) {
+//	    try {
+//	        if (request.getExtractionId() == null || request.getExtractionId().isBlank()) {
+//	            return FlowOperationResult.failure("Parametro extractionId mancante");
+//	        }
+//
+//	        String extractionIdTrimmed = request.getExtractionId().trim();
+//
+//	        UploadReturnsRequestDO req = uploadReturnsRequestDAO.findByExtractionIdAndFlowId(extractionIdTrimmed, request.getFlowId());
+//	        if (req == null || req.getFile() == null || req.getFile().length == 0) {
+//	            return FlowOperationResult.failure("File di upload ritorno regionale totale non trovato.");
+//	        }
+//	        if (req != null && req.getEndProcessDate() == null) {
+//	            return FlowOperationResult.failure("File di upload ritorno regionale totale non ancora disponibile. Attendere il completamento del processo di upload.");
+//	        }
+//	        
+//	        String originalFileName = (req.getFileNameOrigin()!=null ? req.getFileNameOrigin() : "file_upload_ritorno_totale.txt");
+//	        byte[] zipContent = FileUtility.zipBytes(originalFileName, req.getFile());
+//
+//	        ReturnDownloadDTO out = new ReturnDownloadDTO();
+//	        out.setExtractionId(req.getExtractionId());
+//	        out.setAvailable(Boolean.TRUE);
+//	        out.setFileName(originalFileName + ".zip");
+//	        out.setContentBase64(Base64.getEncoder().encodeToString(zipContent));
+//	        out.setFlowId(req.getFlowId());
+//
+//	        return FlowOperationResult.success(out);
+//
+//	    } catch (Exception e) {
+//	        LogUtil.logException(LOGGER, "", e);
+//	        return FlowOperationResult.failure("Errore durante il download del file di caricamento");
+//	    }
+//	}
+//	
+//	@PostMapping(path = "/_downloadImportTotErrors", consumes = "text/plain")
+//	@ResponseBody
+//	public FlowOperationResult<ReturnDownloadDTO> downloadImportTotErrors(@RequestBody ReturnDownloadDTO request) {
+//	    try {
+//	        if (request.getExtractionId() == null || request.getExtractionId().isBlank()) {
+//	            return FlowOperationResult.failure("Parametro extractionId mancante");
+//	        }
+//
+//	        String extractionIdTrimmed = request.getExtractionId().trim();
+//	        UploadReturnsRequestDO req = uploadReturnsRequestDAO.findByExtractionIdAndFlowId(extractionIdTrimmed, request.getFlowId());
+//	        
+//	        if (req == null) {
+//	            return FlowOperationResult.failure("File errori upload ritorno regionale totale non trovato.");
+//	        }
+//	        if (req != null && req.getEndProcessDate() == null) {
+//	            return FlowOperationResult.failure("File errori upload ritorno regionale totale non ancora disponibile. Attendere il completamento del processo di upload.");
+//	        }
+//	        if (req != null && req.getEndProcessDate() != null && (req.getErrorFile() == null || req.getErrorFile().length == 0)) {
+//	            return FlowOperationResult.failure("Errori non riscontrati nell'ultimo upload ritorni regionale totale.");
+//	        }
+//	        
+//	        String originalFileName = "errori_upload_ritorno_totale.log";
+//
+//	        byte[] zipContent = FileUtility.zipBytes(originalFileName, req.getErrorFile());
+//
+//	        ReturnDownloadDTO out = new ReturnDownloadDTO();
+//	        out.setExtractionId(req.getExtractionId());
+//	        out.setAvailable(Boolean.TRUE);
+//	        out.setFileName(originalFileName + ".zip");
+//	        out.setContentBase64(Base64.getEncoder().encodeToString(zipContent));
+//
+//	        return FlowOperationResult.success(out);
+//
+//	    } catch (Exception e) {
+//	        LogUtil.logException(LOGGER, "", e);
+//	        return FlowOperationResult.failure("Errore durante il download del file errori");
+//	    }
+//	}
+	
+	@PostMapping(path = "/_downloadImportTotFile", consumes = "application/json")
+	@ResponseBody
+	public FlowOperationResult<ReturnDownloadDTO> downloadImportTotFile(@RequestBody ReturnDownloadDTO request) {
+	    try {
+	        if (request == null || request.getExtractionId() == null || request.getExtractionId().isBlank()) {
+	            return FlowOperationResult.failure("Parametro extractionId mancante");
+	        }
 
+	        String extractionIdTrimmed = request.getExtractionId().trim();
+
+	        UploadReturnsRequestDO req = uploadReturnsRequestDAO.findByExtractionIdAndFlowId(
+	                extractionIdTrimmed,
+	                request.getFlowId()
+	        );
+
+	        if (req == null || req.getFile() == null || req.getFile().length == 0) {
+	            return FlowOperationResult.failure("File di upload ritorno regionale totale non trovato.");
+	        }
+	        if (req.getEndProcessDate() == null) {
+	            return FlowOperationResult.failure("File di upload ritorno regionale totale non ancora disponibile. Attendere il completamento del processo di upload.");
+	        }
+
+	        String originalFileName = (req.getFileNameOrigin() != null ? req.getFileNameOrigin() : "file_upload_ritorno_totale.txt");
+	        byte[] zipContent = FileUtility.zipBytes(originalFileName, req.getFile());
+
+	        ReturnDownloadDTO out = new ReturnDownloadDTO();
+	        out.setExtractionId(req.getExtractionId());
+	        out.setAvailable(Boolean.TRUE);
+	        out.setFileName(originalFileName + ".zip");
+	        out.setContentBase64(Base64.getEncoder().encodeToString(zipContent));
+	        out.setFlowId(req.getFlowId());
+
+	        return FlowOperationResult.success(out);
+
+	    } catch (Exception e) {
+	        LogUtil.logException(LOGGER, "", e);
+	        return FlowOperationResult.failure("Errore durante il download del file di caricamento");
+	    }
+	}
+
+	@PostMapping(path = "/_downloadImportTotErrors", consumes = "application/json")
+	@ResponseBody
+	public FlowOperationResult<ReturnDownloadDTO> downloadImportTotErrors(@RequestBody ReturnDownloadDTO request) {
+	    try {
+	        if (request == null || request.getExtractionId() == null || request.getExtractionId().isBlank()) {
+	            return FlowOperationResult.failure("Parametro extractionId mancante");
+	        }
+
+	        String extractionIdTrimmed = request.getExtractionId().trim();
+
+	        UploadReturnsRequestDO req = uploadReturnsRequestDAO.findByExtractionIdAndFlowId(
+	                extractionIdTrimmed,
+	                request.getFlowId()
+	        );
+
+	        if (req == null) {
+	            return FlowOperationResult.failure("File errori upload ritorno regionale totale non trovato.");
+	        }
+	        if (req.getEndProcessDate() == null) {
+	            return FlowOperationResult.failure("File errori upload ritorno regionale totale non ancora disponibile. Attendere il completamento del processo di upload.");
+	        }
+	        if (req.getErrorFile() == null || req.getErrorFile().length == 0) {
+	            return FlowOperationResult.failure("Errori non riscontrati nell'ultimo upload ritorni regionale totale.");
+	        }
+
+	        String originalFileName = "errori_upload_ritorno_totale.log";
+	        byte[] zipContent = FileUtility.zipBytes(originalFileName, req.getErrorFile());
+
+	        ReturnDownloadDTO out = new ReturnDownloadDTO();
+	        out.setExtractionId(req.getExtractionId());
+	        out.setAvailable(Boolean.TRUE);
+	        out.setFileName(originalFileName + ".zip");
+	        out.setContentBase64(Base64.getEncoder().encodeToString(zipContent));
+	        out.setFlowId(req.getFlowId());
+
+	        return FlowOperationResult.success(out);
+
+	    } catch (Exception e) {
+	        LogUtil.logException(LOGGER, "", e);
+	        return FlowOperationResult.failure("Errore durante il download del file errori");
+	    }
+	}
 	
 }

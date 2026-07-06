@@ -14,6 +14,8 @@ public class UploadReturnsRequestDOtoUploadReturnsRequestDTO implements Converte
         intoObject.setExtractionId(fromObject.getExtractionId());
         intoObject.setCreationDate(fromObject.getCreationDate());
         intoObject.setTipoValidazioneReg(fromObject.getTipoValidazioneReg());
+        intoObject.setHasErrors(fromObject.getHasErrors());
+        intoObject.setEndProcessDate(fromObject.getEndProcessDate());
     }
 
 }

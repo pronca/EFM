@@ -14,6 +14,7 @@ import java.util.Comparator;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -787,6 +788,7 @@ public class TransactionalTwoLevelResultsServiceImpl implements TransactionalTwo
 
 	                    return FlowOperationResult.failure(
 	                            "Sono presenti errori nel file dei ritorni regionali. Consultare il file di log scaricabile nel Download della pagina web.",
+	                            msgErrors,
 	                            "Errori_Upload_Ritorno_" + file.getName() + ".zip",
 	                            "application/zip",
 	                            Base64.getEncoder().encodeToString(zipbytes)
@@ -869,7 +871,7 @@ public class TransactionalTwoLevelResultsServiceImpl implements TransactionalTwo
 	        List<SendDrgDTO> listSendDrg) {
 
 	    // normalizzo chiavi
-	    listKeys = listKeys.stream().distinct().collect(Collectors.toList());
+		listKeys = new ArrayList<>(new LinkedHashSet<>(listKeys));
 	    List<String> msgErrors = new ArrayList<>();
 
 	    String selectRegion = "SELECT ";
@@ -1442,7 +1444,7 @@ public class TransactionalTwoLevelResultsServiceImpl implements TransactionalTwo
 	            	        downloadFile.setBase64Content(Base64.getEncoder().encodeToString(zipbytes));
 
 	            	        return FlowOperationResult.failure(
-	            	                "Sono presenti errori nel file dei ritorni regionali. Consultare il file di log scaricabile nel Download della pagina web.",
+	            	        		"Sono presenti errori nel file dei ritorni regionali. Consultare il file di log scaricabile nel Download della pagina web.",
 	            	                "Errori_Upload_Ritorno_" + errorFile.getName() + ".zip",
 	            	                "application/zip",
 	            	                Base64.getEncoder().encodeToString(zipbytes)
@@ -1452,11 +1454,9 @@ public class TransactionalTwoLevelResultsServiceImpl implements TransactionalTwo
 	        			}
 	        	    }
 	        		
-	                
-
 	            } catch (Exception ex) {
 	                LogUtil.logException(LOGGER, "", ex);
-	                throw new RuntimeException("Errore insertRecordsFromFile", ex);
+	                return FlowOperationResult.failure("Errore in fase di scrittura dei file");
 	            }
 	        });
 
@@ -1521,6 +1521,16 @@ public class TransactionalTwoLevelResultsServiceImpl implements TransactionalTwo
 	public void saveRequest(UploadReturnsRequestDO request) {
 		uploadReturnsRequestDAO.save(request);
 		
+	}
+
+	@Override
+	public void deleteUploadReturnsRequestByExtractionId(String extractionId) {
+	    uploadReturnsRequestDAO.deleteByExtractionId(extractionId);
+	}
+	
+	@Override
+	public void deleteUploadReturnsRequestByExtractionIdAndFlowId(String extractionId, String flowId) {
+	    uploadReturnsRequestDAO.deleteByExtractionIdAndFlowId(extractionId, flowId);
 	}
 	
 	@Override

@@ -1,5 +1,7 @@
 package it.eng.care.domain.flow.b2b.model;
 
+import java.util.Objects;
+
 public class KeysDTO {
 
     String key;
@@ -32,5 +34,18 @@ public class KeysDTO {
         this.value = value;
     }
 
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof KeysDTO)) return false;
+        KeysDTO keysDTO = (KeysDTO) o;
+        return Objects.equals(key, keysDTO.key)
+                && Objects.equals(value, keysDTO.value);
+    }
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(key, value);
+    }
+    
 }

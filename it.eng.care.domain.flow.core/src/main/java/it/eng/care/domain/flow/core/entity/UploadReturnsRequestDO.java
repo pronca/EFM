@@ -35,6 +35,23 @@ public class UploadReturnsRequestDO {
 	@Column(name = "TIPO_VALIDAZIONE_REG")
 	private String tipoValidazioneReg;
 	
+	@Column(name = "FILE_NAME_ORIGIN")
+	private String fileNameOrigin;
+	
+	@Lob
+	@Column(name = "RETURN_ERRORS_FILE")
+	private byte[] errorFile;
+
+	@Column(name = "HAS_ERRORS")
+	private Boolean hasErrors;
+
+	@Column(name = "END_PROCESS_DATE")
+	@Temporal(TemporalType.TIMESTAMP)
+	private Date endProcessDate;
+	
+    @Column(name = "FLOW_ID")
+    private String flowId;
+	
 	public UploadReturnsRequestDO() {
 		// TODO Auto-generated constructor stub
 	}
@@ -86,7 +103,46 @@ public class UploadReturnsRequestDO {
 	public void setTipoValidazioneReg(String tipoValidazioneReg) {
 		this.tipoValidazioneReg = tipoValidazioneReg;
 	}
-	
+
+	public byte[] getErrorFile() {
+		return errorFile;
+	}
+
+	public void setErrorFile(byte[] errorFile) {
+		this.errorFile = errorFile;
+	}
+
+	public Boolean getHasErrors() {
+		return hasErrors;
+	}
+
+	public void setHasErrors(Boolean hasErrors) {
+		this.hasErrors = hasErrors;
+	}
+
+	public Date getEndProcessDate() {
+		return endProcessDate;
+	}
+
+	public void setEndProcessDate(Date endProcessDate) {
+		this.endProcessDate = endProcessDate;
+	}
+
+	public String getFileNameOrigin() {
+		return fileNameOrigin;
+	}
+
+	public void setFileNameOrigin(String fileNameOrigin) {
+		this.fileNameOrigin = fileNameOrigin;
+	}
+
+	public String getFlowId() {
+		return flowId;
+	}
+
+	public void setFlowId(String flowId) {
+		this.flowId = flowId;
+	}
 	
 	
 }

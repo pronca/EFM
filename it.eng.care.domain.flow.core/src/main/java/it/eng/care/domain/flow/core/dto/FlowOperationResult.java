@@ -61,6 +61,17 @@ public class FlowOperationResult<T> {
 	    return res;
 	}
 	
+	public static <T> FlowOperationResult<T> failure(String message, List<String> messages, String fileName, String contentType, String base64) {
+	    FlowOperationResult<T> res = new FlowOperationResult<>();
+	    res.setSuccess(false);
+	    res.setMessage(message);
+	    res.setMessages(messages);
+	    res.setDownloadFileName(fileName);
+	    res.setDownloadContentType(contentType);
+	    res.setDownloadBase64(base64);
+	    return res;
+	}
+	
 	public Boolean getSuccess() {
 		return success;
 	}

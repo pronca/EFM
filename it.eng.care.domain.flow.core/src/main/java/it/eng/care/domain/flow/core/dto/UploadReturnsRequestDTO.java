@@ -11,6 +11,8 @@ public class UploadReturnsRequestDTO implements Serializable {
     private String extractionId;
     private Date creationDate;
     private String tipoValidazioneReg;
+    private Boolean hasErrors;
+    private Date endProcessDate;
     
     public UploadReturnsRequestDTO() {
     }
@@ -45,6 +47,22 @@ public class UploadReturnsRequestDTO implements Serializable {
 
 	public void setTipoValidazioneReg(String tipoValidazioneReg) {
 		this.tipoValidazioneReg = tipoValidazioneReg;
+	}
+
+	public Boolean getHasErrors() {
+		return hasErrors;
+	}
+
+	public void setHasErrors(Boolean hasErrors) {
+		this.hasErrors = hasErrors;
+	}
+
+	public Date getEndProcessDate() {
+		return endProcessDate;
+	}
+
+	public void setEndProcessDate(Date endProcessDate) {
+		this.endProcessDate = endProcessDate;
 	}
 
     
